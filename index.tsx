@@ -1,7 +1,6 @@
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
+import { GoogleGenAI, Type } from "@google/genai";
 
 // --- TYPE DEFINITIONS ---
 interface SaleItem {
@@ -232,24 +231,228 @@ const ConfirmationModal = ({ message, onConfirm, onCancel }: { message: string, 
     );
 };
 
+// --- BARCODE SCANNER MODAL ---
+const BarcodeScannerModal = ({ onScan, onClose }: { onScan: (barcode: string) => void, onClose: () => void }) => {
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const [error, setError] = useState<string | null>(null);
+    const intervalRef = useRef<number | null>(null);
+
+    useEffect(() => {
+        let stream: MediaStream | null = null;
+        
+        // Check for BarcodeDetector API support
+        if (!('BarcodeDetector' in window)) {
+            setError('Barcode detection is not supported by your browser.');
+            return;
+        }
+
+        const startScan = async () => {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment' } 
+                });
+                
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                }
+
+                const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['ean_13', 'upc_a', 'code_128', 'qr_code'] });
+                
+                intervalRef.current = window.setInterval(async () => {
+                    if (!videoRef.current || videoRef.current.paused || videoRef.current.ended) return;
+                    try {
+                        const barcodes = await barcodeDetector.detect(videoRef.current);
+                        if (barcodes.length > 0) {
+                             // Stop the interval immediately to prevent multiple scans
+                            if (intervalRef.current) {
+                                clearInterval(intervalRef.current);
+                                intervalRef.current = null;
+                            }
+                            onScan(barcodes[0].rawValue);
+                        }
+                    } catch (e) {
+                        console.error('Barcode detection failed:', e);
+                    }
+                }, 200);
+
+            } catch (err: any) {
+                console.error('Error accessing camera:', err);
+                if (err.name === 'NotAllowedError') {
+                    setError('Camera permission was denied. Please allow camera access in your browser settings.');
+                } else {
+                    setError('Could not access the camera. Is it being used by another application?');
+                }
+            }
+        };
+
+        startScan();
+
+        // Cleanup function
+        return () => {
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+            }
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+        };
+    }, [onScan]);
+
+    return (
+        <div style={styles.modalBackdrop} onClick={onClose}>
+            <div style={{...styles.modalContent, maxWidth: '640px', padding: '1rem'}} onClick={(e) => e.stopPropagation()}>
+                <h3 style={{marginTop: 0, textAlign: 'center'}}>Scan Product Barcode</h3>
+                {error ? (
+                    <p style={{color: 'var(--danger-color)', textAlign: 'center'}}>{error}</p>
+                ) : (
+                    <div style={{ position: 'relative', width: '100%', paddingTop: '75%' /* 4:3 Aspect Ratio */, background: '#000' }}>
+                        <video 
+                            ref={videoRef} 
+                            autoPlay 
+                            playsInline 
+                            muted
+                            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', borderRadius: '8px', objectFit: 'cover' }}
+                        />
+                         <div style={{
+                            position: 'absolute',
+                            top: '50%',
+                            left: '10%',
+                            right: '10%',
+                            height: '2px',
+                            transform: 'translateY(-50%)',
+                            backgroundColor: 'rgba(255, 0, 0, 0.7)',
+                            boxShadow: '0 0 10px rgba(255, 0, 0, 0.9)',
+                         }}></div>
+                    </div>
+                )}
+                <div style={styles.modalActions}>
+                    <button onClick={onClose} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Cancel</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+// --- BULK ADD PRODUCTS MODAL ---
+type EditableProduct = Omit<Product, 'id'>;
+
+const BulkAddModal = ({ imageSrc, initialProducts, onSave, onClose, loading, error }: {
+    imageSrc: string;
+    initialProducts: EditableProduct[];
+    onSave: (products: EditableProduct[]) => void;
+    onClose: () => void;
+    loading: boolean;
+    error: string | null;
+}) => {
+    const [products, setProducts] = useState<EditableProduct[]>(initialProducts);
+
+    useEffect(() => {
+        setProducts(initialProducts);
+    }, [initialProducts]);
+
+    const handleProductChange = (index: number, field: keyof EditableProduct, value: string | number) => {
+        const updatedProducts = [...products];
+        const product = { ...updatedProducts[index] };
+        
+        if (field === 'b2bPrice' || field === 'b2cPrice' || field === 'stock') {
+             product[field] = parseFloat(value as string) || 0;
+        } else {
+             product[field] = value as string;
+        }
+        
+        updatedProducts[index] = product;
+        setProducts(updatedProducts);
+    };
+    
+    const handleSave = () => {
+        // Filter out products that don't have a description before saving
+        const validProducts = products.filter(p => p.description.trim() !== '');
+        onSave(validProducts);
+    };
+
+    return (
+        <div style={styles.modalBackdrop}>
+            <div style={{ ...styles.modalContent, maxWidth: '1200px', display: 'flex', gap: '1.5rem' }}>
+                <div style={{ flex: 1 }}>
+                    <h3 style={{marginTop: 0}}>Uploaded Image</h3>
+                    <img src={imageSrc} alt="Uploaded inventory" style={{ width: '100%', borderRadius: '8px', objectFit: 'contain', maxHeight: '70vh' }} />
+                </div>
+                <div style={{ flex: 2, display: 'flex', flexDirection: 'column' }}>
+                    <h3 style={{marginTop: 0}}>Extracted Products (Editable)</h3>
+                    {loading && <p>Analyzing image with AI... Please wait.</p>}
+                    {error && <p style={{ color: 'var(--danger-color)' }}>Error: {error}</p>}
+                    {!loading && !error && (
+                        <>
+                            <div style={{ flex: 1, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                                <table style={{ ...styles.table, tableLayout: 'fixed' }}>
+                                    <thead>
+                                        <tr>
+                                            <th style={{...styles.th, width: '25%'}}>Description</th>
+                                            <th style={{...styles.th, width: '15%'}}>Category</th>
+                                            <th style={{...styles.th, width: '15%'}}>B2B Price</th>
+                                            <th style={{...styles.th, width: '15%'}}>B2C Price</th>
+                                            <th style={{...styles.th, width: '12%'}}>Stock</th>
+                                            <th style={{...styles.th, width: '18%'}}>Barcode</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {products.map((p, index) => (
+                                            <tr key={index}>
+                                                <td style={styles.td}><input type="text" value={p.description} onChange={(e) => handleProductChange(index, 'description', e.target.value)} style={{...styles.gridInput, width: '95%'}} /></td>
+                                                <td style={styles.td}><input type="text" value={p.category} onChange={(e) => handleProductChange(index, 'category', e.target.value)} style={{...styles.gridInput, width: '95%'}} /></td>
+                                                <td style={styles.td}><input type="number" step="0.01" value={p.b2bPrice} onChange={(e) => handleProductChange(index, 'b2bPrice', e.target.value)} style={{...styles.gridInput, width: '90%'}} /></td>
+                                                <td style={styles.td}><input type="number" step="0.01" value={p.b2cPrice} onChange={(e) => handleProductChange(index, 'b2cPrice', e.target.value)} style={{...styles.gridInput, width: '90%'}} /></td>
+                                                <td style={styles.td}><input type="number" step="1" value={p.stock} onChange={(e) => handleProductChange(index, 'stock', e.target.value)} style={{...styles.gridInput, width: '90%'}} /></td>
+                                                <td style={styles.td}><input type="text" value={p.barcode} onChange={(e) => handleProductChange(index, 'barcode', e.target.value)} style={{...styles.gridInput, width: '95%'}} /></td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div style={styles.modalActions}>
+                                <button onClick={onClose} style={{ ...styles.button, backgroundColor: 'var(--secondary-color)' }}>Cancel</button>
+                                <button onClick={handleSave} style={{ ...styles.button, backgroundColor: 'var(--success-color)' }}>Save All Products</button>
+                            </div>
+                        </>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 // --- PRODUCTS VIEW COMPONENT ---
-const ProductsView = ({ products, onEdit, onDelete, onAdd }) => {
+const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd }) => {
     const [filter, setFilter] = useState<'all' | 'low'>('all');
+    const bulkAddInputRef = useRef<HTMLInputElement>(null);
 
     const lowStockThreshold = 10;
     const filteredProducts = filter === 'low' 
         ? products.filter(p => p.stock <= lowStockThreshold)
         : products;
+        
+    const handleBulkAddClick = () => {
+        bulkAddInputRef.current?.click();
+    };
 
     return (
         <div style={styles.viewContainer}>
             <div style={styles.viewHeader}>
                 <h2>Product Inventory</h2>
                 <div>
-                     <button onClick={() => setFilter(filter === 'all' ? 'low' : 'all')} style={{...styles.button, marginRight: '1rem'}}>
+                     <button onClick={() => setFilter(filter === 'all' ? 'low' : 'all')} style={{...styles.button, marginRight: '1rem', backgroundColor: 'var(--secondary-color)'}}>
                         {filter === 'all' ? 'Show Low Stock' : 'Show All Products'}
                     </button>
+                    <input
+                        type="file"
+                        accept="image/*"
+                        ref={bulkAddInputRef}
+                        onChange={onBulkAdd}
+                        style={{ display: 'none' }}
+                    />
+                     <button onClick={handleBulkAddClick} style={{...styles.button, marginRight: '1rem', backgroundColor: '#ffc107', color: 'black'}}>Bulk Add from Image</button>
                     <button onClick={onAdd} style={styles.button}>Add New Product</button>
                 </div>
             </div>
@@ -293,7 +496,6 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd }) => {
 };
 
 // --- INVOICE PREVIEW MODAL ---
-// FIX: Added explicit types for props to make onFinalize and onWhatsApp optional.
 const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, onClose, onPrint, onWhatsApp }: {
     sale: any;
     customerName?: string;
@@ -572,11 +774,18 @@ const ReportsView = ({ salesHistory, onPrint }) => {
     );
 };
 
-// --- MIC ICON COMPONENT ---
+// --- ICON COMPONENTS ---
 const MicIcon = ({ color = 'currentColor' }) => (
     <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill={color}>
         <path d="M0 0h24v24H0V0z" fill="none"/>
         <path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72h-1.7z"/>
+    </svg>
+);
+
+const ScanIcon = ({ color = 'currentColor' }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill={color}>
+        <path d="M0 0h24v24H0V0z" fill="none"/>
+        <path d="M3 5v4h2V5h4V3H5c-1.1 0-2 .9-2 2zm2 10H3v4c0 1.1.9 2 2 2h4v-2H5v-4zm14 4h-4v2h4c1.1 0 2-.9 2-2v-4h-2v4zm0-16h-4v2h4v4h2V5c0-1.1-.9-2-2-2zM7 11h10v2H7v-2z"/>
     </svg>
 );
 
@@ -606,6 +815,7 @@ const SalesView = ({
     const [highlightedIndex, setHighlightedIndex] = useState(-1);
     const [priceMode, setPriceMode] = useState<'b2b' | 'b2c'>('b2c');
     const [isListening, setIsListening] = useState(false);
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
 
     const [countryCode, setCountryCode] = useState('+91');
     const [mobileNumber, setMobileNumber] = useState('');
@@ -657,7 +867,7 @@ const SalesView = ({
         }
     };
     
-    const handleAddToSale = (product: Product) => {
+    const handleAddToSale = (product: Product, focusOnQuantity: boolean = true) => {
         const price = priceMode === 'b2b' ? product.b2bPrice : product.b2cPrice;
         
         const existingItemIndex = saleItems.findIndex(item => item.productId === product.id && !item.isReturn);
@@ -679,12 +889,15 @@ const SalesView = ({
         setSearchTerm('');
         setSearchResults([]);
         setHighlightedIndex(-1);
-        setTimeout(() => {
-             const newItemId = saleItems.length;
-             const inputRef = quantityInputRefs.current[newItemId];
-             inputRef?.focus();
-             inputRef?.select();
-        }, 100);
+        
+        if (focusOnQuantity) {
+            setTimeout(() => {
+                const newItemId = saleItems.length;
+                const inputRef = quantityInputRefs.current[newItemId];
+                inputRef?.focus();
+                inputRef?.select();
+            }, 100);
+        }
     };
 
     const handleUpdateSaleItem = (id: number, field: keyof SaleItem, value: any) => {
@@ -731,7 +944,6 @@ const SalesView = ({
     };
 
     const handleVoiceSearch = () => {
-        // FIX: Cast window to any to access non-standard SpeechRecognition APIs
         const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
         if (!SpeechRecognition) {
             alert("Sorry, your browser does not support voice recognition.");
@@ -777,6 +989,21 @@ const SalesView = ({
         };
 
         recognition.start();
+    };
+    
+    const handleBarcodeScanned = (barcode: string) => {
+        setIsScannerOpen(false); // Close modal immediately
+        const product = products.find(p => p.barcode === barcode);
+        if (product) {
+            handleAddToSale(product, false);
+            productSearchRef.current?.focus();
+        } else {
+            setSearchTerm(barcode);
+            setSearchResults([]); // Ensure search results are cleared
+            alert(`Product with barcode "${barcode}" not found.`);
+            productSearchRef.current?.focus();
+            productSearchRef.current?.select();
+        }
     };
 
 
@@ -850,8 +1077,11 @@ const SalesView = ({
                     value={searchTerm}
                     onChange={handleSearchChange}
                     onKeyDown={handleSearchKeyDown}
-                    style={{ ...styles.input, width: '100%', boxSizing: 'border-box', paddingRight: '40px' }}
+                    style={{ ...styles.input, width: '100%', boxSizing: 'border-box', paddingRight: '85px' }}
                 />
+                 <button onClick={() => setIsScannerOpen(true)} style={styles.barcodeScanButton} title="Scan Barcode">
+                    <ScanIcon color={'var(--secondary-color)'} />
+                </button>
                  <button onClick={handleVoiceSearch} style={styles.voiceSearchButton} title="Search with voice">
                     <MicIcon color={isListening ? 'var(--danger-color)' : 'var(--secondary-color)'} />
                 </button>
@@ -864,6 +1094,7 @@ const SalesView = ({
                                 style={index === highlightedIndex ? {...styles.searchResultItem, ...styles.highlighted} : styles.searchResultItem}
                                 onMouseEnter={() => setHighlightedIndex(index)}
                             >
+                                {/* FIX: Corrected typo from c2cPrice to b2cPrice */}
                                 {p.description} (₹{(priceMode === 'b2b' ? p.b2bPrice : p.b2cPrice).toFixed(2)}) - Stock: {p.stock}
                             </li>
                         ))}
@@ -966,6 +1197,12 @@ const SalesView = ({
                     </label>
                 </div>
             </div>
+            {isScannerOpen && (
+                <BarcodeScannerModal 
+                    onScan={handleBarcodeScanned}
+                    onClose={() => setIsScannerOpen(false)}
+                />
+            )}
         </div>
     );
 };
@@ -994,6 +1231,14 @@ const App = () => {
     const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
     const [productToDeleteId, setProductToDeleteId] = useState<number | null>(null);
     const [currentDateTime, setCurrentDateTime] = useState(new Date());
+    
+    // State for Bulk Add Modal
+    const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState(false);
+    const [bulkAddImage, setBulkAddImage] = useState<string | null>(null);
+    const [bulkAddProducts, setBulkAddProducts] = useState<EditableProduct[]>([]);
+    const [isBulkAddLoading, setIsBulkAddLoading] = useState(false);
+    const [bulkAddError, setBulkAddError] = useState<string | null>(null);
+
 
     useEffect(() => {
         const timerId = setInterval(() => setCurrentDateTime(new Date()), 1000);
@@ -1213,6 +1458,105 @@ const App = () => {
         };
         reader.readAsText(file);
     };
+    
+    // --- BULK ADD LOGIC ---
+    const processImageForProducts = async (base64ImageData: string, mimeType: string) => {
+        setIsBulkAddLoading(true);
+        setBulkAddError(null);
+        setBulkAddProducts([]);
+
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const imagePart = {
+                inlineData: {
+                    mimeType: mimeType,
+                    data: base64ImageData,
+                },
+            };
+            const textPart = {
+                text: "Analyze the products in this image. Extract the product description and a suitable category for each item. Do not invent prices, stock levels, or barcodes. Return the data as a JSON array.",
+            };
+
+            const response = await ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: { parts: [imagePart, textPart] },
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.ARRAY,
+                        items: {
+                            type: Type.OBJECT,
+                            properties: {
+                                description: {
+                                    type: Type.STRING,
+                                    description: 'The name or description of the product.',
+                                },
+                                category: {
+                                    type: Type.STRING,
+                                    description: 'A suitable category for the product (e.g., Fruits, Bakery, Dairy).',
+                                },
+                            },
+                            required: ["description", "category"],
+                        },
+                    },
+                },
+            });
+            
+            const jsonStr = response.text.trim();
+            const parsedProducts = JSON.parse(jsonStr);
+
+            if (Array.isArray(parsedProducts)) {
+                 const editableProducts: EditableProduct[] = parsedProducts.map(p => ({
+                    description: p.description || '',
+                    category: p.category || '',
+                    barcode: '',
+                    b2bPrice: 0,
+                    b2cPrice: 0,
+                    stock: 0,
+                }));
+                setBulkAddProducts(editableProducts);
+            } else {
+                throw new Error("AI did not return a valid list of products.");
+            }
+
+        } catch (error: any) {
+            console.error("Error processing image with Gemini:", error);
+            setBulkAddError(error.message || "An unknown error occurred while analyzing the image.");
+        } finally {
+            setIsBulkAddLoading(false);
+        }
+    };
+
+    const handleFileSelectForBulkAdd = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const result = e.target?.result as string;
+            setBulkAddImage(result);
+            setIsBulkAddModalOpen(true);
+            const base64String = result.split(',')[1];
+            processImageForProducts(base64String, file.type);
+        };
+        reader.readAsDataURL(file);
+        event.target.value = ''; // Reset input to allow re-selection of the same file
+    };
+
+    const handleSaveBulkProducts = (newProducts: EditableProduct[]) => {
+        let currentId = nextProductId;
+        const productsToAdd = newProducts.map(p => ({ ...p, id: currentId++ }));
+        
+        const updatedProducts = [...products, ...productsToAdd];
+        saveProducts(updatedProducts);
+        setNextProductId(currentId);
+        
+        // Close and reset modal state
+        setIsBulkAddModalOpen(false);
+        setBulkAddImage(null);
+        setBulkAddProducts([]);
+        setBulkAddError(null);
+    };
 
     const productForDeletion = productToDeleteId ? products.find(p => p.id === productToDeleteId) : null;
 
@@ -1275,6 +1619,7 @@ const App = () => {
                         onAdd={() => handleOpenProductModal()}
                         onEdit={handleOpenProductModal}
                         onDelete={handleDeleteRequest}
+                        onBulkAdd={handleFileSelectForBulkAdd}
                     />
                 }
                 {activeView === 'reports' && <ReportsView salesHistory={salesHistory} onPrint={setSaleToPrint}/>}
@@ -1297,6 +1642,16 @@ const App = () => {
                     onClose={() => setIsInvoiceModalOpen(false)} 
                     onPrint={() => window.print()}
                     onWhatsApp={(number) => setCustomerMobile(number)}
+                />
+            }
+             {isBulkAddModalOpen && bulkAddImage &&
+                <BulkAddModal
+                    imageSrc={bulkAddImage}
+                    initialProducts={bulkAddProducts}
+                    onSave={handleSaveBulkProducts}
+                    onClose={() => setIsBulkAddModalOpen(false)}
+                    loading={isBulkAddLoading}
+                    error={bulkAddError}
                 />
             }
             {saleToPrint &&
@@ -1596,6 +1951,19 @@ const styles: { [key: string]: React.CSSProperties } = {
     voiceSearchButton: {
         position: 'absolute',
         right: '5px',
+        top: '50%',
+        transform: 'translateY(-50%)',
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: '0.5rem',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    barcodeScanButton: {
+        position: 'absolute',
+        right: '45px',
         top: '50%',
         transform: 'translateY(-50%)',
         background: 'none',
