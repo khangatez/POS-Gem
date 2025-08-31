@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -19,6 +20,7 @@ interface Product {
   b2bPrice: number;
   b2cPrice: number;
   stock: number;
+  category?: string;
 }
 
 interface SaleRecord {
@@ -35,11 +37,11 @@ interface SaleRecord {
 
 // --- DUMMY DATA ---
 const initialProducts: Product[] = [
-  { id: 1, description: 'Organic Apples', barcode: '1001', b2bPrice: 1.50, b2cPrice: 1.99, stock: 150 },
-  { id: 2, description: 'Whole Wheat Bread', barcode: '1002', b2bPrice: 2.80, b2cPrice: 3.49, stock: 8 },
-  { id: 3, description: 'Almond Milk (1L)', barcode: '1003', b2bPrice: 3.00, b2cPrice: 3.99, stock: 120 },
-  { id: 4, description: 'Free-Range Eggs (Dozen)', barcode: '1004', b2bPrice: 4.20, b2cPrice: 5.50, stock: 5 },
-  { id: 5, description: 'Avocado', barcode: '1005', b2bPrice: 1.10, b2cPrice: 1.75, stock: 250 },
+  { id: 1, description: 'Organic Apples', barcode: '1001', b2bPrice: 1.50, b2cPrice: 1.99, stock: 150, category: 'Fruits' },
+  { id: 2, description: 'Whole Wheat Bread', barcode: '1002', b2bPrice: 2.80, b2cPrice: 3.49, stock: 8, category: 'Bakery' },
+  { id: 3, description: 'Almond Milk (1L)', barcode: '1003', b2bPrice: 3.00, b2cPrice: 3.99, stock: 120, category: 'Dairy' },
+  { id: 4, description: 'Free-Range Eggs (Dozen)', barcode: '1004', b2bPrice: 4.20, b2cPrice: 5.50, stock: 5, category: 'Dairy' },
+  { id: 5, description: 'Avocado', barcode: '1005', b2bPrice: 1.10, b2cPrice: 1.75, stock: 250, category: 'Fruits' },
 ];
 
 // --- PRODUCT FORM MODAL COMPONENT ---
@@ -52,11 +54,12 @@ const ProductFormModal = ({ product, onSave, onClose, onUpdate }: { product: Pro
     
     const [formData, setFormData] = useState<ProductFormData>(
         product 
-        ? { ...product }
-        : { description: '', barcode: '', b2bPrice: '', b2cPrice: '', stock: '' }
+        ? { ...product, category: product.category || '' }
+        : { description: '', barcode: '', b2bPrice: '', b2cPrice: '', stock: '', category: '' }
     );
     
     const descriptionRef = useRef<HTMLInputElement>(null);
+    const categoryRef = useRef<HTMLInputElement>(null);
     const barcodeRef = useRef<HTMLInputElement>(null);
     const b2bPriceRef = useRef<HTMLInputElement>(null);
     const b2cPriceRef = useRef<HTMLInputElement>(null);
@@ -79,6 +82,7 @@ const ProductFormModal = ({ product, onSave, onClose, onUpdate }: { product: Pro
         e.preventDefault();
         const productData = { 
             description: formData.description,
+            category: formData.category,
             barcode: formData.barcode,
             b2bPrice: parseFloat(String(formData.b2bPrice)) || 0,
             b2cPrice: parseFloat(String(formData.b2cPrice)) || 0,
@@ -112,6 +116,16 @@ const ProductFormModal = ({ product, onSave, onClose, onUpdate }: { product: Pro
                         onChange={handleChange} 
                         style={styles.input} 
                         required 
+                        onKeyDown={(e) => handleKeyDown(e, categoryRef)}
+                    />
+
+                    <label style={styles.label}>Category (Optional)</label>
+                    <input
+                        ref={categoryRef}
+                        name="category"
+                        value={formData.category}
+                        onChange={handleChange}
+                        style={styles.input}
                         onKeyDown={(e) => handleKeyDown(e, b2bPriceRef)}
                     />
 
@@ -244,6 +258,7 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd }) => {
                     <thead>
                         <tr>
                             <th style={styles.th}>Description</th>
+                            <th style={styles.th}>Category</th>
                             <th style={styles.th}>Barcode</th>
                             <th style={styles.th}>B2B Price</th>
                             <th style={styles.th}>B2C Price</th>
@@ -255,6 +270,7 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd }) => {
                         {filteredProducts.map(p => (
                             <tr key={p.id} style={p.stock <= lowStockThreshold ? { backgroundColor: '#fffbe6'} : {}}>
                                 <td style={styles.td}>{p.description}</td>
+                                <td style={styles.td}>{p.category || 'N/A'}</td>
                                 <td style={styles.td}>{p.barcode}</td>
                                 <td style={styles.td}>₹{p.b2bPrice.toFixed(2)}</td>
                                 <td style={styles.td}>₹{p.b2cPrice.toFixed(2)}</td>
@@ -277,7 +293,16 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd }) => {
 };
 
 // --- INVOICE PREVIEW MODAL ---
-const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, onClose, onPrint, onWhatsApp }) => {
+// FIX: Added explicit types for props to make onFinalize and onWhatsApp optional.
+const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, onClose, onPrint, onWhatsApp }: {
+    sale: any;
+    customerName?: string;
+    customerMobile?: string;
+    onFinalize?: () => void;
+    onClose?: () => void;
+    onPrint?: () => void;
+    onWhatsApp?: (number: string) => void;
+}) => {
     const [phoneNumber, setPhoneNumber] = useState(customerMobile || '');
     const modalContentRef = useRef(null);
 
@@ -287,11 +312,14 @@ const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, o
     const grossTotal = purchasedItems.reduce((acc, item) => acc + item.quantity * item.price, 0);
     const returnTotal = returnedItems.reduce((acc, item) => acc + item.quantity * item.price, 0);
 
+    const saleDate = onFinalize ? new Date() : new Date(sale.date);
+
     const handleWhatsAppClick = () => {
         if (!phoneNumber) {
             alert('Please enter a customer phone number.');
             return;
         }
+        if (!onWhatsApp) return;
 
         const purchasedItemsText = purchasedItems.length > 0
             ? '--- Purchased Items ---\n' + purchasedItems.map(item =>
@@ -362,7 +390,7 @@ Goods once sold cannot be taken back.
             <div ref={modalContentRef} className="invoice-preview-content" style={{...styles.modalContent, maxWidth: '4in', padding: '0.5rem'}}>
                 <div style={{textAlign: 'center', marginBottom: '1rem'}}>
                     <h2 style={{margin: '0'}}>Invoice</h2>
-                    <p style={{margin: '0'}}>Date: {new Date().toLocaleString()}</p>
+                    <p style={{margin: '0'}}>Date: {saleDate.toLocaleString()}</p>
                 </div>
 
                 {customerName && <p style={{margin: '0.2rem 0'}}><b>Customer:</b> {customerName}</p>}
@@ -386,18 +414,22 @@ Goods once sold cannot be taken back.
                     Goods once sold cannot be taken back.
                 </p>
 
-                <div className="invoice-actions" style={{...styles.modalActions, marginTop: '1.5rem'}}>
-                    <input
-                        type="tel"
-                        value={phoneNumber}
-                        onChange={(e) => setPhoneNumber(e.target.value)}
-                        placeholder="Customer Phone for WhatsApp"
-                        style={{...styles.input, marginRight: '0.5rem', flex: 1}}
-                    />
-                    <button onClick={handleWhatsAppClick} style={{...styles.button, backgroundColor: '#25D366'}}>WhatsApp</button>
-                    <button onClick={onPrint} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Print</button>
-                    <button onClick={onFinalize} style={{...styles.button, backgroundColor: 'var(--success-color)'}}>Finalize Sale</button>
-                    <button onClick={onClose} style={{...styles.button, backgroundColor: 'var(--danger-color)'}}>Back</button>
+                <div className="invoice-actions" style={{...styles.modalActions, marginTop: '1.5rem', flexWrap: 'wrap'}}>
+                    {onWhatsApp && (
+                        <>
+                            <input
+                                type="tel"
+                                value={phoneNumber}
+                                onChange={(e) => setPhoneNumber(e.target.value)}
+                                placeholder="Customer Phone for WhatsApp"
+                                style={{...styles.input, marginRight: '0.5rem', flex: 1, minWidth: '150px'}}
+                            />
+                            <button onClick={handleWhatsAppClick} style={{...styles.button, backgroundColor: '#25D366'}}>WhatsApp</button>
+                        </>
+                    )}
+                    {onPrint && <button onClick={onPrint} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Print</button>}
+                    {onFinalize && <button onClick={onFinalize} style={{...styles.button, backgroundColor: 'var(--success-color)'}}>Finalize Sale</button>}
+                    {onClose && <button onClick={onClose} style={{...styles.button, backgroundColor: onFinalize ? 'var(--danger-color)' : 'var(--secondary-color)'}}>{onFinalize ? 'Back' : 'Close'}</button>}
                 </div>
             </div>
         </div>
@@ -454,7 +486,7 @@ const HistoryModal = ({ salesHistory, customerMobile, onClose }) => {
 
 
 // --- REPORTS VIEW COMPONENT ---
-const ReportsView = ({ salesHistory }) => {
+const ReportsView = ({ salesHistory, onPrint }) => {
     const today = new Date().toLocaleDateString();
     const todaysSales = salesHistory.filter(sale => new Date(sale.date).toLocaleDateString() === today);
 
@@ -483,7 +515,7 @@ const ReportsView = ({ salesHistory }) => {
                             <th style={styles.th}>Customer</th>
                             <th style={styles.th}>Items</th>
                             <th style={styles.th}>Total</th>
-                            <th style={styles.th}>Details</th>
+                            <th style={styles.th}>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -495,8 +527,11 @@ const ReportsView = ({ salesHistory }) => {
                                     <td style={styles.td}>{sale.items.length}</td>
                                     <td style={styles.td}>₹{sale.total.toFixed(2)}</td>
                                     <td style={styles.td}>
-                                        <button onClick={() => setExpandedSale(expandedSale === sale.id ? null : sale.id)} style={{...styles.actionButton, backgroundColor: 'var(--secondary-color)'}}>
+                                        <button onClick={() => setExpandedSale(expandedSale === sale.id ? null : sale.id)} style={{...styles.actionButton, backgroundColor: 'var(--secondary-color)', marginRight: '0.5rem'}}>
                                             {expandedSale === sale.id ? 'Hide' : 'View'}
+                                        </button>
+                                        <button onClick={() => onPrint(sale)} style={{...styles.actionButton, backgroundColor: 'var(--primary-color)'}}>
+                                            Print
                                         </button>
                                     </td>
                                 </tr>
@@ -537,6 +572,15 @@ const ReportsView = ({ salesHistory }) => {
     );
 };
 
+// --- MIC ICON COMPONENT ---
+const MicIcon = ({ color = 'currentColor' }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill={color}>
+        <path d="M0 0h24v24H0V0z" fill="none"/>
+        <path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72h-1.7z"/>
+    </svg>
+);
+
+
 // --- SALES VIEW COMPONENT ---
 const SalesView = ({ 
     products, 
@@ -561,6 +605,7 @@ const SalesView = ({
     const [searchResults, setSearchResults] = useState<Product[]>([]);
     const [highlightedIndex, setHighlightedIndex] = useState(-1);
     const [priceMode, setPriceMode] = useState<'b2b' | 'b2c'>('b2c');
+    const [isListening, setIsListening] = useState(false);
 
     const [countryCode, setCountryCode] = useState('+91');
     const [mobileNumber, setMobileNumber] = useState('');
@@ -569,6 +614,7 @@ const SalesView = ({
     const customerMobileRef = useRef<HTMLInputElement>(null);
     const productSearchRef = useRef<HTMLInputElement>(null);
     const quantityInputRefs = useRef<{ [key: number]: HTMLInputElement | null }>({});
+    const recognitionRef = useRef<any>(null);
 
     useEffect(() => {
         customerNameRef.current?.focus();
@@ -684,6 +730,56 @@ const SalesView = ({
         }
     };
 
+    const handleVoiceSearch = () => {
+        // FIX: Cast window to any to access non-standard SpeechRecognition APIs
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            alert("Sorry, your browser does not support voice recognition.");
+            return;
+        }
+
+        if (isListening) {
+            recognitionRef.current?.stop();
+            setIsListening(false);
+            return;
+        }
+
+        const recognition = new SpeechRecognition();
+        recognitionRef.current = recognition;
+        recognition.lang = 'en-US';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = () => {
+            setIsListening(true);
+        };
+
+        recognition.onresult = (event) => {
+            const speechResult = event.results[0][0].transcript;
+            setSearchTerm(speechResult);
+            // Manually trigger search results update
+             setSearchResults(
+                products.filter(p => p.description.toLowerCase().includes(speechResult.toLowerCase()) || p.barcode.includes(speechResult))
+            );
+        };
+
+        recognition.onspeechend = () => {
+            recognition.stop();
+        };
+
+        recognition.onend = () => {
+            setIsListening(false);
+        };
+
+        recognition.onerror = (event) => {
+            console.error("Speech recognition error", event.error);
+            setIsListening(false);
+        };
+
+        recognition.start();
+    };
+
+
     return (
         <div style={styles.viewContainer}>
             <div style={styles.viewHeader}>
@@ -746,16 +842,19 @@ const SalesView = ({
                  <button onClick={onShowHistory} style={{...styles.button, marginLeft: '0.5rem'}} disabled={!customerMobile}>History</button>
             </div>
 
-            <div style={{ position: 'relative', marginBottom: '1rem' }}>
+            <div style={{ position: 'relative', marginBottom: '1rem', display: 'flex', alignItems: 'center' }}>
                 <input
                     ref={productSearchRef}
                     type="text"
-                    placeholder="Search for a product by name or barcode..."
+                    placeholder="Search for a product by name or barcode... or use the mic"
                     value={searchTerm}
                     onChange={handleSearchChange}
                     onKeyDown={handleSearchKeyDown}
-                    style={{ ...styles.input, width: '100%', boxSizing: 'border-box' }}
+                    style={{ ...styles.input, width: '100%', boxSizing: 'border-box', paddingRight: '40px' }}
                 />
+                 <button onClick={handleVoiceSearch} style={styles.voiceSearchButton} title="Search with voice">
+                    <MicIcon color={isListening ? 'var(--danger-color)' : 'var(--secondary-color)'} />
+                </button>
                 {searchResults.length > 0 && (
                     <ul style={styles.searchResults}>
                         {searchResults.map((p, index) => (
@@ -765,7 +864,6 @@ const SalesView = ({
                                 style={index === highlightedIndex ? {...styles.searchResultItem, ...styles.highlighted} : styles.searchResultItem}
                                 onMouseEnter={() => setHighlightedIndex(index)}
                             >
-                                {/* FIX: Corrected typo from c2cPrice to b2cPrice */}
                                 {p.description} (₹{(priceMode === 'b2b' ? p.b2bPrice : p.b2cPrice).toFixed(2)}) - Stock: {p.stock}
                             </li>
                         ))}
@@ -891,6 +989,7 @@ const App = () => {
     const [isProductModalOpen, setIsProductModalOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
     const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
+    const [saleToPrint, setSaleToPrint] = useState<SaleRecord | null>(null);
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
     const [productToDeleteId, setProductToDeleteId] = useState<number | null>(null);
@@ -1178,7 +1277,7 @@ const App = () => {
                         onDelete={handleDeleteRequest}
                     />
                 }
-                {activeView === 'reports' && <ReportsView salesHistory={salesHistory}/>}
+                {activeView === 'reports' && <ReportsView salesHistory={salesHistory} onPrint={setSaleToPrint}/>}
             </main>
             
             {isProductModalOpen && 
@@ -1191,13 +1290,22 @@ const App = () => {
             }
             {isInvoiceModalOpen && 
                 <InvoicePreviewModal 
-                    sale={{items: saleItems, subtotal, discount, tax: taxAmount, total}} 
+                    sale={{items: saleItems, subtotal, discount, tax: taxAmount, total, date: new Date().toISOString()}} 
                     customerName={customerName}
                     customerMobile={customerMobile}
                     onFinalize={handleFinalizeSale}
                     onClose={() => setIsInvoiceModalOpen(false)} 
                     onPrint={() => window.print()}
                     onWhatsApp={(number) => setCustomerMobile(number)}
+                />
+            }
+            {saleToPrint &&
+                 <InvoicePreviewModal
+                    sale={saleToPrint}
+                    customerName={saleToPrint.customerName}
+                    customerMobile={saleToPrint.customerMobile}
+                    onClose={() => setSaleToPrint(null)}
+                    onPrint={() => window.print()}
                 />
             }
             {isHistoryModalOpen &&
@@ -1484,6 +1592,19 @@ const styles: { [key: string]: React.CSSProperties } = {
         display: 'flex',
         justifyContent: 'center',
         gap: '1rem',
+    },
+    voiceSearchButton: {
+        position: 'absolute',
+        right: '5px',
+        top: '50%',
+        transform: 'translateY(-50%)',
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: '0.5rem',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
     },
 };
 
