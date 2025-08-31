@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>POS System</title>
+    <style>
+        :root {
+            --primary-color: #17a2b8;
+            --secondary-color: #6c757d;
+            --background-color: #e9ecef;
+            --surface-color: #ffffff;
+            --text-color: #343a40;
+            --border-color: #ced4da;
+            --danger-color: #e74c3c;
+            --success-color: #2ecc71;
+            --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+        
+        body {
+            margin: 0;
+            font-family: var(--font-family);
+            background-color: var(--background-color);
+            color: var(--text-color);
+            line-height: 1.5;
+        }
+
+        #root {
+            display: flex;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        button {
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+        button:hover:not(:disabled) {
+            opacity: 0.85;
+            transform: translateY(-1px);
+        }
+        
+        @media print {
+            @page {
+                size: 4in;
+                margin: 0.1in;
+            }
+
+            body {
+                background-color: #fff;
+                font-size: 10pt;
+                width: 100%;
+            }
+
+            body > *:not(.invoice-preview-backdrop) {
+                display: none !important;
+            }
+            .invoice-preview-backdrop {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: auto;
+                background-color: transparent !important;
+                padding: 0 !important;
+                display: block !important;
+            }
+            .invoice-preview-content {
+                box-shadow: none !important;
+                border: none !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                padding: 0 !important;
+                max-height: none !important;
+                overflow: visible !important;
+                font-size: 10pt;
+            }
+            .invoice-preview-content h2 {
+                font-size: 14pt;
+            }
+            .invoice-actions {
+                display: none !important;
+            }
+            .invoice-preview-content th, .invoice-preview-content td {
+                padding: 2px 4px;
+            }
+        }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
+    "react/": "https://aistudiocdn.com/react@^19.1.1/",
+    "react": "https://aistudiocdn.com/react@^19.1.1"
+  }
+}
+</script>
+</head>
+<body>
+    <div id="root"></div>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script type="module" src="index.tsx"></script>
+</body>
+</html>
