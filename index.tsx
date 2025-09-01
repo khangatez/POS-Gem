@@ -7,6 +7,7 @@ interface SaleItem {
   id: number;
   productId: number;
   description: string;
+  descriptionTamil?: string;
   quantity: number;
   price: number;
   isReturn: boolean;
@@ -15,6 +16,7 @@ interface SaleItem {
 interface Product {
   id: number;
   description: string;
+  descriptionTamil?: string;
   barcode: string;
   b2bPrice: number;
   b2cPrice: number;
@@ -36,7 +38,7 @@ interface SaleRecord {
 
 // --- DUMMY DATA ---
 const initialProducts: Product[] = [
-  { id: 1, description: 'Organic Apples', barcode: '1001', b2bPrice: 1.50, b2cPrice: 1.99, stock: 150, category: 'Fruits' },
+  { id: 1, description: 'Organic Apples', descriptionTamil: 'ஆர்கானிக் ஆப்பிள்', barcode: '1001', b2bPrice: 1.50, b2cPrice: 1.99, stock: 150, category: 'Fruits' },
   { id: 2, description: 'Whole Wheat Bread', barcode: '1002', b2bPrice: 2.80, b2cPrice: 3.49, stock: 8, category: 'Bakery' },
   { id: 3, description: 'Almond Milk (1L)', barcode: '1003', b2bPrice: 3.00, b2cPrice: 3.99, stock: 120, category: 'Dairy' },
   { id: 4, description: 'Free-Range Eggs (Dozen)', barcode: '1004', b2bPrice: 4.20, b2cPrice: 5.50, stock: 5, category: 'Dairy' },
@@ -53,11 +55,12 @@ const ProductFormModal = ({ product, onSave, onClose, onUpdate }: { product: Pro
     
     const [formData, setFormData] = useState<ProductFormData>(
         product 
-        ? { ...product, category: product.category || '' }
-        : { description: '', barcode: '', b2bPrice: '', b2cPrice: '', stock: '', category: '' }
+        ? { ...product, category: product.category || '', descriptionTamil: product.descriptionTamil || '' }
+        : { description: '', descriptionTamil: '', barcode: '', b2bPrice: '', b2cPrice: '', stock: '', category: '' }
     );
     
     const descriptionRef = useRef<HTMLInputElement>(null);
+    const descriptionTamilRef = useRef<HTMLInputElement>(null);
     const categoryRef = useRef<HTMLInputElement>(null);
     const barcodeRef = useRef<HTMLInputElement>(null);
     const b2bPriceRef = useRef<HTMLInputElement>(null);
@@ -81,6 +84,7 @@ const ProductFormModal = ({ product, onSave, onClose, onUpdate }: { product: Pro
         e.preventDefault();
         const productData = { 
             description: formData.description,
+            descriptionTamil: formData.descriptionTamil,
             category: formData.category,
             barcode: formData.barcode,
             b2bPrice: parseFloat(String(formData.b2bPrice)) || 0,
@@ -115,6 +119,16 @@ const ProductFormModal = ({ product, onSave, onClose, onUpdate }: { product: Pro
                         onChange={handleChange} 
                         style={styles.input} 
                         required 
+                        onKeyDown={(e) => handleKeyDown(e, descriptionTamilRef)}
+                    />
+                    
+                    <label style={styles.label}>Product Description (Tamil) (Optional)</label>
+                    <input
+                        ref={descriptionTamilRef}
+                        name="descriptionTamil"
+                        value={formData.descriptionTamil}
+                        onChange={handleChange}
+                        style={styles.input}
                         onKeyDown={(e) => handleKeyDown(e, categoryRef)}
                     />
 
@@ -334,11 +348,84 @@ const BarcodeScannerModal = ({ onScan, onClose }: { onScan: (barcode: string) =>
 };
 
 
+// --- ICON COMPONENTS ---
+const PdfIcon = ({ size = 80, color = 'var(--danger-color)' }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" height={`${size}px`} viewBox="0 0 24 24" width={`${size}px`} fill={color} style={{marginBottom: '1rem'}}>
+        <path d="M0 0h24v24H0V0z" fill="none"/>
+        <path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM9.5 11.5c0 .83-.67 1.5-1.5 1.5H7v2H5.5V9h2.5c.83 0 1.5.67 1.5 1.5v1zm3.5 1.5h-1v-2h-1.5v2h-1V9H13v4zm5.5-1.5h-1.5v-1h1.5v-1h-1.5v-1h1.5v-1h-3V9h3c.83 0 1.5.67 1.5 1.5v1.5c0 .83-.67 1.5-1.5 1.5z"/>
+        <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6z"/>
+    </svg>
+);
+
+
+// --- PDF UPLOAD MODAL ---
+const PdfUploadModal = ({ onProcess, onClose }: { onProcess: (b2b: File, b2c: File) => void; onClose: () => void; }) => {
+    const [b2bFile, setB2bFile] = useState<File | null>(null);
+    const [b2cFile, setB2cFile] = useState<File | null>(null);
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'b2b' | 'b2c') => {
+        const file = e.target.files?.[0] || null;
+        if (type === 'b2b') setB2bFile(file);
+        else setB2cFile(file);
+        e.target.value = ''; // Allow re-selection of the same file
+    };
+
+    const handleProcessClick = () => {
+        if (b2bFile && b2cFile) {
+            onProcess(b2bFile, b2cFile);
+        }
+    };
+
+    const fileInputStyle: React.CSSProperties = {
+        border: '2px dashed var(--border-color)',
+        borderRadius: '8px',
+        padding: '2rem',
+        textAlign: 'center',
+        cursor: 'pointer',
+        backgroundColor: '#f8f9fa',
+        flex: 1,
+    };
+
+    return (
+        <div style={styles.modalBackdrop}>
+            <div style={{ ...styles.modalContent, maxWidth: '800px' }}>
+                <h2 style={{ marginTop: 0, textAlign: 'center' }}>Upload B2B & B2C Price Lists</h2>
+                <p style={{ textAlign: 'center', color: 'var(--secondary-color)', marginBottom: '2rem' }}>
+                    Select the PDF file for your B2B prices and the PDF for your B2C prices. The system will extract and merge them.
+                </p>
+                <div style={{ display: 'flex', gap: '1.5rem', justifyContent: 'center' }}>
+                    <label style={fileInputStyle}>
+                        <input type="file" accept="application/pdf" onChange={(e) => handleFileChange(e, 'b2b')} style={{ display: 'none' }} />
+                        <PdfIcon size={40} />
+                        <h4>B2B Price List</h4>
+                        <span style={{ wordBreak: 'break-all' }}>{b2bFile ? b2bFile.name : 'Click to select file'}</span>
+                    </label>
+                    <label style={fileInputStyle}>
+                        <input type="file" accept="application/pdf" onChange={(e) => handleFileChange(e, 'b2c')} style={{ display: 'none' }} />
+                        <PdfIcon size={40} />
+                        <h4>B2C Price List</h4>
+                        <span style={{ wordBreak: 'break-all' }}>{b2cFile ? b2cFile.name : 'Click to select file'}</span>
+                    </label>
+                </div>
+                <div style={styles.modalActions}>
+                    <button onClick={onClose} style={{ ...styles.button, backgroundColor: 'var(--secondary-color)' }}>Cancel</button>
+                    <button onClick={handleProcessClick} style={styles.button} disabled={!b2bFile || !b2cFile}>
+                        Process PDFs
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
 // --- BULK ADD PRODUCTS MODAL ---
 type EditableProduct = Omit<Product, 'id'>;
 
-const BulkAddModal = ({ imageSrc, initialProducts, onSave, onClose, loading, error }: {
-    imageSrc: string;
+const BulkAddModal = ({ fileSrc, fileType, fileNames, initialProducts, onSave, onClose, loading, error }: {
+    fileSrc: string | null;
+    fileType: 'image' | 'pdf' | 'dual-pdf' | null;
+    fileNames?: { b2b: string, b2c: string } | null;
     initialProducts: EditableProduct[];
     onSave: (products: EditableProduct[]) => void;
     onClose: () => void;
@@ -358,7 +445,7 @@ const BulkAddModal = ({ imageSrc, initialProducts, onSave, onClose, loading, err
         if (field === 'b2bPrice' || field === 'b2cPrice' || field === 'stock') {
              product[field] = parseFloat(value as string) || 0;
         } else {
-             product[field] = value as string;
+             (product as any)[field] = value as string;
         }
         
         updatedProducts[index] = product;
@@ -374,13 +461,40 @@ const BulkAddModal = ({ imageSrc, initialProducts, onSave, onClose, loading, err
     return (
         <div style={styles.modalBackdrop}>
             <div style={{ ...styles.modalContent, maxWidth: '1200px', display: 'flex', gap: '1.5rem' }}>
-                <div style={{ flex: 1 }}>
-                    <h3 style={{marginTop: 0}}>Uploaded Image</h3>
-                    <img src={imageSrc} alt="Uploaded inventory" style={{ width: '100%', borderRadius: '8px', objectFit: 'contain', maxHeight: '70vh' }} />
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8f9fa', borderRadius: '8px', padding: '1rem', textAlign: 'center' }}>
+                    {fileType === 'image' && fileSrc ? (
+                        <>
+                            <h3 style={{marginTop: 0}}>Uploaded Image</h3>
+                            <img src={fileSrc} alt="Uploaded inventory" style={{ width: '100%', borderRadius: '8px', objectFit: 'contain', maxHeight: '70vh' }} />
+                        </>
+                    ) : fileType === 'pdf' ? (
+                        <>
+                            <h3 style={{marginTop: 0}}>Uploaded PDF</h3>
+                            <PdfIcon />
+                            <p>Analyzing PDF document to extract product list. Please review the extracted data on the right before saving.</p>
+                        </>
+                    ) : (
+                         <>
+                            <h3 style={{marginTop: 0}}>Uploaded Price Lists</h3>
+                            <div style={{display: 'flex', gap: '2rem', alignItems: 'center', justifyContent: 'center'}}>
+                                <div style={{textAlign: 'center'}}>
+                                    <PdfIcon size={50} />
+                                    <h4 style={{margin: '0 0 0.5rem 0'}}>B2B List</h4>
+                                    <p style={{fontSize: '0.8rem', margin: 0, wordBreak: 'break-all'}}>{fileNames?.b2b}</p>
+                                </div>
+                                <div style={{textAlign: 'center'}}>
+                                    <PdfIcon size={50} />
+                                    <h4 style={{margin: '0 0 0.5rem 0'}}>B2C List</h4>
+                                    <p style={{fontSize: '0.8rem', margin: 0, wordBreak: 'break-all'}}>{fileNames?.b2c}</p>
+                                </div>
+                            </div>
+                            <p style={{marginTop: '1.5rem'}}>Analyzing documents to extract and merge product lists. Please review the data on the right before saving.</p>
+                        </>
+                    )}
                 </div>
                 <div style={{ flex: 2, display: 'flex', flexDirection: 'column' }}>
                     <h3 style={{marginTop: 0}}>Extracted Products (Editable)</h3>
-                    {loading && <p>Analyzing image with AI... Please wait.</p>}
+                    {loading && <p>Analyzing documents with AI... This may take a moment. Please wait.</p>}
                     {error && <p style={{ color: 'var(--danger-color)' }}>Error: {error}</p>}
                     {!loading && !error && (
                         <>
@@ -389,18 +503,20 @@ const BulkAddModal = ({ imageSrc, initialProducts, onSave, onClose, loading, err
                                     <thead>
                                         <tr>
                                             <th style={{...styles.th, width: '25%'}}>Description</th>
-                                            <th style={{...styles.th, width: '15%'}}>Category</th>
-                                            <th style={{...styles.th, width: '15%'}}>B2B Price</th>
-                                            <th style={{...styles.th, width: '15%'}}>B2C Price</th>
-                                            <th style={{...styles.th, width: '12%'}}>Stock</th>
-                                            <th style={{...styles.th, width: '18%'}}>Barcode</th>
+                                            <th style={{...styles.th, width: '25%'}}>Description (Tamil)</th>
+                                            <th style={{...styles.th, width: '10%'}}>Category</th>
+                                            <th style={{...styles.th, width: '10%'}}>B2B Price</th>
+                                            <th style={{...styles.th, width: '10%'}}>B2C Price</th>
+                                            <th style={{...styles.th, width: '8%'}}>Stock</th>
+                                            <th style={{...styles.th, width: '12%'}}>Barcode</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {products.map((p, index) => (
                                             <tr key={index}>
                                                 <td style={styles.td}><input type="text" value={p.description} onChange={(e) => handleProductChange(index, 'description', e.target.value)} style={{...styles.gridInput, width: '95%'}} /></td>
-                                                <td style={styles.td}><input type="text" value={p.category} onChange={(e) => handleProductChange(index, 'category', e.target.value)} style={{...styles.gridInput, width: '95%'}} /></td>
+                                                <td style={styles.td}><input type="text" value={p.descriptionTamil || ''} onChange={(e) => handleProductChange(index, 'descriptionTamil', e.target.value)} style={{...styles.gridInput, width: '95%'}} /></td>
+                                                <td style={styles.td}><input type="text" value={p.category || ''} onChange={(e) => handleProductChange(index, 'category', e.target.value)} style={{...styles.gridInput, width: '95%'}} /></td>
                                                 <td style={styles.td}><input type="number" step="0.01" value={p.b2bPrice} onChange={(e) => handleProductChange(index, 'b2bPrice', e.target.value)} style={{...styles.gridInput, width: '90%'}} /></td>
                                                 <td style={styles.td}><input type="number" step="0.01" value={p.b2cPrice} onChange={(e) => handleProductChange(index, 'b2cPrice', e.target.value)} style={{...styles.gridInput, width: '90%'}} /></td>
                                                 <td style={styles.td}><input type="number" step="1" value={p.stock} onChange={(e) => handleProductChange(index, 'stock', e.target.value)} style={{...styles.gridInput, width: '90%'}} /></td>
@@ -424,7 +540,7 @@ const BulkAddModal = ({ imageSrc, initialProducts, onSave, onClose, loading, err
 
 
 // --- PRODUCTS VIEW COMPONENT ---
-const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd }) => {
+const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddPdfs, selectedProductIds, setSelectedProductIds, onDeleteSelected }) => {
     const [filter, setFilter] = useState<'all' | 'low'>('all');
     const bulkAddInputRef = useRef<HTMLInputElement>(null);
 
@@ -437,12 +553,33 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd }) => {
         bulkAddInputRef.current?.click();
     };
 
+    const handleSelectProduct = (id: number) => {
+        setSelectedProductIds(prev =>
+            prev.includes(id) ? prev.filter(pid => pid !== id) : [...prev, id]
+        );
+    };
+
+    const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.checked) {
+            setSelectedProductIds(filteredProducts.map(p => p.id));
+        } else {
+            setSelectedProductIds([]);
+        }
+    };
+
+    const areAllSelected = filteredProducts.length > 0 && filteredProducts.every(p => selectedProductIds.includes(p.id));
+
     return (
         <div style={styles.viewContainer}>
             <div style={styles.viewHeader}>
                 <h2>Product Inventory</h2>
-                <div>
-                     <button onClick={() => setFilter(filter === 'all' ? 'low' : 'all')} style={{...styles.button, marginRight: '1rem', backgroundColor: 'var(--secondary-color)'}}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    {selectedProductIds.length > 0 && (
+                         <button onClick={onDeleteSelected} style={{...styles.button, backgroundColor: 'var(--danger-color)'}}>
+                            Delete Selected ({selectedProductIds.length})
+                        </button>
+                    )}
+                     <button onClick={() => setFilter(filter === 'all' ? 'low' : 'all')} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>
                         {filter === 'all' ? 'Show Low Stock' : 'Show All Products'}
                     </button>
                     <input
@@ -452,7 +589,8 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd }) => {
                         onChange={onBulkAdd}
                         style={{ display: 'none' }}
                     />
-                     <button onClick={handleBulkAddClick} style={{...styles.button, marginRight: '1rem', backgroundColor: '#ffc107', color: 'black'}}>Bulk Add from Image</button>
+                     <button onClick={handleBulkAddClick} style={{...styles.button, backgroundColor: '#ffc107', color: 'black'}}>Bulk Add from Image</button>
+                     <button onClick={onBulkAddPdfs} style={{...styles.button, marginRight: '1rem', backgroundColor: 'var(--danger-color)'}}>Bulk Add from PDFs (B2B & B2C)</button>
                     <button onClick={onAdd} style={styles.button}>Add New Product</button>
                 </div>
             </div>
@@ -460,7 +598,17 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd }) => {
                  <table style={styles.table}>
                     <thead>
                         <tr>
+                            <th style={{...styles.th, width: '40px', padding: '0.75rem'}}>
+                                <input
+                                    type="checkbox"
+                                    checked={areAllSelected}
+                                    onChange={handleSelectAll}
+                                    style={{width: '18px', height: '18px', verticalAlign: 'middle'}}
+                                    aria-label="Select all products"
+                                />
+                            </th>
                             <th style={styles.th}>Description</th>
+                            <th style={styles.th}>Description (Tamil)</th>
                             <th style={styles.th}>Category</th>
                             <th style={styles.th}>Barcode</th>
                             <th style={styles.th}>B2B Price</th>
@@ -472,7 +620,17 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd }) => {
                     <tbody>
                         {filteredProducts.map(p => (
                             <tr key={p.id} style={p.stock <= lowStockThreshold ? { backgroundColor: '#fffbe6'} : {}}>
+                                <td style={styles.td}>
+                                     <input
+                                        type="checkbox"
+                                        checked={selectedProductIds.includes(p.id)}
+                                        onChange={() => handleSelectProduct(p.id)}
+                                        style={{width: '18px', height: '18px', verticalAlign: 'middle'}}
+                                        aria-label={`Select product ${p.description}`}
+                                    />
+                                </td>
                                 <td style={styles.td}>{p.description}</td>
+                                <td style={styles.td}>{p.descriptionTamil || 'N/A'}</td>
                                 <td style={styles.td}>{p.category || 'N/A'}</td>
                                 <td style={styles.td}>{p.barcode}</td>
                                 <td style={styles.td}>₹{p.b2bPrice.toFixed(2)}</td>
@@ -496,7 +654,7 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd }) => {
 };
 
 // --- INVOICE PREVIEW MODAL ---
-const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, onClose, onPrint, onWhatsApp }: {
+const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, onClose, onPrint, onWhatsApp, language }: {
     sale: any;
     customerName?: string;
     customerMobile?: string;
@@ -504,6 +662,7 @@ const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, o
     onClose?: () => void;
     onPrint?: () => void;
     onWhatsApp?: (number: string) => void;
+    language: 'english' | 'tamil';
 }) => {
     const [phoneNumber, setPhoneNumber] = useState(customerMobile || '');
     const modalContentRef = useRef(null);
@@ -523,15 +682,17 @@ const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, o
         }
         if (!onWhatsApp) return;
 
+        const getItemDescription = (item: SaleItem) => language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description;
+
         const purchasedItemsText = purchasedItems.length > 0
             ? '--- Purchased Items ---\n' + purchasedItems.map(item =>
-                `${item.description} (Qty: ${item.quantity} x ₹${item.price.toFixed(2)} = ₹${(item.quantity * item.price).toFixed(2)})`
+                `${getItemDescription(item)} (Qty: ${item.quantity} x ₹${item.price.toFixed(2)} = ₹${(item.quantity * item.price).toFixed(2)})`
             ).join('\n')
             : '';
         
         const returnedItemsText = returnedItems.length > 0
             ? '\n--- Returned Items ---\n' + returnedItems.map(item =>
-                `${item.description} (Qty: ${item.quantity} x ₹${item.price.toFixed(2)} = ₹${(item.quantity * item.price).toFixed(2)})`
+                `${getItemDescription(item)} (Qty: ${item.quantity} x ₹${item.price.toFixed(2)} = ₹${(item.quantity * item.price).toFixed(2)})`
             ).join('\n')
             : '';
 
@@ -576,7 +737,7 @@ Goods once sold cannot be taken back.
                     {items.map((item, index) => (
                         <tr key={item.id} style={isReturn ? {color: 'var(--danger-color)'} : {}}>
                             <td style={{...styles.td, padding: '2px', textAlign: 'center'}}>{index + 1}</td>
-                            <td style={{...styles.td, padding: '2px'}}>{item.description}</td>
+                            <td style={{...styles.td, padding: '2px'}}>{language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description}</td>
                             <td style={{...styles.td, textAlign: 'right', padding: '2px'}}>{item.quantity}</td>
                             <td style={{...styles.td, textAlign: 'right', padding: '2px'}}>{item.price.toFixed(2)}</td>
                             <td style={{...styles.td, textAlign: 'right', padding: '2px'}}>{(item.quantity * item.price).toFixed(2)}</td>
@@ -793,22 +954,14 @@ const ScanIcon = ({ color = 'currentColor' }) => (
 // --- SALES VIEW COMPONENT ---
 const SalesView = ({ 
     products, 
-    saleItems, 
-    setSaleItems, 
+    activeCart,
+    updateActiveCart,
     onPreview, 
-    subtotal, 
-    discount, 
-    setDiscount, 
-    tax, 
-    setTax, 
     total,
-    customerName,
-    setCustomerName,
-    customerMobile,
-    setCustomerMobile,
     onShowHistory,
     onSaveBackup,
     onRestoreBackup,
+    onUpdateProductPrice,
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [searchResults, setSearchResults] = useState<Product[]>([]);
@@ -824,6 +977,7 @@ const SalesView = ({
     const customerMobileRef = useRef<HTMLInputElement>(null);
     const productSearchRef = useRef<HTMLInputElement>(null);
     const quantityInputRefs = useRef<{ [key: number]: HTMLInputElement | null }>({});
+    const priceInputRefs = useRef<{ [key: number]: HTMLInputElement | null }>({});
     const recognitionRef = useRef<any>(null);
 
     useEffect(() => {
@@ -832,16 +986,26 @@ const SalesView = ({
     
     // Effect to update parent when local mobile number changes
     useEffect(() => {
-        setCustomerMobile(countryCode + mobileNumber);
-    }, [countryCode, mobileNumber, setCustomerMobile]);
+        updateActiveCart({ customerMobile: countryCode + mobileNumber });
+    }, [countryCode, mobileNumber, updateActiveCart]);
 
-    // Effect to reset local state when parent prop is cleared
+    // Effect to reset local state when parent prop is cleared or cart switches
     useEffect(() => {
-        if (customerMobile === '') {
+        if (activeCart.customerMobile === '') {
             setCountryCode('+91');
             setMobileNumber('');
+        } else {
+            // This logic is simple, might need improvement for complex country codes
+            if (activeCart.customerMobile.startsWith('+')) {
+                const code = activeCart.customerMobile.substring(0, 3); // e.g., +91
+                const number = activeCart.customerMobile.substring(3);
+                setCountryCode(code);
+                setMobileNumber(number);
+            } else {
+                 setMobileNumber(activeCart.customerMobile);
+            }
         }
-    }, [customerMobile]);
+    }, [activeCart.customerMobile]);
 
     const handleCustomerKeyDown = (e: React.KeyboardEvent, nextField: 'mobile' | 'product') => {
         if (e.key === 'Enter') {
@@ -859,7 +1023,11 @@ const SalesView = ({
         setSearchTerm(term);
         if (term) {
             setSearchResults(
-                products.filter(p => p.description.toLowerCase().includes(term.toLowerCase()) || p.barcode.includes(term))
+                products.filter(p => 
+                    p.description.toLowerCase().includes(term.toLowerCase()) || 
+                    (p.descriptionTamil && p.descriptionTamil.toLowerCase().includes(term.toLowerCase())) ||
+                    p.barcode.toLowerCase().includes(term.toLowerCase())
+                )
             );
         } else {
             setSearchResults([]);
@@ -870,21 +1038,22 @@ const SalesView = ({
     const handleAddToSale = (product: Product, focusOnQuantity: boolean = true) => {
         const price = priceMode === 'b2b' ? product.b2bPrice : product.b2cPrice;
         
-        const existingItemIndex = saleItems.findIndex(item => item.productId === product.id && !item.isReturn);
+        const existingItemIndex = activeCart.items.findIndex(item => item.productId === product.id && !item.isReturn);
         if (existingItemIndex > -1) {
-            const updatedItems = [...saleItems];
+            const updatedItems = [...activeCart.items];
             updatedItems[existingItemIndex].quantity += 1;
-            setSaleItems(updatedItems);
+            updateActiveCart({ items: updatedItems });
         } else {
             const newItem: SaleItem = {
                 id: Date.now(),
                 productId: product.id,
                 description: product.description,
+                descriptionTamil: product.descriptionTamil,
                 quantity: 1,
                 price: price,
                 isReturn: false,
             };
-            setSaleItems(prev => [...prev, newItem]);
+            updateActiveCart({ items: [...activeCart.items, newItem] });
         }
         setSearchTerm('');
         setSearchResults([]);
@@ -892,7 +1061,7 @@ const SalesView = ({
         
         if (focusOnQuantity) {
             setTimeout(() => {
-                const newItemId = saleItems.length;
+                const newItemId = activeCart.items.length;
                 const inputRef = quantityInputRefs.current[newItemId];
                 inputRef?.focus();
                 inputRef?.select();
@@ -901,13 +1070,22 @@ const SalesView = ({
     };
 
     const handleUpdateSaleItem = (id: number, field: keyof SaleItem, value: any) => {
-        setSaleItems(
-            saleItems.map(item => item.id === id ? { ...item, [field]: value } : item)
+        const updatedItems = activeCart.items.map(item =>
+            item.id === id ? { ...item, [field]: value } : item
         );
+        updateActiveCart({ items: updatedItems });
+
+        // If the price was changed, update the product in the main inventory
+        if (field === 'price') {
+            const updatedItem = updatedItems.find(item => item.id === id);
+            if (updatedItem) {
+                onUpdateProductPrice(updatedItem.productId, parseFloat(String(value)) || 0, priceMode);
+            }
+        }
     };
     
     const handleRemoveSaleItem = (id: number) => {
-        setSaleItems(saleItems.filter(item => item.id !== id));
+        updateActiveCart({ items: activeCart.items.filter(item => item.id !== id) });
     };
 
     const handleSearchKeyDown = (e: React.KeyboardEvent) => {
@@ -929,10 +1107,12 @@ const SalesView = ({
         }
     };
 
-    const handleQuantityKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const handleQuantityKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
         if(e.key === 'Enter') {
             e.preventDefault();
-            productSearchRef.current?.focus();
+            const priceInput = priceInputRefs.current[index];
+            priceInput?.focus();
+            priceInput?.select();
         }
     };
 
@@ -968,10 +1148,14 @@ const SalesView = ({
 
         recognition.onresult = (event) => {
             const speechResult = event.results[0][0].transcript;
-            setSearchTerm(speechResult);
-            // Manually trigger search results update
+            const term = speechResult;
+            setSearchTerm(term);
              setSearchResults(
-                products.filter(p => p.description.toLowerCase().includes(speechResult.toLowerCase()) || p.barcode.includes(speechResult))
+                products.filter(p => 
+                    p.description.toLowerCase().includes(term.toLowerCase()) || 
+                    (p.descriptionTamil && p.descriptionTamil.toLowerCase().includes(term.toLowerCase())) ||
+                    p.barcode.toLowerCase().includes(term.toLowerCase())
+                )
             );
         };
 
@@ -1034,7 +1218,29 @@ const SalesView = ({
                             B2B
                         </label>
                     </div>
-                    <button onClick={onPreview} style={styles.button} disabled={saleItems.length === 0}>Preview Invoice</button>
+                     <div style={styles.priceModeSelector}>
+                        <label style={styles.priceModeLabel}>
+                            <input
+                                type="radio"
+                                name="language"
+                                value="english"
+                                checked={activeCart.language === 'english'}
+                                onChange={() => updateActiveCart({ language: 'english' })}
+                            />
+                            English
+                        </label>
+                        <label style={styles.priceModeLabel}>
+                            <input
+                                type="radio"
+                                name="language"
+                                value="tamil"
+                                checked={activeCart.language === 'tamil'}
+                                onChange={() => updateActiveCart({ language: 'tamil' })}
+                            />
+                            Tamil
+                        </label>
+                    </div>
+                    <button onClick={onPreview} style={styles.button} disabled={activeCart.items.length === 0}>Preview Invoice</button>
                 </div>
             </div>
             
@@ -1042,8 +1248,8 @@ const SalesView = ({
                  <input 
                     ref={customerNameRef}
                     type="text" 
-                    value={customerName} 
-                    onChange={(e) => setCustomerName(e.target.value)}
+                    value={activeCart.customerName} 
+                    onChange={(e) => updateActiveCart({ customerName: e.target.value })}
                     placeholder="Customer Name"
                     style={styles.customerInput}
                     onKeyDown={(e) => handleCustomerKeyDown(e, 'mobile')}
@@ -1066,7 +1272,7 @@ const SalesView = ({
                         onKeyDown={(e) => handleCustomerKeyDown(e, 'product')}
                     />
                  </div>
-                 <button onClick={onShowHistory} style={{...styles.button, marginLeft: '0.5rem'}} disabled={!customerMobile}>History</button>
+                 <button onClick={onShowHistory} style={{...styles.button, marginLeft: '0.5rem'}} disabled={!activeCart.customerMobile}>History</button>
             </div>
 
             <div style={{ position: 'relative', marginBottom: '1rem', display: 'flex', alignItems: 'center' }}>
@@ -1094,8 +1300,7 @@ const SalesView = ({
                                 style={index === highlightedIndex ? {...styles.searchResultItem, ...styles.highlighted} : styles.searchResultItem}
                                 onMouseEnter={() => setHighlightedIndex(index)}
                             >
-                                {/* FIX: Corrected typo from c2cPrice to b2cPrice */}
-                                {p.description} (₹{(priceMode === 'b2b' ? p.b2bPrice : p.b2cPrice).toFixed(2)}) - Stock: {p.stock}
+                                {p.description} {p.descriptionTamil && `(${p.descriptionTamil})`} (₹{(priceMode === 'b2b' ? p.b2bPrice : p.b2cPrice).toFixed(2)}) - Stock: {p.stock}
                             </li>
                         ))}
                     </ul>
@@ -1116,12 +1321,12 @@ const SalesView = ({
                         </tr>
                     </thead>
                     <tbody>
-                        {saleItems.map((item, index) => {
+                        {activeCart.items.map((item, index) => {
                             const itemTotal = item.quantity * item.price;
                             return (
                                 <tr key={item.id} style={item.isReturn ? {backgroundColor: '#ffebee'} : {}}>
                                     <td style={styles.td}>{index + 1}</td>
-                                    <td style={styles.td}>{item.description}</td>
+                                    <td style={styles.td}>{activeCart.language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description}</td>
                                     <td style={styles.td}>
                                         <input
                                             ref={el => { quantityInputRefs.current[index] = el; }}
@@ -1130,11 +1335,12 @@ const SalesView = ({
                                             value={item.quantity}
                                             onChange={(e) => handleUpdateSaleItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
                                             style={styles.gridInput}
-                                            onKeyDown={handleQuantityKeyDown}
+                                            onKeyDown={(e) => handleQuantityKeyDown(e, index)}
                                         />
                                     </td>
                                     <td style={styles.td}>
                                         <input
+                                            ref={el => { priceInputRefs.current[index] = el; }}
                                             type="number"
                                             step="0.01"
                                             value={item.price}
@@ -1160,17 +1366,17 @@ const SalesView = ({
                         })}
                     </tbody>
                 </table>
-                 {saleItems.length === 0 && <p style={styles.emptyMessage}>No items in sale.</p>}
+                 {activeCart.items.length === 0 && <p style={styles.emptyMessage}>No items in sale.</p>}
             </div>
 
             <div style={styles.totalsSection}>
                 <div>
                     <label>Discount (₹)</label>
-                    <input type="number" step="0.01" value={discount} onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)} style={styles.totalsInput}/>
+                    <input type="number" step="0.01" value={activeCart.discount} onChange={(e) => updateActiveCart({ discount: parseFloat(e.target.value) || 0 })} style={styles.totalsInput}/>
                 </div>
                 <div>
                     <label>Tax (%)</label>
-                    <input type="number" step="0.01" value={tax} onChange={(e) => setTax(parseFloat(e.target.value) || 0)} style={styles.totalsInput}/>
+                    <input type="number" step="0.01" value={activeCart.tax} onChange={(e) => updateActiveCart({ tax: parseFloat(e.target.value) || 0 })} style={styles.totalsInput}/>
                 </div>
                 <div style={styles.grandTotal}>
                     <h3>Grand Total: ₹{total.toFixed(2)}</h3>
@@ -1207,6 +1413,25 @@ const SalesView = ({
     );
 };
 
+// --- NEW MULTI-BILL TYPES & DEFAULTS ---
+interface CartState {
+    items: SaleItem[];
+    discount: number;
+    tax: number;
+    customerName: string;
+    customerMobile: string;
+    language: 'english' | 'tamil';
+}
+
+const defaultCartState: CartState = {
+    items: [],
+    discount: 0,
+    tax: 0,
+    customerName: '',
+    customerMobile: '',
+    language: 'english',
+};
+
 
 // --- MAIN APP COMPONENT ---
 const App = () => {
@@ -1214,12 +1439,24 @@ const App = () => {
     const [products, setProducts] = useState<Product[]>([]);
     const [nextProductId, setNextProductId] = useState(1);
     
-    const [saleItems, setSaleItems] = useState<SaleItem[]>([]);
-    const [discount, setDiscount] = useState(0);
-    const [tax, setTax] = useState(0);
-    
-    const [customerName, setCustomerName] = useState('');
-    const [customerMobile, setCustomerMobile] = useState('');
+    // Multi-bill state
+    const [carts, setCarts] = useState<CartState[]>([
+        {...defaultCartState},
+        {...defaultCartState},
+        {...defaultCartState},
+    ]);
+    const [activeCartIndex, setActiveCartIndex] = useState(0);
+
+    const activeCart = carts[activeCartIndex] || defaultCartState;
+
+    const updateActiveCart = (updatedData: Partial<CartState>) => {
+        setCarts(prevCarts => {
+            const newCarts = [...prevCarts];
+            const currentCart = newCarts[activeCartIndex] || defaultCartState;
+            newCarts[activeCartIndex] = { ...currentCart, ...updatedData };
+            return newCarts;
+        });
+    };
 
     const [salesHistory, setSalesHistory] = useState<SaleRecord[]>([]);
 
@@ -1228,16 +1465,22 @@ const App = () => {
     const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
     const [saleToPrint, setSaleToPrint] = useState<SaleRecord | null>(null);
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
-    const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
-    const [productToDeleteId, setProductToDeleteId] = useState<number | null>(null);
     const [currentDateTime, setCurrentDateTime] = useState(new Date());
-    
-    // State for Bulk Add Modal
+
+    // State for Bulk Add Modals
     const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState(false);
-    const [bulkAddImage, setBulkAddImage] = useState<string | null>(null);
+    const [isPdfUploadModalOpen, setIsPdfUploadModalOpen] = useState(false);
+    const [bulkAddFileSrc, setBulkAddFileSrc] = useState<string | null>(null);
+    const [bulkAddFileType, setBulkAddFileType] = useState<'image' | 'pdf' | 'dual-pdf' | null>(null);
+    const [bulkAddFileNames, setBulkAddFileNames] = useState<{b2b: string, b2c: string} | null>(null);
     const [bulkAddProducts, setBulkAddProducts] = useState<EditableProduct[]>([]);
     const [isBulkAddLoading, setIsBulkAddLoading] = useState(false);
     const [bulkAddError, setBulkAddError] = useState<string | null>(null);
+    
+    // State for multi-select delete
+    const [selectedProductIds, setSelectedProductIds] = useState<number[]>([]);
+    const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+    const [productIdsToDelete, setProductIdsToDelete] = useState<number[]>([]);
 
 
     useEffect(() => {
@@ -1320,22 +1563,44 @@ const App = () => {
         setIsProductModalOpen(false);
         setEditingProduct(null);
     };
+
+    const handleUpdateProductPrice = (productId: number, newPrice: number, priceType: 'b2b' | 'b2c') => {
+        const updatedProducts = products.map(p => {
+            if (p.id === productId) {
+                const newProduct = { ...p };
+                if (priceType === 'b2b') {
+                    newProduct.b2bPrice = newPrice;
+                } else {
+                    newProduct.b2cPrice = newPrice;
+                }
+                return newProduct;
+            }
+            return p;
+        });
+        saveProducts(updatedProducts);
+    };
     
-    const handleDeleteRequest = (id: number) => {
-        setProductToDeleteId(id);
+    const handleSingleDeleteRequest = (id: number) => {
+        setProductIdsToDelete([id]);
+        setIsConfirmModalOpen(true);
+    };
+
+    const handleBulkDeleteRequest = () => {
+        setProductIdsToDelete(selectedProductIds);
         setIsConfirmModalOpen(true);
     };
     
     const handleConfirmDelete = () => {
-        if (productToDeleteId === null) return;
-        const updatedProducts = products.filter(p => p.id !== productToDeleteId);
+        if (productIdsToDelete.length === 0) return;
+        const updatedProducts = products.filter(p => !productIdsToDelete.includes(p.id));
         saveProducts(updatedProducts);
-        setProductToDeleteId(null);
+        setProductIdsToDelete([]);
+        setSelectedProductIds([]); // Clear selection after deletion
         setIsConfirmModalOpen(false);
     };
 
     const handleCancelDelete = () => {
-        setProductToDeleteId(null);
+        setProductIdsToDelete([]);
         setIsConfirmModalOpen(false);
     };
 
@@ -1344,32 +1609,28 @@ const App = () => {
         setIsProductModalOpen(true);
     };
 
-    const subtotal = saleItems.reduce((acc, item) => {
+    const subtotal = activeCart.items.reduce((acc, item) => {
         const itemTotal = item.quantity * item.price;
         return item.isReturn ? acc - itemTotal : acc + itemTotal;
     }, 0);
-    const taxAmount = (subtotal - discount) * (tax / 100);
-    const total = subtotal - discount + taxAmount;
+    const taxAmount = (subtotal - activeCart.discount) * (activeCart.tax / 100);
+    const total = subtotal - activeCart.discount + taxAmount;
     
     const resetSale = () => {
-        setSaleItems([]);
-        setDiscount(0);
-        setTax(0);
-        setCustomerName('');
-        setCustomerMobile('');
+        updateActiveCart(defaultCartState);
     };
 
     const handleFinalizeSale = () => {
         const saleRecord: SaleRecord = {
             id: `sale-${Date.now()}`,
             date: new Date().toISOString(),
-            items: saleItems,
+            items: activeCart.items,
             subtotal,
-            discount,
+            discount: activeCart.discount,
             tax: taxAmount,
             total,
-            customerName,
-            customerMobile,
+            customerName: activeCart.customerName,
+            customerMobile: activeCart.customerMobile,
         };
 
         const updatedHistory = [...salesHistory, saleRecord];
@@ -1377,7 +1638,7 @@ const App = () => {
 
         // Update stock
         const updatedProducts = [...products];
-        saleItems.forEach(item => {
+        activeCart.items.forEach(item => {
             const productIndex = updatedProducts.findIndex(p => p.id === item.productId);
             if (productIndex > -1) {
                 if (item.isReturn) {
@@ -1474,7 +1735,7 @@ const App = () => {
                 },
             };
             const textPart = {
-                text: "Analyze the products in this image. Extract the product description and a suitable category for each item. Do not invent prices, stock levels, or barcodes. Return the data as a JSON array.",
+                text: "Analyze the products in this image. Extract the product description in both English and Tamil (if available), and a suitable category for each item. Do not invent prices, stock levels, or barcodes. Return the data as a JSON array.",
             };
 
             const response = await ai.models.generateContent({
@@ -1490,6 +1751,10 @@ const App = () => {
                                 description: {
                                     type: Type.STRING,
                                     description: 'The name or description of the product.',
+                                },
+                                descriptionTamil: {
+                                    type: Type.STRING,
+                                    description: 'The Tamil name or description of the product.',
                                 },
                                 category: {
                                     type: Type.STRING,
@@ -1508,6 +1773,7 @@ const App = () => {
             if (Array.isArray(parsedProducts)) {
                  const editableProducts: EditableProduct[] = parsedProducts.map(p => ({
                     description: p.description || '',
+                    descriptionTamil: p.descriptionTamil || '',
                     category: p.category || '',
                     barcode: '',
                     b2bPrice: 0,
@@ -1526,6 +1792,118 @@ const App = () => {
             setIsBulkAddLoading(false);
         }
     };
+    
+    const processPdfsForProducts = async (b2bPdfData: string, b2cPdfData: string) => {
+        setIsBulkAddLoading(true);
+        setBulkAddError(null);
+        setBulkAddProducts([]);
+
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            
+            const systemInstruction = "You are an expert data extraction assistant specializing in retail product lists. Your task is to analyze PDF documents and accurately extract product information. You must differentiate between English and Tamil text for product descriptions and format the output as a JSON array based on the provided schema.";
+            
+            const userPrompt = {
+                text: "From this PDF, extract the product list. For each item, identify the English description, the separate Tamil description, and the price from the 'Sal.Rate' column. If a Tamil description is not present for an item, leave that field as an empty string.",
+            };
+            
+            const config = {
+                 systemInstruction,
+                 responseMimeType: "application/json",
+                 responseSchema: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            description: { 
+                                type: Type.STRING, 
+                                description: 'The full English name or description of the product. This should not contain any Tamil characters.' 
+                            },
+                            descriptionTamil: { 
+                                type: Type.STRING, 
+                                description: 'The Tamil name or description of the product. This should only contain Tamil characters if found. If not found, this must be an empty string.' 
+                            },
+                            price: { 
+                                type: Type.NUMBER, 
+                                description: 'The price of the product, extracted from the "Sal.Rate" column.' 
+                            },
+                        },
+                        required: ["description", "price"],
+                    },
+                },
+            };
+
+            const b2bRequest = ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: { parts: [{ inlineData: { mimeType: 'application/pdf', data: b2bPdfData } }, userPrompt] },
+                config: config,
+            });
+
+            const b2cRequest = ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: { parts: [{ inlineData: { mimeType: 'application/pdf', data: b2cPdfData } }, userPrompt] },
+                config: config,
+            });
+
+            const [b2bResponse, b2cResponse] = await Promise.all([b2bRequest, b2cRequest]);
+
+            const b2bResults = JSON.parse(b2bResponse.text.trim());
+            const b2cResults = JSON.parse(b2cResponse.text.trim());
+            
+            if (!Array.isArray(b2bResults) || !Array.isArray(b2cResults)) {
+                throw new Error("AI did not return a valid list of products from one or both documents.");
+            }
+
+            const mergedProductsMap = new Map<string, EditableProduct>();
+
+            b2bResults.forEach(item => {
+                const key = (item.description || '').trim().toLowerCase();
+                if(key) {
+                    mergedProductsMap.set(key, {
+                        description: item.description,
+                        descriptionTamil: item.descriptionTamil || '',
+                        category: '',
+                        barcode: '',
+                        b2bPrice: item.price || 0,
+                        b2cPrice: 0,
+                        stock: 0,
+                    });
+                }
+            });
+
+            b2cResults.forEach(item => {
+                const key = (item.description || '').trim().toLowerCase();
+                if (key) {
+                    const existing = mergedProductsMap.get(key);
+                    if (existing) {
+                        existing.b2cPrice = item.price || 0;
+                         if (!existing.descriptionTamil && item.descriptionTamil) {
+                            existing.descriptionTamil = item.descriptionTamil;
+                        }
+                    } else {
+                        mergedProductsMap.set(key, {
+                            description: item.description,
+                            descriptionTamil: item.descriptionTamil || '',
+                            category: '',
+                            barcode: '',
+                            b2bPrice: 0,
+                            b2cPrice: item.price || 0,
+                            stock: 0
+                        });
+                    }
+                }
+            });
+            
+            setBulkAddProducts(Array.from(mergedProductsMap.values()));
+
+        } catch (error: any) {
+            console.error("Error processing PDFs with Gemini:", error);
+            setBulkAddError(error.message || "An unknown error occurred while analyzing the PDFs.");
+        } finally {
+            setIsBulkAddLoading(false);
+        }
+    };
+
 
     const handleFileSelectForBulkAdd = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -1534,13 +1912,46 @@ const App = () => {
         const reader = new FileReader();
         reader.onload = (e) => {
             const result = e.target?.result as string;
-            setBulkAddImage(result);
+            setBulkAddFileSrc(result);
+            setBulkAddFileType('image');
             setIsBulkAddModalOpen(true);
             const base64String = result.split(',')[1];
             processImageForProducts(base64String, file.type);
         };
         reader.readAsDataURL(file);
         event.target.value = ''; // Reset input to allow re-selection of the same file
+    };
+
+    const handleProcessPdfs = (b2bFile: File, b2cFile: File) => {
+        setIsPdfUploadModalOpen(false);
+        setBulkAddFileNames({ b2b: b2bFile.name, b2c: b2cFile.name });
+        setIsBulkAddModalOpen(true);
+        setBulkAddFileType('dual-pdf');
+
+        const readerB2b = new FileReader();
+        const readerB2c = new FileReader();
+        let b2bData: string, b2cData: string;
+
+        readerB2b.onload = (e) => {
+            b2bData = (e.target?.result as string).split(',')[1];
+            if (b2cData) processPdfsForProducts(b2bData, b2cData);
+        };
+        readerB2c.onload = (e) => {
+            b2cData = (e.target?.result as string).split(',')[1];
+            if (b2bData) processPdfsForProducts(b2bData, b2cData);
+        };
+
+        readerB2b.readAsDataURL(b2bFile);
+        readerB2c.readAsDataURL(b2cFile);
+    };
+
+    const handleCloseBulkAddModal = () => {
+        setIsBulkAddModalOpen(false);
+        setBulkAddFileSrc(null);
+        setBulkAddFileNames(null);
+        setBulkAddFileType(null);
+        setBulkAddProducts([]);
+        setBulkAddError(null);
     };
 
     const handleSaveBulkProducts = (newProducts: EditableProduct[]) => {
@@ -1551,14 +1962,12 @@ const App = () => {
         saveProducts(updatedProducts);
         setNextProductId(currentId);
         
-        // Close and reset modal state
-        setIsBulkAddModalOpen(false);
-        setBulkAddImage(null);
-        setBulkAddProducts([]);
-        setBulkAddError(null);
+        handleCloseBulkAddModal();
     };
 
-    const productForDeletion = productToDeleteId ? products.find(p => p.id === productToDeleteId) : null;
+    const deletionMessage = productIdsToDelete.length === 1
+        ? `the product "${products.find(p => p.id === productIdsToDelete[0])?.description}"`
+        : `${productIdsToDelete.length} products`;
 
     return (
         <div style={styles.appContainer}>
@@ -1582,6 +1991,21 @@ const App = () => {
                     >
                         Reports
                     </button>
+                    {activeView === 'sales' && (
+                        <div style={styles.billSelector}>
+                            {[1, 2, 3].map((billNumber, index) => (
+                                <button
+                                    key={billNumber}
+                                    onClick={() => setActiveCartIndex(index)}
+                                    style={activeCartIndex === index ? {...styles.billButton, ...styles.billButtonActive} : styles.billButton}
+                                    aria-label={`Switch to bill ${billNumber}`}
+                                    aria-current={activeCartIndex === index}
+                                >
+                                    {billNumber}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
                 <div style={styles.dateTimeDisplay}>
                     {currentDateTime.toLocaleString('en-US', {
@@ -1595,22 +2019,14 @@ const App = () => {
                 {activeView === 'sales' && 
                     <SalesView 
                         products={products}
-                        saleItems={saleItems}
-                        setSaleItems={setSaleItems}
+                        activeCart={activeCart}
+                        updateActiveCart={updateActiveCart}
                         onPreview={() => setIsInvoiceModalOpen(true)}
-                        subtotal={subtotal}
-                        discount={discount}
-                        setDiscount={setDiscount}
-                        tax={tax}
-                        setTax={setTax}
                         total={total}
-                        customerName={customerName}
-                        setCustomerName={setCustomerName}
-                        customerMobile={customerMobile}
-                        setCustomerMobile={setCustomerMobile}
                         onShowHistory={() => setIsHistoryModalOpen(true)}
                         onSaveBackup={handleSaveBackup}
                         onRestoreBackup={handleRestoreBackup}
+                        onUpdateProductPrice={handleUpdateProductPrice}
                     />
                 }
                 {activeView === 'products' && 
@@ -1618,8 +2034,12 @@ const App = () => {
                         products={products}
                         onAdd={() => handleOpenProductModal()}
                         onEdit={handleOpenProductModal}
-                        onDelete={handleDeleteRequest}
+                        onDelete={handleSingleDeleteRequest}
                         onBulkAdd={handleFileSelectForBulkAdd}
+                        onBulkAddPdfs={() => setIsPdfUploadModalOpen(true)}
+                        selectedProductIds={selectedProductIds}
+                        setSelectedProductIds={setSelectedProductIds}
+                        onDeleteSelected={handleBulkDeleteRequest}
                     />
                 }
                 {activeView === 'reports' && <ReportsView salesHistory={salesHistory} onPrint={setSaleToPrint}/>}
@@ -1635,23 +2055,32 @@ const App = () => {
             }
             {isInvoiceModalOpen && 
                 <InvoicePreviewModal 
-                    sale={{items: saleItems, subtotal, discount, tax: taxAmount, total, date: new Date().toISOString()}} 
-                    customerName={customerName}
-                    customerMobile={customerMobile}
+                    sale={{items: activeCart.items, subtotal, discount: activeCart.discount, tax: taxAmount, total, date: new Date().toISOString()}} 
+                    customerName={activeCart.customerName}
+                    customerMobile={activeCart.customerMobile}
                     onFinalize={handleFinalizeSale}
                     onClose={() => setIsInvoiceModalOpen(false)} 
                     onPrint={() => window.print()}
-                    onWhatsApp={(number) => setCustomerMobile(number)}
+                    onWhatsApp={(number) => updateActiveCart({ customerMobile: number })}
+                    language={activeCart.language}
                 />
             }
-             {isBulkAddModalOpen && bulkAddImage &&
+             {isBulkAddModalOpen &&
                 <BulkAddModal
-                    imageSrc={bulkAddImage}
+                    fileSrc={bulkAddFileSrc}
+                    fileType={bulkAddFileType}
+                    fileNames={bulkAddFileNames}
                     initialProducts={bulkAddProducts}
                     onSave={handleSaveBulkProducts}
-                    onClose={() => setIsBulkAddModalOpen(false)}
+                    onClose={handleCloseBulkAddModal}
                     loading={isBulkAddLoading}
                     error={bulkAddError}
+                />
+            }
+            {isPdfUploadModalOpen && 
+                <PdfUploadModal
+                    onProcess={handleProcessPdfs}
+                    onClose={() => setIsPdfUploadModalOpen(false)}
                 />
             }
             {saleToPrint &&
@@ -1661,18 +2090,19 @@ const App = () => {
                     customerMobile={saleToPrint.customerMobile}
                     onClose={() => setSaleToPrint(null)}
                     onPrint={() => window.print()}
+                    language={'english'}
                 />
             }
             {isHistoryModalOpen &&
                 <HistoryModal
                     salesHistory={salesHistory}
-                    customerMobile={customerMobile}
+                    customerMobile={activeCart.customerMobile}
                     onClose={() => setIsHistoryModalOpen(false)}
                 />
             }
-            {isConfirmModalOpen && productForDeletion && (
+            {isConfirmModalOpen && productIdsToDelete.length > 0 && (
                 <ConfirmationModal 
-                    message={`Are you sure you want to delete the product "${productForDeletion.description}"? This action cannot be undone.`}
+                    message={`Are you sure you want to delete ${deletionMessage}? This action cannot be undone.`}
                     onConfirm={handleConfirmDelete}
                     onCancel={handleCancelDelete}
                 />
@@ -1716,6 +2146,30 @@ const styles: { [key: string]: React.CSSProperties } = {
     navButtonActive: {
         backgroundColor: 'var(--primary-color)',
         color: '#fff',
+    },
+    billSelector: {
+        display: 'inline-flex',
+        marginLeft: '1rem',
+        backgroundColor: 'var(--background-color)',
+        borderRadius: '6px',
+        padding: '3px',
+        alignItems: 'center',
+        border: '1px solid var(--border-color)',
+    },
+    billButton: {
+        padding: '0.5rem 1rem',
+        border: 'none',
+        background: 'none',
+        cursor: 'pointer',
+        fontSize: '0.9rem',
+        fontWeight: '500',
+        color: 'var(--secondary-color)',
+        borderRadius: '4px',
+    },
+    billButtonActive: {
+        backgroundColor: 'var(--surface-color)',
+        color: 'var(--primary-color)',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
     },
     dateTimeDisplay: {
         fontSize: '0.9rem',
