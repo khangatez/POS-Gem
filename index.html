@@ -47,39 +47,62 @@
 
             body {
                 background-color: #fff;
-                font-size: 10pt;
-                width: 100%;
+                padding: 0;
+                margin: 0;
             }
 
-            body > *:not(.invoice-preview-backdrop) {
+            /* Hide everything that is NOT the invoice modal */
+            nav,
+            main,
+            .invoice-actions {
                 display: none !important;
             }
+
+            /* 
+             * Reset the layout of the main containers.
+             * This is the key fix: The div inside #root has a max-width and flex display
+             * that were constraining the invoice during printing.
+            */
+            #root, #root > div {
+                padding: 0 !important;
+                margin: 0 !important;
+                border: none !important;
+                box-shadow: none !important;
+                display: block !important;
+                width: auto !important;
+                max-width: none !important;
+                background: none !important;
+            }
+
+            /* Make the invoice backdrop and content the only things visible */
             .invoice-preview-backdrop {
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: auto;
+                position: static !important;
                 background-color: transparent !important;
                 padding: 0 !important;
+                margin: 0 !important;
+                border: none !important;
+                box-shadow: none !important;
                 display: block !important;
+                justify-content: flex-start !important;
+                align-items: flex-start !important;
             }
+            
             .invoice-preview-content {
                 box-shadow: none !important;
                 border: none !important;
                 width: 100% !important;
                 max-width: 100% !important;
                 padding: 0 !important;
+                margin: 0 !important;
+                font-size: 10pt;
                 max-height: none !important;
                 overflow: visible !important;
-                font-size: 10pt;
             }
+
             .invoice-preview-content h2 {
                 font-size: 14pt;
             }
-            .invoice-actions {
-                display: none !important;
-            }
+            
             .invoice-preview-content th, .invoice-preview-content td {
                 padding: 2px 4px;
             }
@@ -95,6 +118,7 @@
   }
 }
 </script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body>
     <div id="root"></div>

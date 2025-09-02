@@ -353,7 +353,7 @@ const PdfIcon = ({ size = 80, color = 'var(--danger-color)' }) => (
     <svg xmlns="http://www.w3.org/2000/svg" height={`${size}px`} viewBox="0 0 24 24" width={`${size}px`} fill={color} style={{marginBottom: '1rem'}}>
         <path d="M0 0h24v24H0V0z" fill="none"/>
         <path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM9.5 11.5c0 .83-.67 1.5-1.5 1.5H7v2H5.5V9h2.5c.83 0 1.5.67 1.5 1.5v1zm3.5 1.5h-1v-2h-1.5v2h-1V9H13v4zm5.5-1.5h-1.5v-1h1.5v-1h-1.5v-1h1.5v-1h-3V9h3c.83 0 1.5.67 1.5 1.5v1.5c0 .83-.67 1.5-1.5 1.5z"/>
-        <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6z"/>
+        <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2-H4V6z"/>
     </svg>
 );
 
@@ -665,7 +665,7 @@ const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, o
     language: 'english' | 'tamil';
 }) => {
     const [phoneNumber, setPhoneNumber] = useState(customerMobile || '');
-    const modalContentRef = useRef(null);
+    const modalContentRef = useRef<HTMLDivElement>(null);
 
     const purchasedItems = sale.items.filter(item => !item.isReturn);
     const returnedItems = sale.items.filter(item => item.isReturn);
@@ -674,6 +674,32 @@ const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, o
     const returnTotal = returnedItems.reduce((acc, item) => acc + item.quantity * item.price, 0);
 
     const saleDate = onFinalize ? new Date() : new Date(sale.date);
+
+    const handleSavePdf = () => {
+        const element = modalContentRef.current;
+        if (!element) return;
+    
+        // Temporarily hide the action buttons so they don't appear in the PDF
+        const actions = element.querySelector('.invoice-actions') as HTMLElement;
+        if(actions) actions.style.display = 'none';
+        
+        const dateStr = saleDate.toISOString().slice(0, 10);
+        const customerIdentifier = customerName ? customerName.replace(/ /g, '_') : 'customer';
+        const filename = `invoice-${customerIdentifier}-${dateStr}.pdf`;
+    
+        const opt = {
+          margin: 0.2,
+          filename: filename,
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true },
+          jsPDF: { unit: 'in', format: [4, 6], orientation: 'portrait' }
+        };
+    
+        (window as any).html2pdf().set(opt).from(element).save().then(() => {
+            // Show the actions again after the PDF has been generated
+            if (actions) actions.style.display = 'flex';
+        });
+      };
 
     const handleWhatsAppClick = () => {
         if (!phoneNumber) {
@@ -722,7 +748,7 @@ Goods once sold cannot be taken back.
 
     const renderTable = (items: SaleItem[], title: string, isReturn = false) => (
         <>
-            <h4 style={{ margin: '0.8rem 0 0.4rem 0', borderBottom: '1px solid #eee', paddingBottom: '0.2rem' }}>{title}</h4>
+            {title && <h4 style={{ margin: '0.8rem 0 0.4rem 0', borderBottom: '1px solid #eee', paddingBottom: '0.2rem' }}>{title}</h4>}
             <table style={{...styles.table, fontSize: '10pt', width: '100%', borderCollapse: 'collapse'}}>
                 <thead>
                     <tr>
@@ -737,7 +763,7 @@ Goods once sold cannot be taken back.
                     {items.map((item, index) => (
                         <tr key={item.id} style={isReturn ? {color: 'var(--danger-color)'} : {}}>
                             <td style={{...styles.td, padding: '2px', textAlign: 'center'}}>{index + 1}</td>
-                            <td style={{...styles.td, padding: '2px'}}>{language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description}</td>
+                            <td style={{...styles.td, padding: '2px', fontWeight: 'bold', fontSize: '13pt'}}>{language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description}</td>
                             <td style={{...styles.td, textAlign: 'right', padding: '2px'}}>{item.quantity}</td>
                             <td style={{...styles.td, textAlign: 'right', padding: '2px'}}>{item.price.toFixed(2)}</td>
                             <td style={{...styles.td, textAlign: 'right', padding: '2px'}}>{(item.quantity * item.price).toFixed(2)}</td>
@@ -750,34 +776,35 @@ Goods once sold cannot be taken back.
 
     return (
         <div className="invoice-preview-backdrop" style={styles.modalBackdrop}>
-            <div ref={modalContentRef} className="invoice-preview-content" style={{...styles.modalContent, maxWidth: '4in', padding: '0.5rem'}}>
-                <div style={{textAlign: 'center', marginBottom: '1rem'}}>
-                    <h2 style={{margin: '0'}}>Invoice</h2>
-                    <p style={{margin: '0'}}>Date: {saleDate.toLocaleString()}</p>
+            <div className="invoice-preview-content-wrapper" style={{...styles.modalContent, maxWidth: '4.5in', padding: '0.5rem', maxHeight: '90vh', overflowY: 'auto'}}>
+                <div ref={modalContentRef} id="invoice-to-print" style={{padding: '0.2in'}}>
+                    <div style={{textAlign: 'center', marginBottom: '0.5rem'}}>
+                        <h2 style={{margin: '0'}}>Invoice</h2>
+                        <p style={{margin: '0'}}>Date: {saleDate.toLocaleString()}</p>
+                    </div>
+
+                    {customerName && <p style={{margin: '0.2rem 0'}}><b>Customer:</b> {customerName}</p>}
+                    {customerMobile && <p style={{margin: '0.2rem 0'}}><b>Mobile:</b> {customerMobile}</p>}
+
+                    {purchasedItems.length > 0 && renderTable(purchasedItems, '')}
+                    {returnedItems.length > 0 && renderTable(returnedItems, 'Returned Items', true)}
+
+                    <hr style={{border: '1px dashed #ccc', margin: '0.5rem 0'}}/>
+
+                    <div style={{textAlign: 'right', fontSize: '10pt'}}>
+                        {purchasedItems.length > 0 && <p style={{margin: '2px 0'}}><b>Gross Total:</b> ₹{grossTotal.toFixed(2)}</p>}
+                        {returnedItems.length > 0 && <p style={{margin: '2px 0', color: 'var(--danger-color)'}}><b>Total Returns:</b> -₹{returnTotal.toFixed(2)}</p>}
+                        <p style={{margin: '2px 0'}}><b>Subtotal:</b> ₹{sale.subtotal.toFixed(2)}</p>
+                        {sale.discount > 0 && <p style={{margin: '2px 0'}}><b>Discount:</b> -₹{sale.discount.toFixed(2)}</p>}
+                        {sale.tax > 0 && <p style={{margin: '2px 0'}}><b>Tax:</b> ₹{sale.tax.toFixed(2)}</p>}
+                        <p style={{margin: '2px 0', fontSize: '12pt'}}><b>Grand Total:</b> ₹{sale.total.toFixed(2)}</p>
+                    </div>
+
+                    <p style={{textAlign: 'center', fontSize: '9pt', marginTop: '1rem'}}>
+                        Goods once sold cannot be taken back.
+                    </p>
                 </div>
-
-                {customerName && <p style={{margin: '0.2rem 0'}}><b>Customer:</b> {customerName}</p>}
-                {customerMobile && <p style={{margin: '0.2rem 0'}}><b>Mobile:</b> {customerMobile}</p>}
-
-                {purchasedItems.length > 0 && renderTable(purchasedItems, 'Purchased Items')}
-                {returnedItems.length > 0 && renderTable(returnedItems, 'Returned Items', true)}
-
-                <hr style={{border: '1px dashed #ccc', margin: '0.5rem 0'}}/>
-
-                <div style={{textAlign: 'right', fontSize: '10pt'}}>
-                    {purchasedItems.length > 0 && <p style={{margin: '2px 0'}}><b>Gross Total:</b> ₹{grossTotal.toFixed(2)}</p>}
-                    {returnedItems.length > 0 && <p style={{margin: '2px 0', color: 'var(--danger-color)'}}><b>Total Returns:</b> -₹{returnTotal.toFixed(2)}</p>}
-                    <p style={{margin: '2px 0'}}><b>Subtotal:</b> ₹{sale.subtotal.toFixed(2)}</p>
-                    {sale.discount > 0 && <p style={{margin: '2px 0'}}><b>Discount:</b> -₹{sale.discount.toFixed(2)}</p>}
-                    {sale.tax > 0 && <p style={{margin: '2px 0'}}><b>Tax:</b> ₹{sale.tax.toFixed(2)}</p>}
-                    <p style={{margin: '2px 0', fontSize: '12pt'}}><b>Grand Total:</b> ₹{sale.total.toFixed(2)}</p>
-                </div>
-
-                <p style={{textAlign: 'center', fontSize: '9pt', marginTop: '1rem'}}>
-                    Goods once sold cannot be taken back.
-                </p>
-
-                <div className="invoice-actions" style={{...styles.modalActions, marginTop: '1.5rem', flexWrap: 'wrap'}}>
+                 <div className="invoice-actions" style={{...styles.modalActions, marginTop: '1.5rem', flexWrap: 'wrap', padding: '0 0.2in 0.2in 0.2in'}}>
                     {onWhatsApp && (
                         <>
                             <input
@@ -790,6 +817,7 @@ Goods once sold cannot be taken back.
                             <button onClick={handleWhatsAppClick} style={{...styles.button, backgroundColor: '#25D366'}}>WhatsApp</button>
                         </>
                     )}
+                    {onPrint && <button onClick={handleSavePdf} style={{...styles.button, backgroundColor: '#007bff'}}>Save as PDF</button>}
                     {onPrint && <button onClick={onPrint} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Print</button>}
                     {onFinalize && <button onClick={onFinalize} style={{...styles.button, backgroundColor: 'var(--success-color)'}}>Finalize Sale</button>}
                     {onClose && <button onClick={onClose} style={{...styles.button, backgroundColor: onFinalize ? 'var(--danger-color)' : 'var(--secondary-color)'}}>{onFinalize ? 'Back' : 'Close'}</button>}
