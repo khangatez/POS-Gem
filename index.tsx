@@ -540,7 +540,7 @@ const BulkAddModal = ({ fileSrc, fileType, fileNames, initialProducts, onSave, o
 
 
 // --- PRODUCTS VIEW COMPONENT ---
-const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddPdfs, selectedProductIds, setSelectedProductIds, onDeleteSelected }) => {
+const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddPdfs, selectedProductIds, setSelectedProductIds, onDeleteSelected, isOnline }) => {
     const [filter, setFilter] = useState<'all' | 'low'>('all');
     const bulkAddInputRef = useRef<HTMLInputElement>(null);
 
@@ -588,9 +588,11 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddP
                         ref={bulkAddInputRef}
                         onChange={onBulkAdd}
                         style={{ display: 'none' }}
+                        disabled={!isOnline}
                     />
-                     <button onClick={handleBulkAddClick} style={{...styles.button, backgroundColor: '#ffc107', color: 'black'}}>Bulk Add from Image</button>
-                     <button onClick={onBulkAddPdfs} style={{...styles.button, marginRight: '1rem', backgroundColor: 'var(--danger-color)'}}>Bulk Add from PDFs (B2B & B2C)</button>
+                    {!isOnline && <span style={{ color: 'var(--danger-color)', fontSize: '0.9rem' }}>AI features disabled offline</span>}
+                     <button onClick={handleBulkAddClick} style={{...styles.button, backgroundColor: '#ffc107', color: 'black'}} disabled={!isOnline}>Bulk Add from Image</button>
+                     <button onClick={onBulkAddPdfs} style={{...styles.button, marginRight: '1rem', backgroundColor: 'var(--danger-color)'}} disabled={!isOnline}>Bulk Add from PDFs (B2B & B2C)</button>
                     <button onClick={onAdd} style={styles.button}>Add New Product</button>
                 </div>
             </div>
@@ -769,9 +771,8 @@ Goods once sold cannot be taken back.
                                 padding: '2px', 
                                 fontWeight: 'bold', 
                                 fontSize: `${itemFontSize}pt`,
-                                whiteSpace: 'nowrap',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
+                                whiteSpace: 'normal',
+                                wordBreak: 'break-word',
                              }}>
                                 {language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description}
                             </td>
@@ -1018,6 +1019,7 @@ const SalesView = ({
     onRestoreBackup,
     onUpdateProductPrice,
     onAddNewProduct,
+    isOnline,
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [searchResults, setSearchResults] = useState<Product[]>([]);
@@ -1093,12 +1095,16 @@ const SalesView = ({
     
     const handleAddToSale = (product: Product, focusOnQuantity: boolean = true) => {
         const price = priceMode === 'b2b' ? product.b2bPrice : product.b2cPrice;
-        
+
         const existingItemIndex = activeCart.items.findIndex(item => item.productId === product.id && !item.isReturn);
+        
+        let focusIndex = -1;
+
         if (existingItemIndex > -1) {
             const updatedItems = [...activeCart.items];
             updatedItems[existingItemIndex].quantity += 1;
             updateActiveCart({ items: updatedItems });
+            focusIndex = existingItemIndex;
         } else {
             const newItem: SaleItem = {
                 id: Date.now(),
@@ -1110,17 +1116,22 @@ const SalesView = ({
                 isReturn: false,
             };
             updateActiveCart({ items: [...activeCart.items, newItem] });
+            // The index for the new item will be the current length of the items array
+            // before the state update is committed.
+            focusIndex = activeCart.items.length; 
         }
+
         setSearchTerm('');
         setSearchResults([]);
         setHighlightedIndex(-1);
         
-        if (focusOnQuantity) {
+        if (focusOnQuantity && focusIndex > -1) {
             setTimeout(() => {
-                const newItemIndex = activeCart.items.length - 1;
-                const inputRef = quantityInputRefs.current[newItemIndex];
-                inputRef?.focus();
-                inputRef?.select();
+                const inputRef = quantityInputRefs.current[focusIndex];
+                if (inputRef) {
+                    inputRef.focus();
+                    inputRef.select();
+                }
             }, 100);
         }
     };
@@ -1129,6 +1140,9 @@ const SalesView = ({
         const newProduct = onAddNewProduct(searchTerm);
         if (newProduct) {
             handleAddToSale(newProduct, true);
+        } else {
+            alert("Product name cannot be empty.");
+            setSearchTerm('');
         }
     };
 
@@ -1365,8 +1379,8 @@ const SalesView = ({
                  <button onClick={() => setIsScannerOpen(true)} style={styles.barcodeScanButton} title="Scan Barcode">
                     <ScanIcon color={'var(--secondary-color)'} />
                 </button>
-                 <button onClick={handleVoiceSearch} style={styles.voiceSearchButton} title="Search with voice">
-                    <MicIcon color={isListening ? 'var(--danger-color)' : 'var(--secondary-color)'} />
+                 <button onClick={handleVoiceSearch} style={styles.voiceSearchButton} title={isOnline ? "Search with voice" : "Voice search is disabled offline"} disabled={!isOnline}>
+                    <MicIcon color={isListening ? 'var(--danger-color)' : (isOnline ? 'var(--secondary-color)' : '#cccccc')} />
                 </button>
                 {searchTerm && (
                     <ul style={styles.searchResults}>
@@ -1567,11 +1581,27 @@ const App = () => {
     const [selectedProductIds, setSelectedProductIds] = useState<number[]>([]);
     const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
     const [productIdsToDelete, setProductIdsToDelete] = useState<number[]>([]);
+    
+    // State for Online/Offline status
+    const [isOnline, setIsOnline] = useState(() => navigator.onLine);
 
 
     useEffect(() => {
         const timerId = setInterval(() => setCurrentDateTime(new Date()), 1000);
         return () => clearInterval(timerId);
+    }, []);
+
+    useEffect(() => {
+        const setOnline = () => setIsOnline(true);
+        const setOffline = () => setIsOnline(false);
+
+        window.addEventListener('online', setOnline);
+        window.addEventListener('offline', setOffline);
+
+        return () => {
+            window.removeEventListener('online', setOnline);
+            window.removeEventListener('offline', setOffline);
+        };
     }, []);
     
     // Load data from localStorage on initial render
@@ -1650,10 +1680,16 @@ const App = () => {
         setEditingProduct(null);
     };
 
-    const handleAddNewProductFromSale = (description: string): Product => {
+    const handleAddNewProductFromSale = (description: string): Product | null => {
+        const trimmedDescription = description.trim();
+        if (!trimmedDescription) {
+            console.warn("Attempted to create a product with an empty description.");
+            return null;
+        }
+
         const newProduct: Product = { 
             id: nextProductId, 
-            description, 
+            description: trimmedDescription, 
             descriptionTamil: '', 
             barcode: '', 
             b2bPrice: 0, 
@@ -2131,6 +2167,7 @@ const App = () => {
                         onRestoreBackup={handleRestoreBackup}
                         onUpdateProductPrice={handleUpdateProductPrice}
                         onAddNewProduct={handleAddNewProductFromSale}
+                        isOnline={isOnline}
                     />
                 }
                 {activeView === 'products' && 
@@ -2144,6 +2181,7 @@ const App = () => {
                         selectedProductIds={selectedProductIds}
                         setSelectedProductIds={setSelectedProductIds}
                         onDeleteSelected={handleBulkDeleteRequest}
+                        isOnline={isOnline}
                     />
                 }
                 {activeView === 'reports' && <ReportsView salesHistory={salesHistory} onPrint={setSaleToPrint}/>}

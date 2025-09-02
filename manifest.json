@@ -1,0 +1,21 @@
+{
+  "short_name": "POS App",
+  "name": "POS gem app",
+  "description": "A modern Point of Sale application that works online and offline.",
+  "icons": [
+    {
+      "src": "logo192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "logo512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#17a2b8",
+  "background_color": "#e9ecef"
+}
