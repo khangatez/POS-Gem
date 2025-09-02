@@ -46,7 +46,7 @@ const initialProducts: Product[] = [
 ];
 
 // --- PRODUCT FORM MODAL COMPONENT ---
-const ProductFormModal = ({ product, onSave, onClose, onUpdate }: { product: Product | null, onSave: (product: Omit<Product, 'id'>) => void, onUpdate: (product: Product) => void, onClose: () => void }) => {
+const ProductFormModal = ({ product, onSave, onUpdate, onClose }: { product: Product | null, onSave: (product: Omit<Product, 'id'>) => void, onUpdate: (product: Product) => void, onClose: () => void }) => {
     type ProductFormData = Omit<Product, 'id' | 'b2bPrice' | 'b2cPrice' | 'stock'> & {
         b2bPrice: string | number;
         b2cPrice: string | number;
@@ -633,8 +633,8 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddP
                                 <td style={styles.td}>{p.descriptionTamil || 'N/A'}</td>
                                 <td style={styles.td}>{p.category || 'N/A'}</td>
                                 <td style={styles.td}>{p.barcode}</td>
-                                <td style={styles.td}>₹{p.b2bPrice.toFixed(2)}</td>
-                                <td style={styles.td}>₹{p.b2cPrice.toFixed(2)}</td>
+                                <td style={styles.td}>₹{p.b2bPrice.toFixed(1)}</td>
+                                <td style={styles.td}>₹{p.b2cPrice.toFixed(1)}</td>
                                 <td style={{...styles.td, color: p.stock <= lowStockThreshold ? 'var(--danger-color)' : 'inherit', fontWeight: p.stock <= lowStockThreshold ? 'bold' : 'normal'}}>{p.stock}</td>
                                 <td style={styles.td}>
                                     <button onClick={() => onEdit(p)} style={{...styles.actionButton, backgroundColor: '#ffc107'}}>Edit</button>
@@ -666,6 +666,7 @@ const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, o
 }) => {
     const [phoneNumber, setPhoneNumber] = useState(customerMobile || '');
     const modalContentRef = useRef<HTMLDivElement>(null);
+    const [itemFontSize, setItemFontSize] = useState(12);
 
     const purchasedItems = sale.items.filter(item => !item.isReturn);
     const returnedItems = sale.items.filter(item => item.isReturn);
@@ -712,13 +713,13 @@ const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, o
 
         const purchasedItemsText = purchasedItems.length > 0
             ? '--- Purchased Items ---\n' + purchasedItems.map(item =>
-                `${getItemDescription(item)} (Qty: ${item.quantity} x ₹${item.price.toFixed(2)} = ₹${(item.quantity * item.price).toFixed(2)})`
+                `${getItemDescription(item)} (Qty: ${item.quantity} x ₹${item.price.toFixed(1)} = ₹${(item.quantity * item.price).toFixed(1)})`
             ).join('\n')
             : '';
         
         const returnedItemsText = returnedItems.length > 0
             ? '\n--- Returned Items ---\n' + returnedItems.map(item =>
-                `${getItemDescription(item)} (Qty: ${item.quantity} x ₹${item.price.toFixed(2)} = ₹${(item.quantity * item.price).toFixed(2)})`
+                `${getItemDescription(item)} (Qty: ${item.quantity} x ₹${item.price.toFixed(1)} = ₹${(item.quantity * item.price).toFixed(1)})`
             ).join('\n')
             : '';
 
@@ -729,13 +730,13 @@ Here is your invoice summary:
 ${purchasedItemsText}
 ${returnedItemsText}
 -----------------------------------
-Gross Total: ₹${grossTotal.toFixed(2)}
-${returnTotal > 0 ? `Total Returns: -₹${returnTotal.toFixed(2)}` : ''}
+Gross Total: ₹${grossTotal.toFixed(1)}
+${returnTotal > 0 ? `Total Returns: -₹${returnTotal.toFixed(1)}` : ''}
 -----------------------------------
-Subtotal: ₹${sale.subtotal.toFixed(2)}
-${sale.discount > 0 ? `Discount: -₹${sale.discount.toFixed(2)}` : ''}
-${sale.tax > 0 ? `Tax: ₹${sale.tax.toFixed(2)}` : ''}
-Grand Total: ₹${sale.total.toFixed(2)}
+Subtotal: ₹${sale.subtotal.toFixed(1)}
+${sale.discount > 0 ? `Discount: -₹${sale.discount.toFixed(1)}` : ''}
+${sale.tax > 0 ? `Tax: ₹${sale.tax.toFixed(1)}` : ''}
+Grand Total: ₹${sale.total.toFixed(1)}
 -----------------------------------
 Thank you for your purchase!
 Goods once sold cannot be taken back.
@@ -749,11 +750,11 @@ Goods once sold cannot be taken back.
     const renderTable = (items: SaleItem[], title: string, isReturn = false) => (
         <>
             {title && <h4 style={{ margin: '0.8rem 0 0.4rem 0', borderBottom: '1px solid #eee', paddingBottom: '0.2rem' }}>{title}</h4>}
-            <table style={{...styles.table, fontSize: '10pt', width: '100%', borderCollapse: 'collapse'}}>
+            <table style={{...styles.table, fontSize: '10pt', width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed'}}>
                 <thead>
                     <tr>
                         <th style={{...styles.th, textAlign: 'left', padding: '2px', width: '30px'}}>S.No.</th>
-                        <th style={{...styles.th, textAlign: 'left', padding: '2px'}}>Item</th>
+                        <th style={{...styles.th, textAlign: 'left', padding: '2px', width: '50%'}}>Item</th>
                         <th style={{...styles.th, textAlign: 'right', padding: '2px'}}>Qty</th>
                         <th style={{...styles.th, textAlign: 'right', padding: '2px'}}>Price</th>
                         <th style={{...styles.th, textAlign: 'right', padding: '2px'}}>Total</th>
@@ -763,10 +764,20 @@ Goods once sold cannot be taken back.
                     {items.map((item, index) => (
                         <tr key={item.id} style={isReturn ? {color: 'var(--danger-color)'} : {}}>
                             <td style={{...styles.td, padding: '2px', textAlign: 'center'}}>{index + 1}</td>
-                            <td style={{...styles.td, padding: '2px', fontWeight: 'bold', fontSize: '13pt'}}>{language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description}</td>
+                            <td style={{
+                                ...styles.td, 
+                                padding: '2px', 
+                                fontWeight: 'bold', 
+                                fontSize: `${itemFontSize}pt`,
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                             }}>
+                                {language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description}
+                            </td>
                             <td style={{...styles.td, textAlign: 'right', padding: '2px'}}>{item.quantity}</td>
-                            <td style={{...styles.td, textAlign: 'right', padding: '2px'}}>{item.price.toFixed(2)}</td>
-                            <td style={{...styles.td, textAlign: 'right', padding: '2px'}}>{(item.quantity * item.price).toFixed(2)}</td>
+                            <td style={{...styles.td, textAlign: 'right', padding: '2px'}}>{item.price.toFixed(1)}</td>
+                            <td style={{...styles.td, textAlign: 'right', padding: '2px'}}>{(item.quantity * item.price).toFixed(1)}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -777,6 +788,22 @@ Goods once sold cannot be taken back.
     return (
         <div className="invoice-preview-backdrop" style={styles.modalBackdrop}>
             <div className="invoice-preview-content-wrapper" style={{...styles.modalContent, maxWidth: '4.5in', padding: '0.5rem', maxHeight: '90vh', overflowY: 'auto'}}>
+                 <div className="no-print" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.5rem', marginBottom: '0.5rem', paddingRight: '0.2in' }}>
+                    <label htmlFor="fontSizeSelect" style={{fontSize: '10pt', fontWeight: 500}}>Item Font Size:</label>
+                    <select
+                        id="fontSizeSelect"
+                        value={itemFontSize}
+                        onChange={(e) => setItemFontSize(Number(e.target.value))}
+                        style={{ ...styles.input, padding: '0.2rem', height: 'auto', fontSize: '10pt', border: '1px solid var(--border-color)' }}
+                    >
+                        <option value="9">9pt</option>
+                        <option value="10">10pt</option>
+                        <option value="11">11pt</option>
+                        <option value="12">12pt</option>
+                        <option value="13">13pt</option>
+                        <option value="14">14pt</option>
+                    </select>
+                </div>
                 <div ref={modalContentRef} id="invoice-to-print" style={{padding: '0.2in'}}>
                     <div style={{textAlign: 'center', marginBottom: '0.5rem'}}>
                         <h2 style={{margin: '0'}}>Invoice</h2>
@@ -792,12 +819,12 @@ Goods once sold cannot be taken back.
                     <hr style={{border: '1px dashed #ccc', margin: '0.5rem 0'}}/>
 
                     <div style={{textAlign: 'right', fontSize: '10pt'}}>
-                        {purchasedItems.length > 0 && <p style={{margin: '2px 0'}}><b>Gross Total:</b> ₹{grossTotal.toFixed(2)}</p>}
-                        {returnedItems.length > 0 && <p style={{margin: '2px 0', color: 'var(--danger-color)'}}><b>Total Returns:</b> -₹{returnTotal.toFixed(2)}</p>}
-                        <p style={{margin: '2px 0'}}><b>Subtotal:</b> ₹{sale.subtotal.toFixed(2)}</p>
-                        {sale.discount > 0 && <p style={{margin: '2px 0'}}><b>Discount:</b> -₹{sale.discount.toFixed(2)}</p>}
-                        {sale.tax > 0 && <p style={{margin: '2px 0'}}><b>Tax:</b> ₹{sale.tax.toFixed(2)}</p>}
-                        <p style={{margin: '2px 0', fontSize: '12pt'}}><b>Grand Total:</b> ₹{sale.total.toFixed(2)}</p>
+                        {purchasedItems.length > 0 && <p style={{margin: '2px 0'}}><b>Gross Total:</b> ₹{grossTotal.toFixed(1)}</p>}
+                        {returnedItems.length > 0 && <p style={{margin: '2px 0', color: 'var(--danger-color)'}}><b>Total Returns:</b> -₹{returnTotal.toFixed(1)}</p>}
+                        <p style={{margin: '2px 0'}}><b>Subtotal:</b> ₹{sale.subtotal.toFixed(1)}</p>
+                        {sale.discount > 0 && <p style={{margin: '2px 0'}}><b>Discount:</b> -₹{sale.discount.toFixed(1)}</p>}
+                        {sale.tax > 0 && <p style={{margin: '2px 0'}}><b>Tax:</b> ₹{sale.tax.toFixed(1)}</p>}
+                        <p style={{margin: '2px 0', fontSize: '12pt'}}><b>Grand Total:</b> ₹{sale.total.toFixed(1)}</p>
                     </div>
 
                     <p style={{textAlign: 'center', fontSize: '9pt', marginTop: '1rem'}}>
@@ -840,7 +867,7 @@ const HistoryModal = ({ salesHistory, customerMobile, onClose }) => {
                     <div style={{maxHeight: '60vh', overflowY: 'auto'}}>
                         {customerSales.map(sale => (
                             <div key={sale.id} style={{border: '1px solid var(--border-color)', borderRadius: '8px', padding: '1rem', marginBottom: '1rem'}}>
-                                <h4>Date: {new Date(sale.date).toLocaleString()} (Total: ₹{sale.total.toFixed(2)})</h4>
+                                <h4>Date: {new Date(sale.date).toLocaleString()} (Total: ₹{sale.total.toFixed(1)})</h4>
                                 <table style={styles.table}>
                                     <thead>
                                         <tr>
@@ -855,8 +882,8 @@ const HistoryModal = ({ salesHistory, customerMobile, onClose }) => {
                                             <tr key={item.id}>
                                                 <td style={styles.td}>{item.description} {item.isReturn && '(Return)'}</td>
                                                 <td style={styles.td}>{item.quantity}</td>
-                                                <td style={styles.td}>₹{item.price.toFixed(2)}</td>
-                                                <td style={styles.td}>₹{(item.price * item.quantity).toFixed(2)}</td>
+                                                <td style={styles.td}>₹{item.price.toFixed(1)}</td>
+                                                <td style={styles.td}>₹{(item.price * item.quantity).toFixed(1)}</td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -893,7 +920,7 @@ const ReportsView = ({ salesHistory, onPrint }) => {
                 <h2>Daily Sales Report for {today}</h2>
             </div>
             <div style={styles.reportSummary}>
-                 <div style={styles.summaryCard}><h3>Total Revenue</h3><p>₹{totalRevenue.toFixed(2)}</p></div>
+                 <div style={styles.summaryCard}><h3>Total Revenue</h3><p>₹{totalRevenue.toFixed(1)}</p></div>
                  <div style={styles.summaryCard}><h3>Items Sold</h3><p>{totalItemsSold}</p></div>
                  <div style={styles.summaryCard}><h3>Transactions</h3><p>{totalTransactions}</p></div>
             </div>
@@ -916,7 +943,7 @@ const ReportsView = ({ salesHistory, onPrint }) => {
                                     <td style={styles.td}>{new Date(sale.date).toLocaleTimeString()}</td>
                                     <td style={styles.td}>{sale.customerName || 'N/A'} ({sale.customerMobile || 'N/A'})</td>
                                     <td style={styles.td}>{sale.items.length}</td>
-                                    <td style={styles.td}>₹{sale.total.toFixed(2)}</td>
+                                    <td style={styles.td}>₹{sale.total.toFixed(1)}</td>
                                     <td style={styles.td}>
                                         <button onClick={() => setExpandedSale(expandedSale === sale.id ? null : sale.id)} style={{...styles.actionButton, backgroundColor: 'var(--secondary-color)', marginRight: '0.5rem'}}>
                                             {expandedSale === sale.id ? 'Hide' : 'View'}
@@ -943,7 +970,7 @@ const ReportsView = ({ salesHistory, onPrint }) => {
                                                         <tr key={item.id}>
                                                             <td style={styles.td}>{item.description}</td>
                                                             <td style={styles.td}>{item.quantity}</td>
-                                                            <td style={styles.td}>₹{item.price.toFixed(2)}</td>
+                                                            <td style={styles.td}>₹{item.price.toFixed(1)}</td>
                                                             <td style={styles.td}>{item.isReturn ? 'Yes' : 'No'}</td>
                                                         </tr>
                                                     ))}
@@ -990,6 +1017,7 @@ const SalesView = ({
     onSaveBackup,
     onRestoreBackup,
     onUpdateProductPrice,
+    onAddNewProduct,
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [searchResults, setSearchResults] = useState<Product[]>([]);
@@ -1059,8 +1087,8 @@ const SalesView = ({
             );
         } else {
             setSearchResults([]);
-            setHighlightedIndex(-1);
         }
+        setHighlightedIndex(-1);
     };
     
     const handleAddToSale = (product: Product, focusOnQuantity: boolean = true) => {
@@ -1089,11 +1117,18 @@ const SalesView = ({
         
         if (focusOnQuantity) {
             setTimeout(() => {
-                const newItemId = activeCart.items.length;
-                const inputRef = quantityInputRefs.current[newItemId];
+                const newItemIndex = activeCart.items.length - 1;
+                const inputRef = quantityInputRefs.current[newItemIndex];
                 inputRef?.focus();
                 inputRef?.select();
             }, 100);
+        }
+    };
+
+    const handleCreateAndAddProduct = () => {
+        const newProduct = onAddNewProduct(searchTerm);
+        if (newProduct) {
+            handleAddToSale(newProduct, true);
         }
     };
 
@@ -1117,20 +1152,34 @@ const SalesView = ({
     };
 
     const handleSearchKeyDown = (e: React.KeyboardEvent) => {
-        if (searchResults.length === 0) return;
+        const hasResults = searchResults.length > 0;
+        const canAddNew = searchTerm.trim() !== '' && !hasResults;
+
+        if (!hasResults && !canAddNew) return;
+
+        const itemCount = hasResults ? searchResults.length : (canAddNew ? 1 : 0);
+        if (itemCount === 0) return;
 
         if (e.key === 'ArrowDown') {
             e.preventDefault();
-            setHighlightedIndex(prev => (prev + 1) % searchResults.length);
+            setHighlightedIndex(prev => (prev + 1) % itemCount);
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
-            setHighlightedIndex(prev => (prev - 1 + searchResults.length) % searchResults.length);
+            setHighlightedIndex(prev => (prev - 1 + itemCount) % itemCount);
         } else if (e.key === 'Enter') {
             e.preventDefault();
             if (highlightedIndex > -1) {
-                handleAddToSale(searchResults[highlightedIndex]);
-            } else if (searchResults.length > 0) {
-                 handleAddToSale(searchResults[0]);
+                if (hasResults) {
+                    handleAddToSale(searchResults[highlightedIndex]);
+                } else if (canAddNew) {
+                    handleCreateAndAddProduct();
+                }
+            } else { // Default to the first (and possibly only) option
+                 if (hasResults) {
+                     handleAddToSale(searchResults[0]);
+                 } else if (canAddNew) {
+                     handleCreateAndAddProduct();
+                 }
             }
         }
     };
@@ -1319,7 +1368,7 @@ const SalesView = ({
                  <button onClick={handleVoiceSearch} style={styles.voiceSearchButton} title="Search with voice">
                     <MicIcon color={isListening ? 'var(--danger-color)' : 'var(--secondary-color)'} />
                 </button>
-                {searchResults.length > 0 && (
+                {searchTerm && (
                     <ul style={styles.searchResults}>
                         {searchResults.map((p, index) => (
                             <li
@@ -1328,9 +1377,18 @@ const SalesView = ({
                                 style={index === highlightedIndex ? {...styles.searchResultItem, ...styles.highlighted} : styles.searchResultItem}
                                 onMouseEnter={() => setHighlightedIndex(index)}
                             >
-                                {p.description} {p.descriptionTamil && `(${p.descriptionTamil})`} (₹{(priceMode === 'b2b' ? p.b2bPrice : p.b2cPrice).toFixed(2)}) - Stock: {p.stock}
+                                {p.description} {p.descriptionTamil && `(${p.descriptionTamil})`} (₹{(priceMode === 'b2b' ? p.b2bPrice : p.b2cPrice).toFixed(1)}) - Stock: {p.stock}
                             </li>
                         ))}
+                        {searchResults.length === 0 && searchTerm.trim() !== '' && (
+                            <li
+                                onClick={handleCreateAndAddProduct}
+                                style={highlightedIndex === 0 ? {...styles.searchResultItem, ...styles.highlighted} : styles.searchResultItem}
+                                onMouseEnter={() => setHighlightedIndex(0)}
+                            >
+                                + Add "<strong>{searchTerm}</strong>" as a new product
+                            </li>
+                        )}
                     </ul>
                 )}
             </div>
@@ -1377,7 +1435,7 @@ const SalesView = ({
                                             onKeyDown={handlePriceKeyDown}
                                         />
                                     </td>
-                                    <td style={styles.td}>₹{itemTotal.toFixed(2)}</td>
+                                    <td style={styles.td}>₹{itemTotal.toFixed(1)}</td>
                                     <td style={styles.td}>
                                         <input 
                                             type="checkbox" 
@@ -1407,7 +1465,7 @@ const SalesView = ({
                     <input type="number" step="0.01" value={activeCart.tax} onChange={(e) => updateActiveCart({ tax: parseFloat(e.target.value) || 0 })} style={styles.totalsInput}/>
                 </div>
                 <div style={styles.grandTotal}>
-                    <h3>Grand Total: ₹{total.toFixed(2)}</h3>
+                    <h3>Grand Total: ₹{total.toFixed(1)}</h3>
                 </div>
             </div>
             
@@ -1590,6 +1648,23 @@ const App = () => {
         saveProducts(updatedProducts);
         setIsProductModalOpen(false);
         setEditingProduct(null);
+    };
+
+    const handleAddNewProductFromSale = (description: string): Product => {
+        const newProduct: Product = { 
+            id: nextProductId, 
+            description, 
+            descriptionTamil: '', 
+            barcode: '', 
+            b2bPrice: 0, 
+            b2cPrice: 0, 
+            stock: 0, 
+            category: '' 
+        };
+        const updatedProducts = [...products, newProduct];
+        saveProducts(updatedProducts);
+        setNextProductId(prev => prev + 1);
+        return newProduct;
     };
 
     const handleUpdateProductPrice = (productId: number, newPrice: number, priceType: 'b2b' | 'b2c') => {
@@ -2055,6 +2130,7 @@ const App = () => {
                         onSaveBackup={handleSaveBackup}
                         onRestoreBackup={handleRestoreBackup}
                         onUpdateProductPrice={handleUpdateProductPrice}
+                        onAddNewProduct={handleAddNewProductFromSale}
                     />
                 }
                 {activeView === 'products' && 
