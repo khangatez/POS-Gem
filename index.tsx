@@ -542,12 +542,21 @@ const BulkAddModal = ({ fileSrc, fileType, fileNames, initialProducts, onSave, o
 // --- PRODUCTS VIEW COMPONENT ---
 const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddPdfs, selectedProductIds, setSelectedProductIds, onDeleteSelected, isOnline }) => {
     const [filter, setFilter] = useState<'all' | 'low'>('all');
+    const [searchQuery, setSearchQuery] = useState('');
     const bulkAddInputRef = useRef<HTMLInputElement>(null);
 
     const lowStockThreshold = 10;
-    const filteredProducts = filter === 'low' 
-        ? products.filter(p => p.stock <= lowStockThreshold)
-        : products;
+    const filteredProducts = products
+        .filter(p => filter === 'all' || p.stock <= lowStockThreshold)
+        .filter(p => {
+            if (!searchQuery) return true;
+            const query = searchQuery.toLowerCase();
+            return (
+                p.description.toLowerCase().includes(query) ||
+                (p.descriptionTamil && p.descriptionTamil.toLowerCase().includes(query)) ||
+                p.barcode.toLowerCase().includes(query)
+            );
+        });
         
     const handleBulkAddClick = () => {
         bulkAddInputRef.current?.click();
@@ -568,12 +577,38 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddP
     };
 
     const areAllSelected = filteredProducts.length > 0 && filteredProducts.every(p => selectedProductIds.includes(p.id));
+    
+    const getEmptyMessage = () => {
+        if (products.length === 0) {
+            return 'No products found. Add a new product to get started.';
+        }
+        if (searchQuery) {
+            return `No products found matching "${searchQuery}".`;
+        }
+        if (filter === 'low') {
+            return 'No low stock products found.';
+        }
+        return 'No products to display.';
+    };
 
     return (
         <div style={styles.viewContainer}>
             <div style={styles.viewHeader}>
                 <h2>Product Inventory</h2>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                     <div style={{ position: 'relative' }}>
+                        <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', display: 'flex', alignItems: 'center', pointerEvents: 'none' }}>
+                            <SearchIcon color="var(--secondary-color)" />
+                        </span>
+                        <input
+                            type="search"
+                            placeholder="Search products..."
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            style={{ ...styles.input, width: '300px', paddingLeft: '40px' }}
+                            aria-label="Search products"
+                        />
+                    </div>
                     {selectedProductIds.length > 0 && (
                          <button onClick={onDeleteSelected} style={{...styles.button, backgroundColor: 'var(--danger-color)'}}>
                             Delete Selected ({selectedProductIds.length})
@@ -648,7 +683,7 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddP
                 </table>
             ) : (
                 <p style={styles.emptyMessage}>
-                    {filter === 'low' ? 'No low stock products found.' : 'No products found. Add a new product to get started.'}
+                    {getEmptyMessage()}
                 </p>
             )}
         </div>
@@ -906,19 +941,107 @@ const HistoryModal = ({ salesHistory, customerMobile, onClose }) => {
 
 // --- REPORTS VIEW COMPONENT ---
 const ReportsView = ({ salesHistory, onPrint }) => {
-    const today = new Date().toLocaleDateString();
-    const todaysSales = salesHistory.filter(sale => new Date(sale.date).toLocaleDateString() === today);
-
-    const totalRevenue = todaysSales.reduce((sum, sale) => sum + sale.total, 0);
-    const totalItemsSold = todaysSales.reduce((sum, sale) => sum + sale.items.filter(i => !i.isReturn).length, 0);
-    const totalTransactions = todaysSales.length;
-
+    const [filterType, setFilterType] = useState('today');
+    const todayISO = new Date().toISOString().split('T')[0];
+    const [startDate, setStartDate] = useState(todayISO);
+    const [endDate, setEndDate] = useState(todayISO);
     const [expandedSale, setExpandedSale] = useState<string | null>(null);
+
+    const getFilterRange = () => {
+        const now = new Date();
+        let start: Date, end: Date;
+
+        switch (filterType) {
+            case 'today':
+                start = new Date();
+                start.setHours(0, 0, 0, 0);
+                end = new Date();
+                end.setHours(23, 59, 59, 999);
+                break;
+            case 'yesterday':
+                start = new Date();
+                start.setDate(now.getDate() - 1);
+                start.setHours(0, 0, 0, 0);
+                end = new Date(start);
+                end.setHours(23, 59, 59, 999);
+                break;
+            case 'this_week':
+                start = new Date();
+                start.setDate(now.getDate() - now.getDay()); // Sunday as start of week
+                start.setHours(0, 0, 0, 0);
+                end = new Date(start);
+                end.setDate(start.getDate() + 6);
+                end.setHours(23, 59, 59, 999);
+                break;
+            case 'this_month':
+                start = new Date(now.getFullYear(), now.getMonth(), 1);
+                end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+                end.setHours(23, 59, 59, 999);
+                break;
+            case 'custom':
+                const [sy, sm, sd] = startDate.split('-').map(Number);
+                start = new Date(sy, sm - 1, sd, 0, 0, 0, 0);
+                const [ey, em, ed] = endDate.split('-').map(Number);
+                end = new Date(ey, em - 1, ed, 23, 59, 59, 999);
+                if (start > end) [start, end] = [end, start]; // Swap if needed
+                break;
+            default:
+                start = new Date();
+                end = new Date();
+                break;
+        }
+        return { start, end };
+    };
+
+    const { start, end } = getFilterRange();
+    
+    const filteredSales = salesHistory.filter(sale => {
+        const saleDate = new Date(sale.date);
+        return saleDate >= start && saleDate <= end;
+    });
+
+    const totalRevenue = filteredSales.reduce((sum, sale) => sum + sale.total, 0);
+    const totalItemsSold = filteredSales.reduce((sum, sale) => sum + sale.items.filter(i => !i.isReturn).length, 0);
+    const totalTransactions = filteredSales.length;
+
+    const getReportTitle = () => {
+        switch (filterType) {
+            case 'today':
+                return `Today's Sales Report`;
+            case 'yesterday':
+                return `Yesterday's Sales Report`;
+            case 'this_week':
+                return `This Week's Sales Report`;
+            case 'this_month':
+                return `This Month's Sales Report`;
+            case 'custom':
+                 if (startDate === endDate) return `Sales Report for ${new Date(start).toLocaleDateString()}`;
+                return `Sales Report from ${new Date(start).toLocaleDateString()} to ${new Date(end).toLocaleDateString()}`;
+            default:
+                return 'Sales Report';
+        }
+    };
     
     return (
         <div style={styles.viewContainer}>
             <div style={styles.viewHeader}>
-                <h2>Daily Sales Report for {today}</h2>
+                <h2>{getReportTitle()}</h2>
+                <div style={styles.reportFilters}>
+                    <select value={filterType} onChange={e => setFilterType(e.target.value)} style={{...styles.input, height: 'auto'}}>
+                        <option value="today">Today</option>
+                        <option value="yesterday">Yesterday</option>
+                        <option value="this_week">This Week</option>
+                        <option value="this_month">This Month</option>
+                        <option value="custom">Custom Range</option>
+                    </select>
+                    {filterType === 'custom' && (
+                        <div style={styles.dateRangePicker}>
+                            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={styles.input} />
+                            <span style={{color: 'var(--secondary-color)'}}>to</span>
+                            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={styles.input} />
+                        </div>
+                    )}
+                </div>
             </div>
             <div style={styles.reportSummary}>
                  <div style={styles.summaryCard}><h3>Total Revenue</h3><p>₹{totalRevenue.toFixed(1)}</p></div>
@@ -926,7 +1049,8 @@ const ReportsView = ({ salesHistory, onPrint }) => {
                  <div style={styles.summaryCard}><h3>Transactions</h3><p>{totalTransactions}</p></div>
             </div>
             <h3>Transactions</h3>
-            {todaysSales.length > 0 ? (
+            {filteredSales.length > 0 ? (
+                <div style={{maxHeight: '50vh', overflowY: 'auto'}}>
                 <table style={styles.table}>
                     <thead>
                         <tr>
@@ -938,10 +1062,10 @@ const ReportsView = ({ salesHistory, onPrint }) => {
                         </tr>
                     </thead>
                     <tbody>
-                        {todaysSales.map(sale => (
+                        {filteredSales.map(sale => (
                             <React.Fragment key={sale.id}>
                                 <tr>
-                                    <td style={styles.td}>{new Date(sale.date).toLocaleTimeString()}</td>
+                                    <td style={styles.td}>{new Date(sale.date).toLocaleString()}</td>
                                     <td style={styles.td}>{sale.customerName || 'N/A'} ({sale.customerMobile || 'N/A'})</td>
                                     <td style={styles.td}>{sale.items.length}</td>
                                     <td style={styles.td}>₹{sale.total.toFixed(1)}</td>
@@ -984,14 +1108,23 @@ const ReportsView = ({ salesHistory, onPrint }) => {
                         ))}
                     </tbody>
                 </table>
+                </div>
             ) : (
-                <p style={styles.emptyMessage}>No sales recorded today.</p>
+                <p style={styles.emptyMessage}>No sales recorded for this period.</p>
             )}
         </div>
     );
 };
 
+
 // --- ICON COMPONENTS ---
+const SearchIcon = ({ color = 'currentColor', size = 20 }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" height={`${size}px`} viewBox="0 0 24 24" width={`${size}px`} fill={color}>
+        <path d="M0 0h24v24H0V0z" fill="none"/>
+        <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+    </svg>
+);
+
 const MicIcon = ({ color = 'currentColor' }) => (
     <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill={color}>
         <path d="M0 0h24v24H0V0z" fill="none"/>
@@ -1027,9 +1160,10 @@ const SalesView = ({
     const [priceMode, setPriceMode] = useState<'b2b' | 'b2c'>('b2c');
     const [isListening, setIsListening] = useState(false);
     const [isScannerOpen, setIsScannerOpen] = useState(false);
-
-    const [countryCode, setCountryCode] = useState('+91');
-    const [mobileNumber, setMobileNumber] = useState('');
+    
+    // Local state for mobile input to prevent re-render loop
+    const [localCountryCode, setLocalCountryCode] = useState('+91');
+    const [localMobileNumber, setLocalMobileNumber] = useState('');
 
     const customerNameRef = useRef<HTMLInputElement>(null);
     const customerMobileRef = useRef<HTMLInputElement>(null);
@@ -1041,29 +1175,38 @@ const SalesView = ({
     useEffect(() => {
         customerNameRef.current?.focus();
     }, []);
-    
-    // Effect to update parent when local mobile number changes
-    useEffect(() => {
-        updateActiveCart({ customerMobile: countryCode + mobileNumber });
-    }, [countryCode, mobileNumber, updateActiveCart]);
 
-    // Effect to reset local state when parent prop is cleared or cart switches
+     // Sync local mobile state with parent prop only when the active cart changes
     useEffect(() => {
-        if (activeCart.customerMobile === '') {
-            setCountryCode('+91');
-            setMobileNumber('');
-        } else {
-            // This logic is simple, might need improvement for complex country codes
-            if (activeCart.customerMobile.startsWith('+')) {
-                const code = activeCart.customerMobile.substring(0, 3); // e.g., +91
-                const number = activeCart.customerMobile.substring(3);
-                setCountryCode(code);
-                setMobileNumber(number);
-            } else {
-                 setMobileNumber(activeCart.customerMobile);
+        const fullMobile = activeCart.customerMobile || '';
+        let countryCode = '+91';
+        let mobileNumber = fullMobile;
+
+        if (fullMobile.startsWith('+')) {
+            // Simple logic for 3-char country codes like +91
+            const potentialCode = fullMobile.substring(0, 3);
+            if (!isNaN(Number(potentialCode.substring(1)))) {
+                 countryCode = potentialCode;
+                 mobileNumber = fullMobile.substring(3);
             }
         }
+        
+        setLocalCountryCode(countryCode);
+        setLocalMobileNumber(mobileNumber);
     }, [activeCart.customerMobile]);
+
+
+    const handleCountryCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const newCode = e.target.value;
+        setLocalCountryCode(newCode);
+        updateActiveCart({ customerMobile: newCode + localMobileNumber });
+    };
+
+    const handleMobileNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const newNumber = e.target.value;
+        setLocalMobileNumber(newNumber);
+        updateActiveCart({ customerMobile: localCountryCode + newNumber });
+    };
 
     const handleCustomerKeyDown = (e: React.KeyboardEvent, nextField: 'mobile' | 'product') => {
         if (e.key === 'Enter') {
@@ -1348,16 +1491,16 @@ const SalesView = ({
                  <div style={{ display: 'flex', flex: 1.5 }}>
                     <input
                         type="text"
-                        value={countryCode}
-                        onChange={(e) => setCountryCode(e.target.value)}
+                        value={localCountryCode}
+                        onChange={handleCountryCodeChange}
                         placeholder="+91"
                         style={styles.countryCodeInput}
                     />
                     <input 
                         ref={customerMobileRef}
                         type="tel" 
-                        value={mobileNumber} 
-                        onChange={(e) => setMobileNumber(e.target.value)}
+                        value={localMobileNumber} 
+                        onChange={handleMobileNumberChange}
                         placeholder="Customer Mobile"
                         style={styles.mobileNumberInput}
                         onKeyDown={(e) => handleCustomerKeyDown(e, 'product')}
@@ -2484,7 +2627,7 @@ const styles: { [key: string]: React.CSSProperties } = {
         border: '1px solid var(--border-color)',
         borderRadius: '6px 0 0 6px',
         fontSize: '1rem',
-        flex: '0 0 25px',
+        flex: '0 0 45px',
         textAlign: 'center',
     },
     mobileNumberInput: {
@@ -2506,6 +2649,20 @@ const styles: { [key: string]: React.CSSProperties } = {
         padding: '1.5rem',
         borderRadius: '8px',
         textAlign: 'center',
+        border: '1px solid var(--border-color)',
+    },
+    reportFilters: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '1rem',
+    },
+    dateRangePicker: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.5rem',
+        backgroundColor: '#f8f9fa',
+        padding: '0.5rem',
+        borderRadius: '6px',
         border: '1px solid var(--border-color)',
     },
     priceModeSelector: {
