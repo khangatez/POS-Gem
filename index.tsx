@@ -36,14 +36,14 @@ interface SaleRecord {
     customerMobile?: string;
 }
 
-// --- DUMMY DATA ---
-const initialProducts: Product[] = [
-  { id: 1, description: 'Organic Apples', descriptionTamil: 'ஆர்கானிக் ஆப்பிள்', barcode: '1001', b2bPrice: 1.50, b2cPrice: 1.99, stock: 150, category: 'Fruits' },
-  { id: 2, description: 'Whole Wheat Bread', barcode: '1002', b2bPrice: 2.80, b2cPrice: 3.49, stock: 8, category: 'Bakery' },
-  { id: 3, description: 'Almond Milk (1L)', barcode: '1003', b2bPrice: 3.00, b2cPrice: 3.99, stock: 120, category: 'Dairy' },
-  { id: 4, description: 'Free-Range Eggs (Dozen)', barcode: '1004', b2bPrice: 4.20, b2cPrice: 5.50, stock: 5, category: 'Dairy' },
-  { id: 5, description: 'Avocado', barcode: '1005', b2bPrice: 1.10, b2cPrice: 1.75, stock: 250, category: 'Fruits' },
-];
+interface Shop {
+    id: number;
+    name: string;
+    products: Product[];
+    salesHistory: SaleRecord[];
+    nextProductId: number;
+}
+
 
 // --- PRODUCT FORM MODAL COMPONENT ---
 const ProductFormModal = ({ product, onSave, onUpdate, onClose }: { product: Product | null, onSave: (product: Omit<Product, 'id'>) => void, onUpdate: (product: Product) => void, onClose: () => void }) => {
@@ -234,11 +234,11 @@ const ConfirmationModal = ({ message, onConfirm, onCancel }: { message: string, 
     return (
         <div style={styles.modalBackdrop} role="dialog" aria-modal="true" aria-labelledby="confirmation-dialog-title">
             <div style={{...styles.modalContent, maxWidth: '450px'}}>
-                <h3 id="confirmation-dialog-title" style={{marginTop: 0, color: 'var(--danger-color)'}}>Confirm Deletion</h3>
+                <h3 id="confirmation-dialog-title" style={{marginTop: 0, color: 'var(--danger-color)'}}>Confirm Action</h3>
                 <p>{message}</p>
                 <div style={styles.modalActions}>
                     <button ref={cancelBtnRef} onClick={onCancel} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Cancel</button>
-                    <button onClick={onConfirm} style={{...styles.button, backgroundColor: 'var(--danger-color)'}}>Confirm Delete</button>
+                    <button onClick={onConfirm} style={{...styles.button, backgroundColor: 'var(--danger-color)'}}>Confirm</button>
                 </div>
             </div>
         </div>
@@ -495,7 +495,14 @@ const BulkAddModal = ({ fileSrc, fileType, fileNames, initialProducts, onSave, o
                 <div style={{ flex: 2, display: 'flex', flexDirection: 'column' }}>
                     <h3 style={{marginTop: 0}}>Extracted Products (Editable)</h3>
                     {loading && <p>Analyzing documents with AI... This may take a moment. Please wait.</p>}
-                    {error && <p style={{ color: 'var(--danger-color)' }}>Error: {error}</p>}
+                    {error && (
+                        <div style={{flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center'}}>
+                            <p style={{ color: 'var(--danger-color)', marginBottom: '1.5rem', textAlign: 'center' }}><strong>Error:</strong> {error}</p>
+                            <button onClick={onClose} style={{ ...styles.button, backgroundColor: 'var(--secondary-color)' }}>
+                                Back
+                            </button>
+                        </div>
+                    )}
                     {!loading && !error && (
                         <>
                             <div style={{ flex: 1, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
@@ -1627,9 +1634,9 @@ const SalesView = ({
             </div>
             
             <div style={styles.backupSection}>
-                <h3 style={styles.backupTitle}>Backup & Restore</h3>
+                <h3 style={styles.backupTitle}>Backup & Restore (Current Shop)</h3>
                 <p style={styles.backupDescription}>
-                    Save all your product and sales data to a file on your computer, or restore it from a previous backup.
+                    Save all your product and sales data for the current shop to a file, or restore it from a previous backup.
                 </p>
                 <div style={styles.backupActions}>
                     <button onClick={onSaveBackup} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>
@@ -1675,13 +1682,124 @@ const defaultCartState: CartState = {
     language: 'english',
 };
 
+// --- SHOP MANAGER MODAL ---
+const ShopManagerModal = ({ shops, activeShopId, onSelect, onCreate, onClose }: {
+    shops: Shop[],
+    activeShopId: number | null,
+    onSelect: (shopId: number) => void,
+    onCreate: (shopName: string) => void,
+    onClose: () => void,
+}) => {
+    const [newShopName, setNewShopName] = useState('');
+    const newShopInputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        newShopInputRef.current?.focus();
+    }, []);
+
+    const handleCreate = (e: React.FormEvent) => {
+        e.preventDefault();
+        const trimmedName = newShopName.trim();
+        if (trimmedName) {
+            onCreate(trimmedName);
+            setNewShopName('');
+        }
+    };
+
+    return (
+        <div style={styles.modalBackdrop}>
+            <div style={{ ...styles.modalContent, maxWidth: '500px' }}>
+                <h2 style={{ marginTop: 0 }}>Shop Manager</h2>
+                <div style={{ marginBottom: '1.5rem', maxHeight: '30vh', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                    {shops.map(shop => (
+                        <div
+                            key={shop.id}
+                            onClick={() => onSelect(shop.id)}
+                            style={shop.id === activeShopId ? {...styles.shopListItem, ...styles.shopListItemActive} : styles.shopListItem}
+                            role="button"
+                            tabIndex={0}
+                        >
+                            {shop.name}
+                        </div>
+                    ))}
+                </div>
+                <form onSubmit={handleCreate}>
+                    <label style={styles.label}>Create New Shop</label>
+                    <div style={{ display: 'flex', gap: '1rem' }}>
+                        <input
+                            ref={newShopInputRef}
+                            type="text"
+                            value={newShopName}
+                            onChange={e => setNewShopName(e.target.value)}
+                            placeholder="New Shop Name"
+                            style={{ ...styles.input, flex: 1 }}
+                            required
+                        />
+                        <button type="submit" style={styles.button}>Create</button>
+                    </div>
+                </form>
+                <div style={styles.modalActions}>
+                    <button onClick={onClose} style={{ ...styles.button, backgroundColor: 'var(--secondary-color)' }}>Close</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- INITIAL SETUP MODAL ---
+const InitialSetupModal = ({ onCreate }: { onCreate: (shopName: string) => void }) => {
+    const [shopName, setShopName] = useState('');
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        inputRef.current?.focus();
+    }, []);
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const trimmedName = shopName.trim();
+        if (trimmedName) {
+            onCreate(trimmedName);
+        }
+    };
+
+    return (
+        <div style={styles.modalBackdrop}>
+            <div style={{ ...styles.modalContent, maxWidth: '500px', textAlign: 'center' }}>
+                <h2 style={{ marginTop: 0 }}>Welcome!</h2>
+                <p>To get started, please create your first shop.</p>
+                <form onSubmit={handleSubmit}>
+                    <input
+                        ref={inputRef}
+                        type="text"
+                        value={shopName}
+                        onChange={e => setShopName(e.target.value)}
+                        placeholder="Your Shop Name (e.g., Main Branch)"
+                        style={{ ...styles.input, width: '80%', marginBottom: '1rem' }}
+                        required
+                    />
+                    <button type="submit" style={styles.button}>Create Shop</button>
+                </form>
+            </div>
+        </div>
+    );
+};
+
 
 // --- MAIN APP COMPONENT ---
 const App = () => {
     const [activeView, setActiveView] = useState('sales');
-    const [products, setProducts] = useState<Product[]>([]);
-    const [nextProductId, setNextProductId] = useState(1);
     
+    // Multi-Shop State
+    const [shops, setShops] = useState<Shop[]>([]);
+    const [activeShopId, setActiveShopId] = useState<number | null>(null);
+    const [isShopManagerOpen, setIsShopManagerOpen] = useState(false);
+    const [isInitialSetup, setIsInitialSetup] = useState(false);
+
+    // Derived state for the active shop
+    const activeShopIndex = shops.findIndex(s => s.id === activeShopId);
+    const activeShop = activeShopIndex > -1 ? shops[activeShopIndex] : null;
+
     // Multi-bill state
     const [carts, setCarts] = useState<CartState[]>([
         {...defaultCartState},
@@ -1700,8 +1818,6 @@ const App = () => {
             return newCarts;
         });
     };
-
-    const [salesHistory, setSalesHistory] = useState<SaleRecord[]>([]);
 
     const [isProductModalOpen, setIsProductModalOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -1728,6 +1844,55 @@ const App = () => {
     // State for Online/Offline status
     const [isOnline, setIsOnline] = useState(() => navigator.onLine);
 
+    const extractAndParseJson = (rawText: string | undefined): any => {
+        if (!rawText || typeof rawText !== 'string' || rawText.trim() === '') {
+            throw new Error("Received an empty or invalid text response from the AI model.");
+        }
+    
+        let textToParse = rawText.trim();
+        
+        // 1. Try to find a markdown-fenced JSON block
+        const markdownMatch = textToParse.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+        
+        if (markdownMatch && markdownMatch[1]) {
+            textToParse = markdownMatch[1].trim();
+        } else {
+            // 2. If no markdown, find the first '{' or '[' and last '}' or ']'
+            const firstBracket = textToParse.indexOf('{');
+            const firstSquare = textToParse.indexOf('[');
+            
+            let startIndex = -1;
+            // Determine the true start of the JSON data
+            if (firstBracket === -1) {
+                startIndex = firstSquare;
+            } else if (firstSquare === -1) {
+                startIndex = firstBracket;
+            } else {
+                startIndex = Math.min(firstBracket, firstSquare);
+            }
+
+            if (startIndex > -1) {
+                const lastBracket = textToParse.lastIndexOf('}');
+                const lastSquare = textToParse.lastIndexOf(']');
+                const endIndex = Math.max(lastBracket, lastSquare);
+                
+                if (endIndex > startIndex) {
+                    textToParse = textToParse.substring(startIndex, endIndex + 1);
+                }
+            }
+        }
+        
+        // 3. Now, try to parse the cleaned text.
+        try {
+            return JSON.parse(textToParse);
+        } catch (error: any) {
+            console.error("Failed to parse cleaned JSON:", { error, originalText: rawText, cleanedText: textToParse });
+            throw new Error(`The AI returned a response that could not be understood as valid JSON. Details: ${error.message}`);
+        }
+    };
+
+    const STORAGE_KEY = 'pos-multi-shop-data';
+    const ACTIVE_SHOP_KEY = 'pos-active-shop-id';
 
     useEffect(() => {
         const timerId = setInterval(() => setCurrentDateTime(new Date()), 1000);
@@ -1750,88 +1915,103 @@ const App = () => {
     // Load data from localStorage on initial render
     useEffect(() => {
         try {
-            // Load products
-            let loadedProducts: Product[] = initialProducts;
-            const storedProducts = localStorage.getItem('pos-products');
-            if (storedProducts) {
-                const parsedProducts = JSON.parse(storedProducts);
-                // Ensure the loaded data is an array before using it to prevent data corruption
-                if (Array.isArray(parsedProducts)) {
-                    loadedProducts = parsedProducts;
-                } else {
-                    console.warn("Stored product data is not an array. Falling back to initial data.");
-                }
-            }
-            setProducts(loadedProducts);
+            const storedShops = localStorage.getItem(STORAGE_KEY);
+            const storedActiveId = localStorage.getItem(ACTIVE_SHOP_KEY);
             
-            // This ensures new product IDs don't conflict with loaded ones
-            const maxId = loadedProducts.reduce((max, p) => Math.max(max, p.id), 0);
-            setNextProductId(maxId + 1);
-
-            // Load sales history
-            const storedSales = localStorage.getItem('pos-sales-history');
-            if (storedSales) {
-                const parsedSales = JSON.parse(storedSales);
-                if (Array.isArray(parsedSales)) {
-                    setSalesHistory(parsedSales);
+            if (storedShops) {
+                const parsedShops = JSON.parse(storedShops);
+                if (Array.isArray(parsedShops) && parsedShops.length > 0) {
+                    setShops(parsedShops);
+                    const activeId = storedActiveId ? parseInt(storedActiveId, 10) : parsedShops[0].id;
+                    setActiveShopId(activeId);
                 } else {
-                    console.warn("Stored sales history data is not an array. Ignoring.");
+                    setIsInitialSetup(true);
                 }
+            } else {
+                setIsInitialSetup(true);
             }
         } catch (error) {
             console.error("Failed to load data from localStorage:", error);
-            // On any critical error, reset to a known good state
-            setProducts(initialProducts);
-            const maxId = initialProducts.reduce((max, p) => Math.max(max, p.id), 0);
-            setNextProductId(maxId + 1);
-            setSalesHistory([]);
+            setIsInitialSetup(true);
         }
     }, []);
 
-    // Save products to localStorage whenever they change
-    const saveProducts = (updatedProducts: Product[]) => {
+    const saveShops = (updatedShops: Shop[]) => {
         try {
-            localStorage.setItem('pos-products', JSON.stringify(updatedProducts));
-            setProducts(updatedProducts);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedShops));
+            setShops(updatedShops);
         } catch (error) {
-            console.error("Failed to save products:", error);
+            console.error("Failed to save shops data:", error);
+            alert("Error: Could not save data. Your changes may not be persisted.");
         }
     };
 
-    // Save sales history to localStorage
-    const saveSalesHistory = (updatedHistory: SaleRecord[]) => {
-        try {
-            localStorage.setItem('pos-sales-history', JSON.stringify(updatedHistory));
-            setSalesHistory(updatedHistory);
-        } catch (error) {
-            console.error("Failed to save sales history:", error);
-        }
+    const handleCreateShop = (name: string) => {
+        const newShop: Shop = {
+            id: Date.now(),
+            name,
+            products: [],
+            salesHistory: [],
+            nextProductId: 1,
+        };
+        const updatedShops = [...shops, newShop];
+        saveShops(updatedShops);
+        setActiveShopId(newShop.id);
+        localStorage.setItem(ACTIVE_SHOP_KEY, newShop.id.toString());
+        setIsInitialSetup(false);
+        setIsShopManagerOpen(false);
+    };
+
+    const handleSelectShop = (shopId: number) => {
+        if (shopId === activeShopId) return;
+        setActiveShopId(shopId);
+        localStorage.setItem(ACTIVE_SHOP_KEY, shopId.toString());
+        // Reset carts and selections when switching shops to prevent data crossover
+        setCarts([defaultCartState, defaultCartState, defaultCartState]);
+        setActiveCartIndex(0);
+        setSelectedProductIds([]);
+        setIsShopManagerOpen(false);
     };
     
+    const modifyActiveShop = (updateFn: (shop: Shop) => Shop) => {
+        if (activeShopIndex === -1) {
+            console.error("Cannot modify shop: No active shop selected.");
+            return;
+        }
+        const updatedShops = [...shops];
+        const updatedShop = updateFn(shops[activeShopIndex]);
+        updatedShops[activeShopIndex] = updatedShop;
+        saveShops(updatedShops);
+    };
+
     const handleSaveProduct = (productData: Omit<Product, 'id'>) => {
-        const newProduct = { ...productData, id: nextProductId };
-        const updatedProducts = [...products, newProduct];
-        saveProducts(updatedProducts);
-        setNextProductId(prev => prev + 1);
+        modifyActiveShop(shop => {
+            const newProduct = { ...productData, id: shop.nextProductId };
+            return {
+                ...shop,
+                products: [...shop.products, newProduct],
+                nextProductId: shop.nextProductId + 1,
+            };
+        });
         setIsProductModalOpen(false);
     };
 
     const handleUpdateProduct = (updatedProduct: Product) => {
-        const updatedProducts = products.map(p => p.id === updatedProduct.id ? updatedProduct : p);
-        saveProducts(updatedProducts);
+        modifyActiveShop(shop => ({
+            ...shop,
+            products: shop.products.map(p => p.id === updatedProduct.id ? updatedProduct : p),
+        }));
         setIsProductModalOpen(false);
         setEditingProduct(null);
     };
 
     const handleAddNewProductFromSale = (description: string): Product | null => {
+        if (!activeShop) return null;
         const trimmedDescription = description.trim();
-        if (!trimmedDescription) {
-            console.warn("Attempted to create a product with an empty description.");
-            return null;
-        }
+        if (!trimmedDescription) return null;
 
         const newProduct: Product = { 
-            id: nextProductId, 
+            id: activeShop.nextProductId, 
             description: trimmedDescription, 
             descriptionTamil: '', 
             barcode: '', 
@@ -1840,26 +2020,25 @@ const App = () => {
             stock: 0, 
             category: '' 
         };
-        const updatedProducts = [...products, newProduct];
-        saveProducts(updatedProducts);
-        setNextProductId(prev => prev + 1);
+
+        modifyActiveShop(shop => ({
+            ...shop,
+            products: [...shop.products, newProduct],
+            nextProductId: shop.nextProductId + 1,
+        }));
         return newProduct;
     };
 
     const handleUpdateProductPrice = (productId: number, newPrice: number, priceType: 'b2b' | 'b2c') => {
-        const updatedProducts = products.map(p => {
-            if (p.id === productId) {
-                const newProduct = { ...p };
-                if (priceType === 'b2b') {
-                    newProduct.b2bPrice = newPrice;
-                } else {
-                    newProduct.b2cPrice = newPrice;
+        modifyActiveShop(shop => ({
+            ...shop,
+            products: shop.products.map(p => {
+                if (p.id === productId) {
+                    return { ...p, [priceType === 'b2b' ? 'b2bPrice' : 'b2cPrice']: newPrice };
                 }
-                return newProduct;
-            }
-            return p;
-        });
-        saveProducts(updatedProducts);
+                return p;
+            }),
+        }));
     };
     
     const handleSingleDeleteRequest = (id: number) => {
@@ -1874,10 +2053,12 @@ const App = () => {
     
     const handleConfirmDelete = () => {
         if (productIdsToDelete.length === 0) return;
-        const updatedProducts = products.filter(p => !productIdsToDelete.includes(p.id));
-        saveProducts(updatedProducts);
+        modifyActiveShop(shop => ({
+            ...shop,
+            products: shop.products.filter(p => !productIdsToDelete.includes(p.id)),
+        }));
         setProductIdsToDelete([]);
-        setSelectedProductIds([]); // Clear selection after deletion
+        setSelectedProductIds([]);
         setIsConfirmModalOpen(false);
     };
 
@@ -1915,40 +2096,44 @@ const App = () => {
             customerMobile: activeCart.customerMobile,
         };
 
-        const updatedHistory = [...salesHistory, saleRecord];
-        saveSalesHistory(updatedHistory);
-
-        // Update stock
-        const updatedProducts = [...products];
-        activeCart.items.forEach(item => {
-            const productIndex = updatedProducts.findIndex(p => p.id === item.productId);
-            if (productIndex > -1) {
-                if (item.isReturn) {
-                    updatedProducts[productIndex].stock += item.quantity;
-                } else {
-                    updatedProducts[productIndex].stock -= item.quantity;
+        modifyActiveShop(shop => {
+            const updatedProducts = [...shop.products];
+            activeCart.items.forEach(item => {
+                const productIndex = updatedProducts.findIndex(p => p.id === item.productId);
+                if (productIndex > -1) {
+                    updatedProducts[productIndex].stock += item.isReturn ? item.quantity : -item.quantity;
                 }
-            }
+            });
+            return {
+                ...shop,
+                products: updatedProducts,
+                salesHistory: [...shop.salesHistory, saleRecord],
+            };
         });
-        saveProducts(updatedProducts);
 
         resetSale();
         setIsInvoiceModalOpen(false);
     };
     
     const handleSaveBackup = () => {
+        if (!activeShop) {
+            alert("No active shop selected to back up.");
+            return;
+        }
         try {
             const backupData = {
-                products: products,
-                salesHistory: salesHistory,
+                shopName: activeShop.name,
+                products: activeShop.products,
+                salesHistory: activeShop.salesHistory,
             };
             const jsonString = JSON.stringify(backupData, null, 2);
             const blob = new Blob([jsonString], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             const date = new Date().toISOString().slice(0, 10);
+            const safeShopName = activeShop.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
             a.href = url;
-            a.download = `pos_backup_${date}.json`;
+            a.download = `pos_backup_${safeShopName}_${date}.json`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -1960,37 +2145,38 @@ const App = () => {
     };
 
     const handleRestoreBackup = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) {
+        if (!activeShop) {
+            alert("Please select a shop to restore data into.");
             return;
         }
+        const file = event.target.files?.[0];
+        if (!file) return;
 
         const reader = new FileReader();
         reader.onload = (e) => {
             try {
-                const text = e.target?.result;
-                if (typeof text !== 'string') {
-                    throw new Error("File content is not readable text.");
-                }
+                const text = e.target?.result as string;
                 const data = JSON.parse(text);
 
-                // Basic validation
                 if (!Array.isArray(data.products) || !Array.isArray(data.salesHistory)) {
-                    throw new Error("Invalid backup file format. Missing 'products' or 'salesHistory' arrays.");
+                    throw new Error("Invalid backup file format.");
                 }
 
-                if (window.confirm("Are you sure you want to restore this backup? All current data will be overwritten.")) {
-                    saveProducts(data.products);
-                    saveSalesHistory(data.salesHistory);
-
-                    const maxId = data.products.reduce((max: number, p: Product) => Math.max(max, p.id), 0);
-                    setNextProductId(maxId + 1);
-
+                if (window.confirm(`Are you sure you want to restore this backup? This will overwrite all product and sales data for the shop "${activeShop.name}".`)) {
+                    modifyActiveShop(shop => {
+                        const maxId = data.products.reduce((max: number, p: Product) => Math.max(max, p.id), 0);
+                        return {
+                            ...shop,
+                            products: data.products,
+                            salesHistory: data.salesHistory,
+                            nextProductId: maxId + 1,
+                        };
+                    });
                     alert("Backup restored successfully!");
                 }
             } catch (error: any) {
                 console.error("Failed to restore backup:", error);
-                alert(`Error: Could not restore backup. Please ensure you selected a valid backup file. Details: ${error.message}`);
+                alert(`Error: Could not restore backup. Details: ${error.message}`);
             } finally {
                 event.target.value = '';
             }
@@ -2049,8 +2235,7 @@ const App = () => {
                 },
             });
             
-            const jsonStr = response.text.trim();
-            const parsedProducts = JSON.parse(jsonStr);
+            const parsedProducts = extractAndParseJson(response.text);
 
             if (Array.isArray(parsedProducts)) {
                  const editableProducts: EditableProduct[] = parsedProducts.map(p => ({
@@ -2129,8 +2314,8 @@ const App = () => {
 
             const [b2bResponse, b2cResponse] = await Promise.all([b2bRequest, b2cRequest]);
 
-            const b2bResults = JSON.parse(b2bResponse.text.trim());
-            const b2cResults = JSON.parse(b2cResponse.text.trim());
+            const b2bResults = extractAndParseJson(b2bResponse.text);
+            const b2cResults = extractAndParseJson(b2cResponse.text);
             
             if (!Array.isArray(b2bResults) || !Array.isArray(b2cResults)) {
                 throw new Error("AI did not return a valid list of products from one or both documents.");
@@ -2237,43 +2422,51 @@ const App = () => {
     };
 
     const handleSaveBulkProducts = (newProducts: EditableProduct[]) => {
-        let currentId = nextProductId;
-        const productsToAdd = newProducts.map(p => ({ ...p, id: currentId++ }));
-        
-        const updatedProducts = [...products, ...productsToAdd];
-        saveProducts(updatedProducts);
-        setNextProductId(currentId);
+        if (!activeShop) return;
+
+        modifyActiveShop(shop => {
+            let currentId = shop.nextProductId;
+            const productsToAdd = newProducts.map(p => ({ ...p, id: currentId++ }));
+            return {
+                ...shop,
+                products: [...shop.products, ...productsToAdd],
+                nextProductId: currentId,
+            };
+        });
         
         handleCloseBulkAddModal();
     };
 
-    const deletionMessage = productIdsToDelete.length === 1
-        ? `the product "${products.find(p => p.id === productIdsToDelete[0])?.description}"`
+    const deletionMessage = productIdsToDelete.length === 1 && activeShop
+        ? `the product "${activeShop.products.find(p => p.id === productIdsToDelete[0])?.description}"`
         : `${productIdsToDelete.length} products`;
 
     return (
         <div style={styles.appContainer}>
             <nav style={styles.nav}>
-                <div>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
                     <button 
                         onClick={() => setActiveView('sales')} 
                         style={activeView === 'sales' ? {...styles.navButton, ...styles.navButtonActive} : styles.navButton}
+                        disabled={!activeShop}
                     >
                         Sales
                     </button>
                     <button 
                         onClick={() => setActiveView('products')} 
                         style={activeView === 'products' ? {...styles.navButton, ...styles.navButtonActive} : styles.navButton}
+                        disabled={!activeShop}
                     >
                         Products
                     </button>
                     <button 
                         onClick={() => setActiveView('reports')} 
                         style={activeView === 'reports' ? {...styles.navButton, ...styles.navButtonActive} : styles.navButton}
+                        disabled={!activeShop}
                     >
                         Reports
                     </button>
-                    {activeView === 'sales' && (
+                    {activeView === 'sales' && activeShop && (
                         <div style={styles.billSelector}>
                             {[1, 2, 3].map((billNumber, index) => (
                                 <button
@@ -2289,18 +2482,29 @@ const App = () => {
                         </div>
                     )}
                 </div>
-                <div style={styles.dateTimeDisplay}>
-                    {currentDateTime.toLocaleString('en-US', {
-                        dateStyle: 'long',
-                        timeStyle: 'medium',
-                        hour12: true,
-                    })}
+                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    {activeShop && (
+                        <div style={styles.activeShopDisplay}>
+                            <strong>Active Shop:</strong> {activeShop.name}
+                        </div>
+                    )}
+                    <button onClick={() => setIsShopManagerOpen(true)} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>
+                        Shop Manager
+                    </button>
+                    <div style={styles.dateTimeDisplay}>
+                        {currentDateTime.toLocaleString('en-US', {
+                            dateStyle: 'long',
+                            timeStyle: 'medium',
+                            hour12: true,
+                        })}
+                    </div>
                 </div>
             </nav>
             <main style={styles.mainContent}>
-                {activeView === 'sales' && 
+                {!activeShop && !isInitialSetup && <p style={styles.emptyMessage}>Loading shop data...</p>}
+                {activeShop && activeView === 'sales' && 
                     <SalesView 
-                        products={products}
+                        products={activeShop.products}
                         activeCart={activeCart}
                         updateActiveCart={updateActiveCart}
                         onPreview={() => setIsInvoiceModalOpen(true)}
@@ -2313,9 +2517,9 @@ const App = () => {
                         isOnline={isOnline}
                     />
                 }
-                {activeView === 'products' && 
+                {activeShop && activeView === 'products' && 
                     <ProductsView 
-                        products={products}
+                        products={activeShop.products}
                         onAdd={() => handleOpenProductModal()}
                         onEdit={handleOpenProductModal}
                         onDelete={handleSingleDeleteRequest}
@@ -2327,7 +2531,7 @@ const App = () => {
                         isOnline={isOnline}
                     />
                 }
-                {activeView === 'reports' && <ReportsView salesHistory={salesHistory} onPrint={setSaleToPrint}/>}
+                {activeShop && activeView === 'reports' && <ReportsView salesHistory={activeShop.salesHistory} onPrint={setSaleToPrint}/>}
             </main>
             
             {isProductModalOpen && 
@@ -2378,9 +2582,9 @@ const App = () => {
                     language={'english'}
                 />
             }
-            {isHistoryModalOpen &&
+            {isHistoryModalOpen && activeShop &&
                 <HistoryModal
-                    salesHistory={salesHistory}
+                    salesHistory={activeShop.salesHistory}
                     customerMobile={activeCart.customerMobile}
                     onClose={() => setIsHistoryModalOpen(false)}
                 />
@@ -2392,6 +2596,18 @@ const App = () => {
                     onCancel={handleCancelDelete}
                 />
             )}
+            {isShopManagerOpen &&
+                <ShopManagerModal
+                    shops={shops}
+                    activeShopId={activeShopId}
+                    onSelect={handleSelectShop}
+                    onCreate={handleCreateShop}
+                    onClose={() => setIsShopManagerOpen(false)}
+                />
+            }
+            {isInitialSetup &&
+                <InitialSetupModal onCreate={handleCreateShop} />
+            }
         </div>
     );
 };
@@ -2455,6 +2671,14 @@ const styles: { [key: string]: React.CSSProperties } = {
         backgroundColor: 'var(--surface-color)',
         color: 'var(--primary-color)',
         boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+    },
+    activeShopDisplay: {
+        fontSize: '0.9rem',
+        color: 'var(--secondary-color)',
+        padding: '0.5rem 1rem',
+        backgroundColor: 'var(--surface-color)',
+        border: '1px solid var(--border-color)',
+        borderRadius: '6px',
     },
     dateTimeDisplay: {
         fontSize: '0.9rem',
@@ -2726,6 +2950,16 @@ const styles: { [key: string]: React.CSSProperties } = {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    shopListItem: {
+        padding: '1rem',
+        borderBottom: '1px solid var(--border-color)',
+        cursor: 'pointer',
+    },
+    shopListItemActive: {
+        backgroundColor: 'var(--primary-color)',
+        color: '#fff',
+        fontWeight: 'bold',
     },
 };
 
