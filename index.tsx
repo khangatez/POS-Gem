@@ -1621,135 +1621,6 @@ const TrashIcon = ({ size = 24, color = 'currentColor' }) => (
     </svg>
 );
 
-// --- MOBILE-SPECIFIC SALES COMPONENTS ---
-const MobileProductSearchModal = ({ products, priceMode, onAddToSale, onAddNewProduct, onClose }) => {
-    const [searchTerm, setSearchTerm] = useState('');
-    const [searchResults, setSearchResults] = useState<Product[]>([]);
-    const [highlightedIndex, setHighlightedIndex] = useState(-1);
-    const searchInputRef = useRef<HTMLInputElement>(null);
-
-    useEffect(() => {
-        searchInputRef.current?.focus();
-    }, []);
-
-    const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const term = e.target.value;
-        setSearchTerm(term);
-        if (term) {
-            setSearchResults(
-                products.filter(p => 
-                    p.description.toLowerCase().includes(term.toLowerCase()) || 
-                    (p.descriptionTamil && p.descriptionTamil.toLowerCase().includes(term.toLowerCase())) ||
-                    p.barcode.toLowerCase().includes(term.toLowerCase())
-                )
-            );
-        } else {
-            setSearchResults([]);
-        }
-        setHighlightedIndex(-1);
-    };
-
-    const handleSelect = (product: Product) => {
-        onAddToSale(product, false);
-        onClose();
-    };
-
-    const handleCreateAndAdd = () => {
-        const newProduct = onAddNewProduct(searchTerm);
-        if (newProduct) {
-            onAddToSale(newProduct, false);
-        }
-        onClose();
-    };
-
-    return (
-        <div style={styles.mobileSearchModal}>
-            <div style={styles.mobileSearchHeader}>
-                <input
-                    ref={searchInputRef}
-                    type="search"
-                    placeholder="Search products..."
-                    value={searchTerm}
-                    onChange={handleSearchChange}
-                    style={{ ...styles.input, width: '100%', boxSizing: 'border-box' }}
-                />
-                <button onClick={onClose} style={styles.mobileSearchCloseButton}>Close</button>
-            </div>
-            <div style={styles.mobileSearchResults}>
-                {searchResults.map((p, index) => (
-                    <div key={p.id} onClick={() => handleSelect(p)} style={styles.mobileSearchResultItem}>
-                        <p style={{ margin: 0, fontWeight: 500 }}>{p.description}</p>
-                        <p style={{ margin: '0.2rem 0 0 0', color: 'var(--secondary-color)' }}>
-                            Price: ₹{(priceMode === 'b2b' ? p.b2bPrice : p.b2cPrice).toFixed(1)} | Stock: {p.stock}
-                        </p>
-                    </div>
-                ))}
-                {searchResults.length === 0 && searchTerm.trim() !== '' && (
-                    <div onClick={handleCreateAndAdd} style={styles.mobileSearchResultItem}>
-                        + Add "<strong>{searchTerm}</strong>" as a new product
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-};
-
-const MobileCartItem = ({ item, language, onUpdate, onRemove }) => {
-    const itemTotal = item.quantity * item.price;
-
-    return (
-        <div style={styles.mobileCartItem}>
-            <div style={styles.mobileCartItemDetails}>
-                <p style={{ margin: 0, fontWeight: 'bold', fontSize: '1.1rem', color: item.isReturn ? 'var(--danger-color)' : 'var(--text-color)' }}>
-                    {language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description}
-                </p>
-                <p style={{ margin: '0.25rem 0', color: 'var(--secondary-color)' }}>
-                    Price: ₹{item.price.toFixed(1)} | Total: ₹{itemTotal.toFixed(1)}
-                </p>
-                <div style={{ marginTop: '0.5rem' }}>
-                    <label>
-                        <input
-                            type="checkbox"
-                            checked={item.isReturn}
-                            onChange={(e) => onUpdate(item.id, 'isReturn', e.target.checked)}
-                            style={{ marginRight: '0.5rem', verticalAlign: 'middle' }}
-                        />
-                        Mark as Return
-                    </label>
-                </div>
-            </div>
-            <div style={styles.mobileCartItemActions}>
-                <button onClick={() => onUpdate(item.id, 'quantity', item.quantity - 1)} style={styles.mobileQuantityButton} disabled={item.quantity <= 1}>
-                    <MinusIcon size={20} />
-                </button>
-                <span style={styles.mobileQuantityDisplay}>{item.quantity}</span>
-                <button onClick={() => onUpdate(item.id, 'quantity', item.quantity + 1)} style={styles.mobileQuantityButton}>
-                    <PlusIcon size={20} />
-                </button>
-                <button onClick={() => onRemove(item.id)} style={{ ...styles.mobileQuantityButton, marginLeft: '1rem', backgroundColor: '#ffebee' }}>
-                    <TrashIcon size={20} color="var(--danger-color)" />
-                </button>
-            </div>
-        </div>
-    );
-};
-
-const MobileBottomNav = ({ onAddItem, onPreview, cartItemCount, total }) => {
-    return (
-        <div style={styles.mobileBottomNav}>
-            <button onClick={onAddItem} style={styles.mobileBottomNavButton}>
-                <PlusIcon />
-                <span>Add Item</span>
-            </button>
-            <button onClick={onPreview} style={styles.mobileBottomNavButtonPrimary} disabled={cartItemCount === 0}>
-                <span>Preview Invoice</span>
-                <span style={styles.mobileBottomNavTotal}>₹{total.toFixed(1)}</span>
-            </button>
-        </div>
-    );
-};
-
-
 // --- SALES VIEW COMPONENT ---
 const SalesView = ({ 
     products, 
@@ -1772,7 +1643,6 @@ const SalesView = ({
     const [priceMode, setPriceMode] = useState<'b2b' | 'b2c'>('b2c');
     const [isListening, setIsListening] = useState(false);
     const [isScannerOpen, setIsScannerOpen] = useState(false);
-    const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
     
     // Local state for mobile input to prevent re-render loop
     const [localCountryCode, setLocalCountryCode] = useState('+91');
@@ -1881,7 +1751,7 @@ const SalesView = ({
         setSearchResults([]);
         setHighlightedIndex(-1);
         
-        if (focusOnQuantity && focusIndex > -1) {
+        if (viewMode === 'desktop' && focusOnQuantity && focusIndex > -1) {
             setTimeout(() => {
                 const inputRef = quantityInputRefs.current[focusIndex];
                 if (inputRef) {
@@ -2037,308 +1907,251 @@ const SalesView = ({
         }
     };
 
+    if (viewMode === 'desktop') {
+        return (
+             <div style={styles.viewContainer}>
+                <div style={styles.viewHeader}>
+                    <h2>New Sale</h2>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                        <div style={styles.priceModeSelector}>
+                            <label style={styles.priceModeLabel}>
+                                <input type="radio" name="priceMode" value="b2c" checked={priceMode === 'b2c'} onChange={() => setPriceMode('b2c')} />
+                                B2C
+                            </label>
+                            <label style={styles.priceModeLabel}>
+                                <input type="radio" name="priceMode" value="b2b" checked={priceMode === 'b2b'} onChange={() => setPriceMode('b2b')} />
+                                B2B
+                            </label>
+                        </div>
+                         <div style={styles.priceModeSelector}>
+                            <label style={styles.priceModeLabel}>
+                                <input type="radio" name="language" value="english" checked={activeCart.language === 'english'} onChange={() => updateActiveCart({ language: 'english' })} />
+                                English
+                            </label>
+                            <label style={styles.priceModeLabel}>
+                                <input type="radio" name="language" value="tamil" checked={activeCart.language === 'tamil'} onChange={() => updateActiveCart({ language: 'tamil' })} />
+                                Tamil
+                            </label>
+                        </div>
+                        <div style={styles.priceModeSelector}>
+                            <label style={styles.priceModeLabel}>
+                                <input type="radio" name="viewMode" value="desktop" checked={viewMode === 'desktop'} onChange={() => setViewMode('desktop')} />
+                                Desktop
+                            </label>
+                            <label style={styles.priceModeLabel}>
+                                <input type="radio" name="viewMode" value="mobile" checked={viewMode === 'mobile'} onChange={() => setViewMode('mobile')} />
+                                Mobile
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style={styles.customerSection}>
+                     <input 
+                        ref={customerNameRef}
+                        type="text" 
+                        value={activeCart.customerName} 
+                        onChange={(e) => updateActiveCart({ customerName: e.target.value })}
+                        placeholder="Customer Name"
+                        style={styles.customerInput}
+                        onKeyDown={(e) => handleCustomerKeyDown(e, 'mobile')}
+                     />
+                     <div style={{ display: 'flex', flex: 1.5 }}>
+                        <input type="text" value={localCountryCode} onChange={handleCountryCodeChange} placeholder="+91" style={styles.countryCodeInput}/>
+                        <input ref={customerMobileRef} type="tel" value={localMobileNumber} onChange={handleMobileNumberChange} placeholder="Customer Mobile" style={styles.mobileNumberInput} onKeyDown={(e) => handleCustomerKeyDown(e, 'product')}/>
+                     </div>
+                     <button onClick={onShowHistory} style={{...styles.button, marginLeft: '0.5rem'}} disabled={!activeCart.customerMobile}>History</button>
+                </div>
+                
+                <div style={{ position: 'relative', marginBottom: '1rem', display: 'flex', alignItems: 'center' }}>
+                    <input
+                        ref={productSearchRef}
+                        type="text"
+                        placeholder="Search for a product by name or barcode... or use the mic"
+                        value={searchTerm}
+                        onChange={handleSearchChange}
+                        onKeyDown={handleSearchKeyDown}
+                        style={{ ...styles.input, width: '100%', boxSizing: 'border-box', paddingRight: '85px' }}
+                    />
+                     <button onClick={() => setIsScannerOpen(true)} style={styles.barcodeScanButton} title="Scan Barcode">
+                        <ScanIcon color={'var(--secondary-color)'} />
+                    </button>
+                     <button onClick={handleVoiceSearch} style={styles.voiceSearchButton} title={isOnline ? "Search with voice" : "Voice search is disabled offline"} disabled={!isOnline}>
+                        <MicIcon color={isListening ? 'var(--danger-color)' : (isOnline ? 'var(--secondary-color)' : '#cccccc')} />
+                    </button>
+                    {searchTerm && (
+                        <ul style={styles.searchResults}>
+                            {searchResults.map((p, index) => (
+                                <li key={p.id} onClick={() => handleAddToSale(p)} style={index === highlightedIndex ? {...styles.searchResultItem, ...styles.highlighted} : styles.searchResultItem} onMouseEnter={() => setHighlightedIndex(index)} >
+                                    {p.description} {p.descriptionTamil && `(${p.descriptionTamil})`} (₹{(priceMode === 'b2b' ? p.b2bPrice : p.b2cPrice).toFixed(1)}) - Stock: {p.stock}
+                                </li>
+                            ))}
+                            {searchResults.length === 0 && searchTerm.trim() !== '' && (
+                                <li onClick={handleCreateAndAddProduct} style={highlightedIndex === 0 ? {...styles.searchResultItem, ...styles.highlighted} : styles.searchResultItem} onMouseEnter={() => setHighlightedIndex(0)} >
+                                    + Add "<strong>{searchTerm}</strong>" as a new product
+                                </li>
+                            )}
+                        </ul>
+                    )}
+                </div>
+                
+                <div style={{maxHeight: '40vh', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px'}}>
+                    <table style={styles.table}>
+                        <thead>
+                            <tr>
+                                <th style={styles.th}>S.No.</th><th style={styles.th}>Description</th><th style={styles.th}>Quantity</th><th style={styles.th}>Price</th><th style={styles.th}>Total</th><th style={styles.th}>Return</th><th style={styles.th}>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {activeCart.items.map((item, index) => {
+                                const itemTotal = item.quantity * item.price;
+                                return (
+                                    <tr key={item.id} style={item.isReturn ? {backgroundColor: '#ffebee'} : {}}>
+                                        <td style={styles.td}>{index + 1}</td>
+                                        <td style={styles.td}>{activeCart.language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description}</td>
+                                        <td style={styles.td}><input ref={el => { quantityInputRefs.current[index] = el; }} type="number" step="0.001" value={item.quantity} onChange={(e) => handleUpdateSaleItem(item.id, 'quantity', parseFloat(e.target.value) || 0)} style={styles.gridInput} onKeyDown={(e) => handleQuantityKeyDown(e, index)} /></td>
+                                        <td style={styles.td}><input ref={el => { priceInputRefs.current[index] = el; }} type="number" step="0.01" value={item.price} onChange={(e) => handleUpdateSaleItem(item.id, 'price', parseFloat(e.target.value) || 0)} style={styles.gridInput} onKeyDown={handlePriceKeyDown} /></td>
+                                        <td style={styles.td}>₹{itemTotal.toFixed(1)}</td>
+                                        <td style={styles.td}><input type="checkbox" checked={item.isReturn} onChange={(e) => handleUpdateSaleItem(item.id, 'isReturn', e.target.checked)} style={{width: '20px', height: '20px'}} /></td>
+                                        <td style={styles.td}><button onClick={() => handleRemoveSaleItem(item.id)} style={{...styles.actionButton, backgroundColor: 'var(--danger-color)'}}>X</button></td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                     {activeCart.items.length === 0 && <p style={styles.emptyMessage}>No items in sale.</p>}
+                </div>
 
-    return (
-        <div style={viewMode === 'mobile' ? styles.mobileViewContainer : styles.viewContainer}>
-            <div style={styles.viewHeader}>
-                <h2>New Sale</h2>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                    <div style={styles.priceModeSelector}>
-                        <label style={styles.priceModeLabel}>
-                            <input
-                                type="radio"
-                                name="priceMode"
-                                value="b2c"
-                                checked={priceMode === 'b2c'}
-                                onChange={() => setPriceMode('b2c')}
-                            />
-                            B2C
-                        </label>
-                        <label style={styles.priceModeLabel}>
-                            <input
-                                type="radio"
-                                name="priceMode"
-                                value="b2b"
-                                checked={priceMode === 'b2b'}
-                                onChange={() => setPriceMode('b2b')}
-                            />
-                            B2B
-                        </label>
-                    </div>
-                     <div style={styles.priceModeSelector}>
-                        <label style={styles.priceModeLabel}>
-                            <input
-                                type="radio"
-                                name="language"
-                                value="english"
-                                checked={activeCart.language === 'english'}
-                                onChange={() => updateActiveCart({ language: 'english' })}
-                            />
-                            English
-                        </label>
-                        <label style={styles.priceModeLabel}>
-                            <input
-                                type="radio"
-                                name="language"
-                                value="tamil"
-                                checked={activeCart.language === 'tamil'}
-                                onChange={() => updateActiveCart({ language: 'tamil' })}
-                            />
-                            Tamil
-                        </label>
-                    </div>
-                    <div style={styles.priceModeSelector}>
-                        <label style={styles.priceModeLabel}>
-                            <input
-                                type="radio"
-                                name="viewMode"
-                                value="desktop"
-                                checked={viewMode === 'desktop'}
-                                onChange={() => setViewMode('desktop')}
-                            />
-                            Desktop
-                        </label>
-                        <label style={styles.priceModeLabel}>
-                            <input
-                                type="radio"
-                                name="viewMode"
-                                value="mobile"
-                                checked={viewMode === 'mobile'}
-                                onChange={() => setViewMode('mobile')}
-                            />
-                            Mobile
+                <div style={styles.totalsSection}>
+                    <div><label>Discount (₹)</label><input type="number" step="0.01" value={activeCart.discount} onChange={(e) => updateActiveCart({ discount: parseFloat(e.target.value) || 0 })} style={styles.totalsInput}/></div>
+                    <div><label>Tax (%)</label><input type="number" step="0.01" value={activeCart.tax} onChange={(e) => updateActiveCart({ tax: parseFloat(e.target.value) || 0 })} style={styles.totalsInput}/></div>
+                    <button onClick={onPreview} style={{...styles.button, backgroundColor: 'var(--success-color)'}} disabled={activeCart.items.length === 0}>Preview Invoice</button>
+                    <div style={styles.grandTotal}><h3>Grand Total: ₹{total.toFixed(1)}</h3></div>
+                </div>
+                
+                <div style={styles.backupSection}>
+                    <h3 style={styles.backupTitle}>Database Backup & Restore</h3>
+                    <p style={styles.backupDescription}>Save your entire application database (all shops, products, and sales) to a single file, or restore it from a previous backup.</p>
+                    <div style={styles.backupActions}>
+                        <button onClick={onSaveBackup} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Save Backup to Disk</button>
+                        <label style={{...styles.button, backgroundColor: 'var(--success-color)', cursor: 'pointer'}}>
+                            Load Backup from Disk
+                            <input type="file" accept=".sqlite,.db" style={{ display: 'none' }} onChange={onRestoreBackup} />
                         </label>
                     </div>
                 </div>
+                {isScannerOpen && <BarcodeScannerModal onScan={handleBarcodeScanned} onClose={() => setIsScannerOpen(false)} />}
             </div>
-            
-            {/* Customer Section */}
-             <div style={styles.customerSection}>
-                 <input 
-                    ref={customerNameRef}
-                    type="text" 
-                    value={activeCart.customerName} 
-                    onChange={(e) => updateActiveCart({ customerName: e.target.value })}
-                    placeholder="Customer Name"
-                    style={styles.customerInput}
-                    onKeyDown={(e) => handleCustomerKeyDown(e, 'mobile')}
-                 />
-                 <div style={{ display: 'flex', flex: 1.5 }}>
-                    <input
-                        type="text"
-                        value={localCountryCode}
-                        onChange={handleCountryCodeChange}
-                        placeholder="+91"
-                        style={styles.countryCodeInput}
-                    />
-                    <input 
-                        ref={customerMobileRef}
-                        type="tel" 
-                        value={localMobileNumber} 
-                        onChange={handleMobileNumberChange}
-                        placeholder="Customer Mobile"
-                        style={styles.mobileNumberInput}
-                        onKeyDown={(e) => handleCustomerKeyDown(e, 'product')}
-                    />
-                 </div>
-                 <button onClick={onShowHistory} style={{...styles.button, marginLeft: '0.5rem'}} disabled={!activeCart.customerMobile}>History</button>
-            </div>
-            
-            {viewMode === 'desktop' ? (
-                <>
-                    <div style={{ position: 'relative', marginBottom: '1rem', display: 'flex', alignItems: 'center' }}>
-                        <input
-                            ref={productSearchRef}
-                            type="text"
-                            placeholder="Search for a product by name or barcode... or use the mic"
-                            value={searchTerm}
-                            onChange={handleSearchChange}
-                            onKeyDown={handleSearchKeyDown}
-                            style={{ ...styles.input, width: '100%', boxSizing: 'border-box', paddingRight: '85px' }}
-                        />
-                         <button onClick={() => setIsScannerOpen(true)} style={styles.barcodeScanButton} title="Scan Barcode">
-                            <ScanIcon color={'var(--secondary-color)'} />
-                        </button>
-                         <button onClick={handleVoiceSearch} style={styles.voiceSearchButton} title={isOnline ? "Search with voice" : "Voice search is disabled offline"} disabled={!isOnline}>
-                            <MicIcon color={isListening ? 'var(--danger-color)' : (isOnline ? 'var(--secondary-color)' : '#cccccc')} />
-                        </button>
+        );
+    }
+    
+    // --- START OF NEW MOBILE VIEW ---
+    return (
+        <div style={styles.mobileSingleColumnLayout}>
+            <div style={styles.mobileScrollableContent}>
+                <div style={styles.mobileSection}>
+                    <h3 style={styles.mobileSectionTitle}>Settings</h3>
+                    <div style={styles.mobileSettingsGroup}>
+                        <p style={styles.mobileSettingsLabel}>Price Mode</p>
+                        <div style={styles.priceModeSelector}><label style={styles.priceModeLabel}><input type="radio" name="priceMode" value="b2c" checked={priceMode === 'b2c'} onChange={() => setPriceMode('b2c')} />B2C</label><label style={styles.priceModeLabel}><input type="radio" name="priceMode" value="b2b" checked={priceMode === 'b2b'} onChange={() => setPriceMode('b2b')} />B2B</label></div>
+                    </div>
+                    <div style={styles.mobileSettingsGroup}>
+                        <p style={styles.mobileSettingsLabel}>Language</p>
+                        <div style={styles.priceModeSelector}><label style={styles.priceModeLabel}><input type="radio" name="language" value="english" checked={activeCart.language === 'english'} onChange={() => updateActiveCart({ language: 'english' })} />English</label><label style={styles.priceModeLabel}><input type="radio" name="language" value="tamil" checked={activeCart.language === 'tamil'} onChange={() => updateActiveCart({ language: 'tamil' })} />Tamil</label></div>
+                    </div>
+                    <div style={styles.mobileSettingsGroup}>
+                        <p style={styles.mobileSettingsLabel}>View Mode</p>
+                        <div style={styles.priceModeSelector}><label style={styles.priceModeLabel}><input type="radio" name="viewMode" value="desktop" checked={viewMode === 'desktop'} onChange={() => setViewMode('desktop')} />Desktop</label><label style={styles.priceModeLabel}><input type="radio" name="viewMode" value="mobile" checked={viewMode === 'mobile'} onChange={() => setViewMode('mobile')} />Mobile</label></div>
+                    </div>
+                </div>
+
+                <div style={styles.mobileSection}>
+                    <h3 style={styles.mobileSectionTitle}>Customer Details</h3>
+                    <input ref={customerNameRef} type="text" value={activeCart.customerName} onChange={(e) => updateActiveCart({ customerName: e.target.value })} placeholder="Customer Name" style={styles.mobileInput} />
+                    <div style={{ display: 'flex' }}>
+                        <input type="text" value={localCountryCode} onChange={handleCountryCodeChange} placeholder="+91" style={{ ...styles.mobileInput, flex: '0 0 60px', borderTopRightRadius: 0, borderBottomRightRadius: 0, borderRight: 'none' }} />
+                        <input ref={customerMobileRef} type="tel" value={localMobileNumber} onChange={handleMobileNumberChange} placeholder="Customer Mobile" style={{ ...styles.mobileInput, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }} />
+                    </div>
+                    <button onClick={onShowHistory} style={{...styles.mobileButton, backgroundColor: 'var(--secondary-color)', width: '100%', marginTop: '0.5rem'}} disabled={!activeCart.customerMobile}>View History</button>
+                </div>
+
+                <div style={styles.mobileSection}>
+                    <h3 style={styles.mobileSectionTitle}>Add Product</h3>
+                    <div style={{ position: 'relative' }}>
+                        <input ref={productSearchRef} type="text" placeholder="Search or Scan..." value={searchTerm} onChange={handleSearchChange} onKeyDown={handleSearchKeyDown} style={{ ...styles.mobileInput, paddingRight: '50px' }} />
+                        <button onClick={() => setIsScannerOpen(true)} style={styles.mobileInputIconButton} title="Scan Barcode"><ScanIcon color="var(--secondary-color)" /></button>
                         {searchTerm && (
-                            <ul style={styles.searchResults}>
+                             <ul style={styles.mobileInlineSearchResults}>
                                 {searchResults.map((p, index) => (
-                                    <li
-                                        key={p.id}
-                                        onClick={() => handleAddToSale(p)}
-                                        style={index === highlightedIndex ? {...styles.searchResultItem, ...styles.highlighted} : styles.searchResultItem}
-                                        onMouseEnter={() => setHighlightedIndex(index)}
-                                    >
-                                        {p.description} {p.descriptionTamil && `(${p.descriptionTamil})`} (₹{(priceMode === 'b2b' ? p.b2bPrice : p.b2cPrice).toFixed(1)}) - Stock: {p.stock}
+                                    <li key={p.id} onClick={() => handleAddToSale(p)} style={index === highlightedIndex ? {...styles.mobileInlineSearchResultItem, ...styles.highlighted} : styles.mobileInlineSearchResultItem} onMouseEnter={() => setHighlightedIndex(index)}>
+                                        <p style={{margin:0, fontWeight: 500}}>{p.description}</p>
+                                        <p style={{margin: '0.2rem 0 0 0', color: 'var(--secondary-color)', fontSize: '0.9rem'}}>₹{(priceMode === 'b2b' ? p.b2bPrice : p.b2cPrice).toFixed(1)} | Stock: {p.stock}</p>
                                     </li>
                                 ))}
                                 {searchResults.length === 0 && searchTerm.trim() !== '' && (
-                                    <li
-                                        onClick={handleCreateAndAddProduct}
-                                        style={highlightedIndex === 0 ? {...styles.searchResultItem, ...styles.highlighted} : styles.searchResultItem}
-                                        onMouseEnter={() => setHighlightedIndex(0)}
-                                    >
-                                        + Add "<strong>{searchTerm}</strong>" as a new product
+                                    <li onClick={handleCreateAndAddProduct} style={highlightedIndex === 0 ? {...styles.mobileInlineSearchResultItem, ...styles.highlighted} : styles.mobileInlineSearchResultItem} onMouseEnter={() => setHighlightedIndex(0)}>
+                                        + Add "<strong>{searchTerm}</strong>" as new product
                                     </li>
                                 )}
                             </ul>
                         )}
                     </div>
-                    
-                    <div style={{maxHeight: '40vh', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px'}}>
-                        <table style={styles.table}>
-                            <thead>
-                                <tr>
-                                    <th style={styles.th}>S.No.</th>
-                                    <th style={styles.th}>Description</th>
-                                    <th style={styles.th}>Quantity</th>
-                                    <th style={styles.th}>Price</th>
-                                    <th style={styles.th}>Total</th>
-                                    <th style={styles.th}>Return</th>
-                                    <th style={styles.th}>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {activeCart.items.map((item, index) => {
-                                    const itemTotal = item.quantity * item.price;
-                                    return (
-                                        <tr key={item.id} style={item.isReturn ? {backgroundColor: '#ffebee'} : {}}>
-                                            <td style={styles.td}>{index + 1}</td>
-                                            <td style={styles.td}>{activeCart.language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description}</td>
-                                            <td style={styles.td}>
-                                                <input
-                                                    ref={el => { quantityInputRefs.current[index] = el; }}
-                                                    type="number"
-                                                    step="0.001"
-                                                    value={item.quantity}
-                                                    onChange={(e) => handleUpdateSaleItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
-                                                    style={styles.gridInput}
-                                                    onKeyDown={(e) => handleQuantityKeyDown(e, index)}
-                                                />
-                                            </td>
-                                            <td style={styles.td}>
-                                                <input
-                                                    ref={el => { priceInputRefs.current[index] = el; }}
-                                                    type="number"
-                                                    step="0.01"
-                                                    value={item.price}
-                                                    onChange={(e) => handleUpdateSaleItem(item.id, 'price', parseFloat(e.target.value) || 0)}
-                                                    style={styles.gridInput}
-                                                    onKeyDown={handlePriceKeyDown}
-                                                />
-                                            </td>
-                                            <td style={styles.td}>₹{itemTotal.toFixed(1)}</td>
-                                            <td style={styles.td}>
-                                                <input 
-                                                    type="checkbox" 
-                                                    checked={item.isReturn} 
-                                                    onChange={(e) => handleUpdateSaleItem(item.id, 'isReturn', e.target.checked)} 
-                                                    style={{width: '20px', height: '20px'}}
-                                                />
-                                            </td>
-                                            <td style={styles.td}>
-                                                <button onClick={() => handleRemoveSaleItem(item.id)} style={{...styles.actionButton, backgroundColor: 'var(--danger-color)'}}>X</button>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                         {activeCart.items.length === 0 && <p style={styles.emptyMessage}>No items in sale.</p>}
-                    </div>
+                </div>
 
-                    <div style={styles.totalsSection}>
-                        <div>
-                            <label>Discount (₹)</label>
-                            <input type="number" step="0.01" value={activeCart.discount} onChange={(e) => updateActiveCart({ discount: parseFloat(e.target.value) || 0 })} style={styles.totalsInput}/>
-                        </div>
-                        <div>
-                            <label>Tax (%)</label>
-                            <input type="number" step="0.01" value={activeCart.tax} onChange={(e) => updateActiveCart({ tax: parseFloat(e.target.value) || 0 })} style={styles.totalsInput}/>
-                        </div>
-                        <button 
-                            onClick={onPreview} 
-                            style={{...styles.button, backgroundColor: 'var(--success-color)'}} 
-                            disabled={activeCart.items.length === 0}
-                        >
-                            Preview Invoice
-                        </button>
-                        <div style={styles.grandTotal}>
-                            <h3>Grand Total: ₹{total.toFixed(1)}</h3>
-                        </div>
-                    </div>
-                    
-                    <div style={styles.backupSection}>
-                        <h3 style={styles.backupTitle}>Database Backup & Restore</h3>
-                        <p style={styles.backupDescription}>
-                            Save your entire application database (all shops, products, and sales) to a single file, or restore it from a previous backup.
-                        </p>
-                        <div style={styles.backupActions}>
-                            <button onClick={onSaveBackup} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>
-                                Save Backup to Disk
-                            </button>
-                            <label style={{...styles.button, backgroundColor: 'var(--success-color)', cursor: 'pointer'}}>
-                                Load Backup from Disk
-                                <input
-                                    type="file"
-                                    accept=".sqlite,.db"
-                                    style={{ display: 'none' }}
-                                    onChange={onRestoreBackup}
-                                />
-                            </label>
-                        </div>
-                    </div>
-                </>
-            ) : (
-                <>
-                    <div style={styles.mobileCartList}>
-                        {activeCart.items.length === 0 && <p style={styles.emptyMessage}>No items in sale. Tap 'Add Item' to start.</p>}
-                        {activeCart.items.map((item, index) => (
-                           <MobileCartItem 
-                                key={item.id}
-                                item={item}
-                                language={activeCart.language}
-                                onUpdate={handleUpdateSaleItem}
-                                onRemove={handleRemoveSaleItem}
-                           />
-                        ))}
-                    </div>
-                     <div style={styles.mobileTotalsSection}>
-                        <div style={styles.mobileTotalRow}>
-                            <span>Discount (₹)</span>
-                            <input type="number" step="0.01" value={activeCart.discount} onChange={(e) => updateActiveCart({ discount: parseFloat(e.target.value) || 0 })} style={{...styles.totalsInput, width: '80px'}}/>
-                        </div>
-                         <div style={styles.mobileTotalRow}>
-                            <span>Tax (%)</span>
-                            <input type="number" step="0.01" value={activeCart.tax} onChange={(e) => updateActiveCart({ tax: parseFloat(e.target.value) || 0 })} style={{...styles.totalsInput, width: '80px'}}/>
-                        </div>
-                    </div>
-                    <MobileBottomNav 
-                        onAddItem={() => setIsMobileSearchOpen(true)}
-                        onPreview={onPreview}
-                        cartItemCount={activeCart.items.length}
-                        total={total}
-                    />
-                    {isMobileSearchOpen && (
-                        <MobileProductSearchModal 
-                           products={products}
-                           priceMode={priceMode}
-                           onAddToSale={handleAddToSale}
-                           onAddNewProduct={onAddNewProduct}
-                           onClose={() => setIsMobileSearchOpen(false)}
-                        />
-                    )}
-                </>
-            )}
+                <div style={styles.mobileSection}>
+                     <h3 style={styles.mobileSectionTitle}>Bill Items ({activeCart.items.length})</h3>
+                     {activeCart.items.length === 0 && <p style={styles.emptyMessage}>No items added yet.</p>}
+                     {activeCart.items.map(item => {
+                         const itemTotal = item.quantity * item.price;
+                         return (
+                            <div key={item.id} style={item.isReturn ? {...styles.mobileBillItemCard, ...styles.mobileBillItemCardReturn} : styles.mobileBillItemCard}>
+                                <div style={styles.mobileBillItemInfo}>
+                                    <p style={{ margin: 0, fontWeight: 'bold' }}>{activeCart.language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description}</p>
+                                    <p style={{ margin: '0.25rem 0', color: 'var(--secondary-color)' }}>
+                                        Price: ₹{item.price.toFixed(1)} | Total: ₹{itemTotal.toFixed(1)}
+                                    </p>
+                                </div>
+                                <div style={styles.mobileBillItemControls}>
+                                    <div style={styles.mobileQuantityControls}>
+                                        <button onClick={() => handleUpdateSaleItem(item.id, 'quantity', item.quantity - 1)} style={styles.mobileRoundButton} disabled={item.quantity <= 1}><MinusIcon size={18} /></button>
+                                        <span style={{fontWeight: 500, minWidth: '20px', textAlign: 'center'}}>{item.quantity}</span>
+                                        <button onClick={() => handleUpdateSaleItem(item.id, 'quantity', item.quantity + 1)} style={styles.mobileRoundButton}><PlusIcon size={18} /></button>
+                                    </div>
+                                    <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                                        <label style={{display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.9rem'}}>
+                                            <input type="checkbox" checked={item.isReturn} onChange={e => handleUpdateSaleItem(item.id, 'isReturn', e.target.checked)} /> Return
+                                        </label>
+                                        <button onClick={() => handleRemoveSaleItem(item.id)} style={styles.mobileRoundButton}><TrashIcon size={18} color="var(--danger-color)" /></button>
+                                    </div>
+                                </div>
+                            </div>
+                         );
+                     })}
+                </div>
 
-            {isScannerOpen && (
-                <BarcodeScannerModal 
-                    onScan={handleBarcodeScanned}
-                    onClose={() => setIsScannerOpen(false)}
-                />
-            )}
+                <div style={styles.mobileSection}>
+                    <h3 style={styles.mobileSectionTitle}>Payment</h3>
+                    <div style={styles.mobilePaymentRow}>
+                        <span>Discount (₹)</span>
+                        <input type="number" step="0.01" value={activeCart.discount} onChange={(e) => updateActiveCart({ discount: parseFloat(e.target.value) || 0 })} style={styles.mobilePaymentInput} />
+                    </div>
+                     <div style={styles.mobilePaymentRow}>
+                        <span>Tax (%)</span>
+                        <input type="number" step="0.01" value={activeCart.tax} onChange={(e) => updateActiveCart({ tax: parseFloat(e.target.value) || 0 })} style={styles.mobilePaymentInput} />
+                    </div>
+                    <div style={styles.mobileGrandTotal}>
+                        <span>Grand Total</span>
+                        <span>₹{total.toFixed(1)}</span>
+                    </div>
+                </div>
+
+            </div>
+            <div style={styles.mobileBottomActionBar}>
+                <button onClick={onPreview} style={styles.mobileFinalizeButton} disabled={activeCart.items.length === 0}>
+                    Preview & Finalize Sale
+                </button>
+            </div>
+             {isScannerOpen && <BarcodeScannerModal onScan={handleBarcodeScanned} onClose={() => setIsScannerOpen(false)} />}
         </div>
     );
 };
@@ -3956,6 +3769,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     },
     mainContent: {
         padding: '1.5rem',
+        flex: 1,
+        overflow: 'auto',
     },
     viewContainer: {
         display: 'flex',
@@ -4290,146 +4105,174 @@ const styles: { [key: string]: React.CSSProperties } = {
         borderRadius: '6px',
         marginBottom: '1rem',
     },
-    // --- NEW MOBILE STYLES ---
-    mobileViewContainer: {
-        width: '100%',
-        height: 'calc(100vh - 4rem)', // Full viewport height minus padding
+    // --- NEW MOBILE SINGLE-COLUMN STYLES ---
+    mobileSingleColumnLayout: {
+        height: 'calc(100vh - 100px)', // Adjust based on nav height and padding
         display: 'flex',
         flexDirection: 'column',
+        backgroundColor: 'var(--background-color)',
     },
-    mobileCartList: {
+    mobileScrollableContent: {
         flex: 1,
         overflowY: 'auto',
         padding: '0.5rem',
-        paddingBottom: '150px', // Space for bottom nav and totals
+        paddingBottom: '90px', // Space for the fixed action bar
     },
-    mobileCartItem: {
+    mobileSection: {
         backgroundColor: 'var(--surface-color)',
-        borderRadius: '8px',
-        boxShadow: '0 2px 4px rgba(0,0,0,0.08)',
+        borderRadius: '12px',
         padding: '1rem',
         marginBottom: '1rem',
+        boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
+    },
+    mobileSectionTitle: {
+        margin: '0 0 1rem 0',
+        fontSize: '1.1rem',
+        color: 'var(--primary-color)',
+        borderBottom: '1px solid var(--border-color)',
+        paddingBottom: '0.5rem',
+    },
+    mobileInput: {
+        width: '100%',
+        padding: '0.8rem',
+        fontSize: '1rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        boxSizing: 'border-box',
+        marginBottom: '0.5rem',
+    },
+    mobileInputIconButton: {
+        position: 'absolute',
+        right: '5px',
+        top: '5px',
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: '0.5rem',
+        height: 'calc(100% - 10px)',
+        display: 'flex',
+        alignItems: 'center',
+    },
+    mobileButton: {
+        padding: '0.8rem 1.2rem',
+        border: 'none',
+        borderRadius: '8px',
+        backgroundColor: 'var(--primary-color)',
+        color: '#fff',
+        cursor: 'pointer',
+        fontSize: '1rem',
+        fontWeight: '500',
+    },
+    mobileSettingsGroup: {
+        marginBottom: '1rem',
+    },
+    mobileSettingsLabel: {
+        margin: '0 0 0.5rem 0',
+        fontWeight: 500,
+        color: 'var(--secondary-color)',
+    },
+    mobileInlineSearchResults: {
+        listStyle: 'none',
+        padding: 0,
+        margin: '0.5rem 0 0 0',
+        maxHeight: '250px',
+        overflowY: 'auto',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        backgroundColor: 'var(--surface-color)',
+        position: 'absolute',
+        width: '100%',
+        zIndex: 10,
+        boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+    },
+    mobileInlineSearchResultItem: {
+        padding: '0.75rem',
+        cursor: 'pointer',
+        borderBottom: '1px solid var(--border-color)',
+    },
+    mobileBillItemCard: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.5rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        padding: '0.75rem',
+        marginBottom: '0.5rem',
+    },
+     mobileBillItemCardReturn: {
+        borderColor: 'var(--danger-color)',
+        backgroundColor: '#fff8f8',
+    },
+    mobileBillItemInfo: {},
+    mobileBillItemControls: {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        gap: '1rem',
+        marginTop: '0.5rem',
     },
-    mobileCartItemDetails: {
-        flex: 1,
-    },
-    mobileCartItemActions: {
+    mobileQuantityControls: {
         display: 'flex',
         alignItems: 'center',
+        gap: '0.5rem',
     },
-    mobileQuantityButton: {
+    mobileRoundButton: {
         background: 'var(--background-color)',
         border: '1px solid var(--border-color)',
         borderRadius: '50%',
-        width: '32px',
-        height: '32px',
+        width: '36px',
+        height: '36px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         cursor: 'pointer',
     },
-    mobileQuantityDisplay: {
-        padding: '0 0.75rem',
-        fontSize: '1.1rem',
-        fontWeight: 500,
-    },
-    mobileTotalsSection: {
-        padding: '1rem',
-        borderTop: '1px solid var(--border-color)',
-        backgroundColor: '#f8f9fa',
-    },
-    mobileTotalRow: {
+    mobilePaymentRow: {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: '0.5rem',
+        padding: '0.5rem 0',
         fontSize: '1rem',
     },
-    mobileBottomNav: {
+    mobilePaymentInput: {
+        width: '100px',
+        padding: '0.5rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        textAlign: 'right',
+        fontSize: '1rem',
+    },
+    mobileGrandTotal: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        fontSize: '1.2rem',
+        fontWeight: 'bold',
+        marginTop: '1rem',
+        paddingTop: '1rem',
+        borderTop: '1px solid var(--border-color)',
+    },
+    mobileBottomActionBar: {
         position: 'fixed',
         bottom: 0,
         left: 0,
         right: 0,
-        display: 'flex',
+        padding: '1rem',
         backgroundColor: 'var(--surface-color)',
         boxShadow: '0 -2px 10px rgba(0,0,0,0.1)',
-        padding: '0.5rem',
         zIndex: 100,
-        gap: '0.5rem',
+        borderTop: '1px solid var(--border-color)',
     },
-    mobileBottomNavButton: {
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '0.25rem',
-        padding: '0.5rem',
-        background: 'none',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        color: 'var(--text-color)',
-        fontSize: '0.8rem',
-        cursor: 'pointer',
-    },
-    mobileBottomNavButtonPrimary: {
-        flex: 2,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '0.5rem',
+    mobileFinalizeButton: {
+        width: '100%',
         padding: '1rem',
-        border: 'none',
-        borderRadius: '8px',
-        backgroundColor: 'var(--success-color)',
-        color: '#fff',
         fontSize: '1.1rem',
         fontWeight: 'bold',
-        cursor: 'pointer',
-    },
-    mobileBottomNavTotal: {
-        backgroundColor: 'rgba(0,0,0,0.15)',
-        padding: '0.2rem 0.6rem',
-        borderRadius: '12px',
-        fontSize: '1rem',
-    },
-    mobileSearchModal: {
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100vw',
-        height: '100vh',
-        backgroundColor: 'var(--surface-color)',
-        zIndex: 1100,
-        display: 'flex',
-        flexDirection: 'column',
-    },
-    mobileSearchHeader: {
-        display: 'flex',
-        gap: '1rem',
-        padding: '1rem',
-        borderBottom: '1px solid var(--border-color)',
-    },
-    mobileSearchCloseButton: {
-        padding: '0.5rem 1rem',
         border: 'none',
-        background: 'var(--background-color)',
-        borderRadius: '6px',
+        borderRadius: '12px',
+        backgroundColor: 'var(--success-color)',
+        color: '#fff',
         cursor: 'pointer',
+        textAlign: 'center',
     },
-    mobileSearchResults: {
-        flex: 1,
-        overflowY: 'auto',
-    },
-    mobileSearchResultItem: {
-        padding: '1rem',
-        borderBottom: '1px solid var(--border-color)',
-        cursor: 'pointer',
-    }
 };
 
 const container = document.getElementById('root');
