@@ -1593,6 +1593,162 @@ const ScanIcon = ({ color = 'currentColor' }) => (
     </svg>
 );
 
+const UserIcon = ({ size = 24, color = 'currentColor' }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" height={`${size}px`} viewBox="0 0 24 24" width={`${size}px`} fill={color}>
+        <path d="M0 0h24v24H0V0z" fill="none"/>
+        <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+    </svg>
+);
+
+const PlusIcon = ({ size = 24, color = 'currentColor' }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" height={`${size}px`} viewBox="0 0 24 24" width={`${size}px`} fill={color}>
+        <path d="M0 0h24v24H0V0z" fill="none"/>
+        <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+    </svg>
+);
+
+const MinusIcon = ({ size = 24, color = 'currentColor' }) => (
+     <svg xmlns="http://www.w3.org/2000/svg" height={`${size}px`} viewBox="0 0 24 24" width={`${size}px`} fill={color}>
+        <path d="M0 0h24v24H0V0z" fill="none"/>
+        <path d="M19 13H5v-2h14v2z"/>
+    </svg>
+);
+
+const TrashIcon = ({ size = 24, color = 'currentColor' }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" height={`${size}px`} viewBox="0 0 24 24" width={`${size}px`} fill={color}>
+        <path d="M0 0h24v24H0V0z" fill="none"/>
+        <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM8 9h8v10H8V9zm7.5-5l-1-1h-5l-1 1H5v2h14V4h-3.5z"/>
+    </svg>
+);
+
+// --- MOBILE-SPECIFIC SALES COMPONENTS ---
+const MobileProductSearchModal = ({ products, priceMode, onAddToSale, onAddNewProduct, onClose }) => {
+    const [searchTerm, setSearchTerm] = useState('');
+    const [searchResults, setSearchResults] = useState<Product[]>([]);
+    const [highlightedIndex, setHighlightedIndex] = useState(-1);
+    const searchInputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        searchInputRef.current?.focus();
+    }, []);
+
+    const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const term = e.target.value;
+        setSearchTerm(term);
+        if (term) {
+            setSearchResults(
+                products.filter(p => 
+                    p.description.toLowerCase().includes(term.toLowerCase()) || 
+                    (p.descriptionTamil && p.descriptionTamil.toLowerCase().includes(term.toLowerCase())) ||
+                    p.barcode.toLowerCase().includes(term.toLowerCase())
+                )
+            );
+        } else {
+            setSearchResults([]);
+        }
+        setHighlightedIndex(-1);
+    };
+
+    const handleSelect = (product: Product) => {
+        onAddToSale(product, false);
+        onClose();
+    };
+
+    const handleCreateAndAdd = () => {
+        const newProduct = onAddNewProduct(searchTerm);
+        if (newProduct) {
+            onAddToSale(newProduct, false);
+        }
+        onClose();
+    };
+
+    return (
+        <div style={styles.mobileSearchModal}>
+            <div style={styles.mobileSearchHeader}>
+                <input
+                    ref={searchInputRef}
+                    type="search"
+                    placeholder="Search products..."
+                    value={searchTerm}
+                    onChange={handleSearchChange}
+                    style={{ ...styles.input, width: '100%', boxSizing: 'border-box' }}
+                />
+                <button onClick={onClose} style={styles.mobileSearchCloseButton}>Close</button>
+            </div>
+            <div style={styles.mobileSearchResults}>
+                {searchResults.map((p, index) => (
+                    <div key={p.id} onClick={() => handleSelect(p)} style={styles.mobileSearchResultItem}>
+                        <p style={{ margin: 0, fontWeight: 500 }}>{p.description}</p>
+                        <p style={{ margin: '0.2rem 0 0 0', color: 'var(--secondary-color)' }}>
+                            Price: ₹{(priceMode === 'b2b' ? p.b2bPrice : p.b2cPrice).toFixed(1)} | Stock: {p.stock}
+                        </p>
+                    </div>
+                ))}
+                {searchResults.length === 0 && searchTerm.trim() !== '' && (
+                    <div onClick={handleCreateAndAdd} style={styles.mobileSearchResultItem}>
+                        + Add "<strong>{searchTerm}</strong>" as a new product
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+const MobileCartItem = ({ item, language, onUpdate, onRemove }) => {
+    const itemTotal = item.quantity * item.price;
+
+    return (
+        <div style={styles.mobileCartItem}>
+            <div style={styles.mobileCartItemDetails}>
+                <p style={{ margin: 0, fontWeight: 'bold', fontSize: '1.1rem', color: item.isReturn ? 'var(--danger-color)' : 'var(--text-color)' }}>
+                    {language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description}
+                </p>
+                <p style={{ margin: '0.25rem 0', color: 'var(--secondary-color)' }}>
+                    Price: ₹{item.price.toFixed(1)} | Total: ₹{itemTotal.toFixed(1)}
+                </p>
+                <div style={{ marginTop: '0.5rem' }}>
+                    <label>
+                        <input
+                            type="checkbox"
+                            checked={item.isReturn}
+                            onChange={(e) => onUpdate(item.id, 'isReturn', e.target.checked)}
+                            style={{ marginRight: '0.5rem', verticalAlign: 'middle' }}
+                        />
+                        Mark as Return
+                    </label>
+                </div>
+            </div>
+            <div style={styles.mobileCartItemActions}>
+                <button onClick={() => onUpdate(item.id, 'quantity', item.quantity - 1)} style={styles.mobileQuantityButton} disabled={item.quantity <= 1}>
+                    <MinusIcon size={20} />
+                </button>
+                <span style={styles.mobileQuantityDisplay}>{item.quantity}</span>
+                <button onClick={() => onUpdate(item.id, 'quantity', item.quantity + 1)} style={styles.mobileQuantityButton}>
+                    <PlusIcon size={20} />
+                </button>
+                <button onClick={() => onRemove(item.id)} style={{ ...styles.mobileQuantityButton, marginLeft: '1rem', backgroundColor: '#ffebee' }}>
+                    <TrashIcon size={20} color="var(--danger-color)" />
+                </button>
+            </div>
+        </div>
+    );
+};
+
+const MobileBottomNav = ({ onAddItem, onPreview, cartItemCount, total }) => {
+    return (
+        <div style={styles.mobileBottomNav}>
+            <button onClick={onAddItem} style={styles.mobileBottomNavButton}>
+                <PlusIcon />
+                <span>Add Item</span>
+            </button>
+            <button onClick={onPreview} style={styles.mobileBottomNavButtonPrimary} disabled={cartItemCount === 0}>
+                <span>Preview Invoice</span>
+                <span style={styles.mobileBottomNavTotal}>₹{total.toFixed(1)}</span>
+            </button>
+        </div>
+    );
+};
+
 
 // --- SALES VIEW COMPONENT ---
 const SalesView = ({ 
@@ -1607,6 +1763,8 @@ const SalesView = ({
     onUpdateProductPrice,
     onAddNewProduct,
     isOnline,
+    viewMode,
+    setViewMode,
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [searchResults, setSearchResults] = useState<Product[]>([]);
@@ -1614,6 +1772,7 @@ const SalesView = ({
     const [priceMode, setPriceMode] = useState<'b2b' | 'b2c'>('b2c');
     const [isListening, setIsListening] = useState(false);
     const [isScannerOpen, setIsScannerOpen] = useState(false);
+    const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
     
     // Local state for mobile input to prevent re-render loop
     const [localCountryCode, setLocalCountryCode] = useState('+91');
@@ -1880,10 +2039,10 @@ const SalesView = ({
 
 
     return (
-        <div style={styles.viewContainer}>
+        <div style={viewMode === 'mobile' ? styles.mobileViewContainer : styles.viewContainer}>
             <div style={styles.viewHeader}>
                 <h2>New Sale</h2>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
                     <div style={styles.priceModeSelector}>
                         <label style={styles.priceModeLabel}>
                             <input
@@ -1928,10 +2087,33 @@ const SalesView = ({
                             Tamil
                         </label>
                     </div>
+                    <div style={styles.priceModeSelector}>
+                        <label style={styles.priceModeLabel}>
+                            <input
+                                type="radio"
+                                name="viewMode"
+                                value="desktop"
+                                checked={viewMode === 'desktop'}
+                                onChange={() => setViewMode('desktop')}
+                            />
+                            Desktop
+                        </label>
+                        <label style={styles.priceModeLabel}>
+                            <input
+                                type="radio"
+                                name="viewMode"
+                                value="mobile"
+                                checked={viewMode === 'mobile'}
+                                onChange={() => setViewMode('mobile')}
+                            />
+                            Mobile
+                        </label>
+                    </div>
                 </div>
             </div>
             
-            <div style={styles.customerSection}>
+            {/* Customer Section */}
+             <div style={styles.customerSection}>
                  <input 
                     ref={customerNameRef}
                     type="text" 
@@ -1961,152 +2143,196 @@ const SalesView = ({
                  </div>
                  <button onClick={onShowHistory} style={{...styles.button, marginLeft: '0.5rem'}} disabled={!activeCart.customerMobile}>History</button>
             </div>
-
-            <div style={{ position: 'relative', marginBottom: '1rem', display: 'flex', alignItems: 'center' }}>
-                <input
-                    ref={productSearchRef}
-                    type="text"
-                    placeholder="Search for a product by name or barcode... or use the mic"
-                    value={searchTerm}
-                    onChange={handleSearchChange}
-                    onKeyDown={handleSearchKeyDown}
-                    style={{ ...styles.input, width: '100%', boxSizing: 'border-box', paddingRight: '85px' }}
-                />
-                 <button onClick={() => setIsScannerOpen(true)} style={styles.barcodeScanButton} title="Scan Barcode">
-                    <ScanIcon color={'var(--secondary-color)'} />
-                </button>
-                 <button onClick={handleVoiceSearch} style={styles.voiceSearchButton} title={isOnline ? "Search with voice" : "Voice search is disabled offline"} disabled={!isOnline}>
-                    <MicIcon color={isListening ? 'var(--danger-color)' : (isOnline ? 'var(--secondary-color)' : '#cccccc')} />
-                </button>
-                {searchTerm && (
-                    <ul style={styles.searchResults}>
-                        {searchResults.map((p, index) => (
-                            <li
-                                key={p.id}
-                                onClick={() => handleAddToSale(p)}
-                                style={index === highlightedIndex ? {...styles.searchResultItem, ...styles.highlighted} : styles.searchResultItem}
-                                onMouseEnter={() => setHighlightedIndex(index)}
-                            >
-                                {/* Fix: Corrected typo from c2cPrice to b2cPrice */}
-                                {p.description} {p.descriptionTamil && `(${p.descriptionTamil})`} (₹{(priceMode === 'b2b' ? p.b2bPrice : p.b2cPrice).toFixed(1)}) - Stock: {p.stock}
-                            </li>
-                        ))}
-                        {searchResults.length === 0 && searchTerm.trim() !== '' && (
-                            <li
-                                onClick={handleCreateAndAddProduct}
-                                style={highlightedIndex === 0 ? {...styles.searchResultItem, ...styles.highlighted} : styles.searchResultItem}
-                                onMouseEnter={() => setHighlightedIndex(0)}
-                            >
-                                + Add "<strong>{searchTerm}</strong>" as a new product
-                            </li>
-                        )}
-                    </ul>
-                )}
-            </div>
             
-            <div style={{maxHeight: '40vh', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px'}}>
-                <table style={styles.table}>
-                    <thead>
-                        <tr>
-                            <th style={styles.th}>S.No.</th>
-                            <th style={styles.th}>Description</th>
-                            <th style={styles.th}>Quantity</th>
-                            <th style={styles.th}>Price</th>
-                            <th style={styles.th}>Total</th>
-                            <th style={styles.th}>Return</th>
-                            <th style={styles.th}>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {activeCart.items.map((item, index) => {
-                            const itemTotal = item.quantity * item.price;
-                            return (
-                                <tr key={item.id} style={item.isReturn ? {backgroundColor: '#ffebee'} : {}}>
-                                    <td style={styles.td}>{index + 1}</td>
-                                    <td style={styles.td}>{activeCart.language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description}</td>
-                                    <td style={styles.td}>
-                                        <input
-                                            ref={el => { quantityInputRefs.current[index] = el; }}
-                                            type="number"
-                                            step="0.001"
-                                            value={item.quantity}
-                                            onChange={(e) => handleUpdateSaleItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
-                                            style={styles.gridInput}
-                                            onKeyDown={(e) => handleQuantityKeyDown(e, index)}
-                                        />
-                                    </td>
-                                    <td style={styles.td}>
-                                        <input
-                                            ref={el => { priceInputRefs.current[index] = el; }}
-                                            type="number"
-                                            step="0.01"
-                                            value={item.price}
-                                            onChange={(e) => handleUpdateSaleItem(item.id, 'price', parseFloat(e.target.value) || 0)}
-                                            style={styles.gridInput}
-                                            onKeyDown={handlePriceKeyDown}
-                                        />
-                                    </td>
-                                    <td style={styles.td}>₹{itemTotal.toFixed(1)}</td>
-                                    <td style={styles.td}>
-                                        <input 
-                                            type="checkbox" 
-                                            checked={item.isReturn} 
-                                            onChange={(e) => handleUpdateSaleItem(item.id, 'isReturn', e.target.checked)} 
-                                            style={{width: '20px', height: '20px'}}
-                                        />
-                                    </td>
-                                    <td style={styles.td}>
-                                        <button onClick={() => handleRemoveSaleItem(item.id)} style={{...styles.actionButton, backgroundColor: 'var(--danger-color)'}}>X</button>
-                                    </td>
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
-                 {activeCart.items.length === 0 && <p style={styles.emptyMessage}>No items in sale.</p>}
-            </div>
-
-            <div style={styles.totalsSection}>
-                <div>
-                    <label>Discount (₹)</label>
-                    <input type="number" step="0.01" value={activeCart.discount} onChange={(e) => updateActiveCart({ discount: parseFloat(e.target.value) || 0 })} style={styles.totalsInput}/>
-                </div>
-                <div>
-                    <label>Tax (%)</label>
-                    <input type="number" step="0.01" value={activeCart.tax} onChange={(e) => updateActiveCart({ tax: parseFloat(e.target.value) || 0 })} style={styles.totalsInput}/>
-                </div>
-                <button 
-                    onClick={onPreview} 
-                    style={{...styles.button, backgroundColor: 'var(--success-color)'}} 
-                    disabled={activeCart.items.length === 0}
-                >
-                    Preview Invoice
-                </button>
-                <div style={styles.grandTotal}>
-                    <h3>Grand Total: ₹{total.toFixed(1)}</h3>
-                </div>
-            </div>
-            
-            <div style={styles.backupSection}>
-                <h3 style={styles.backupTitle}>Database Backup & Restore</h3>
-                <p style={styles.backupDescription}>
-                    Save your entire application database (all shops, products, and sales) to a single file, or restore it from a previous backup.
-                </p>
-                <div style={styles.backupActions}>
-                    <button onClick={onSaveBackup} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>
-                        Save Backup to Disk
-                    </button>
-                    <label style={{...styles.button, backgroundColor: 'var(--success-color)', cursor: 'pointer'}}>
-                        Load Backup from Disk
+            {viewMode === 'desktop' ? (
+                <>
+                    <div style={{ position: 'relative', marginBottom: '1rem', display: 'flex', alignItems: 'center' }}>
                         <input
-                            type="file"
-                            accept=".sqlite,.db"
-                            style={{ display: 'none' }}
-                            onChange={onRestoreBackup}
+                            ref={productSearchRef}
+                            type="text"
+                            placeholder="Search for a product by name or barcode... or use the mic"
+                            value={searchTerm}
+                            onChange={handleSearchChange}
+                            onKeyDown={handleSearchKeyDown}
+                            style={{ ...styles.input, width: '100%', boxSizing: 'border-box', paddingRight: '85px' }}
                         />
-                    </label>
-                </div>
-            </div>
+                         <button onClick={() => setIsScannerOpen(true)} style={styles.barcodeScanButton} title="Scan Barcode">
+                            <ScanIcon color={'var(--secondary-color)'} />
+                        </button>
+                         <button onClick={handleVoiceSearch} style={styles.voiceSearchButton} title={isOnline ? "Search with voice" : "Voice search is disabled offline"} disabled={!isOnline}>
+                            <MicIcon color={isListening ? 'var(--danger-color)' : (isOnline ? 'var(--secondary-color)' : '#cccccc')} />
+                        </button>
+                        {searchTerm && (
+                            <ul style={styles.searchResults}>
+                                {searchResults.map((p, index) => (
+                                    <li
+                                        key={p.id}
+                                        onClick={() => handleAddToSale(p)}
+                                        style={index === highlightedIndex ? {...styles.searchResultItem, ...styles.highlighted} : styles.searchResultItem}
+                                        onMouseEnter={() => setHighlightedIndex(index)}
+                                    >
+                                        {p.description} {p.descriptionTamil && `(${p.descriptionTamil})`} (₹{(priceMode === 'b2b' ? p.b2bPrice : p.b2cPrice).toFixed(1)}) - Stock: {p.stock}
+                                    </li>
+                                ))}
+                                {searchResults.length === 0 && searchTerm.trim() !== '' && (
+                                    <li
+                                        onClick={handleCreateAndAddProduct}
+                                        style={highlightedIndex === 0 ? {...styles.searchResultItem, ...styles.highlighted} : styles.searchResultItem}
+                                        onMouseEnter={() => setHighlightedIndex(0)}
+                                    >
+                                        + Add "<strong>{searchTerm}</strong>" as a new product
+                                    </li>
+                                )}
+                            </ul>
+                        )}
+                    </div>
+                    
+                    <div style={{maxHeight: '40vh', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px'}}>
+                        <table style={styles.table}>
+                            <thead>
+                                <tr>
+                                    <th style={styles.th}>S.No.</th>
+                                    <th style={styles.th}>Description</th>
+                                    <th style={styles.th}>Quantity</th>
+                                    <th style={styles.th}>Price</th>
+                                    <th style={styles.th}>Total</th>
+                                    <th style={styles.th}>Return</th>
+                                    <th style={styles.th}>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {activeCart.items.map((item, index) => {
+                                    const itemTotal = item.quantity * item.price;
+                                    return (
+                                        <tr key={item.id} style={item.isReturn ? {backgroundColor: '#ffebee'} : {}}>
+                                            <td style={styles.td}>{index + 1}</td>
+                                            <td style={styles.td}>{activeCart.language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description}</td>
+                                            <td style={styles.td}>
+                                                <input
+                                                    ref={el => { quantityInputRefs.current[index] = el; }}
+                                                    type="number"
+                                                    step="0.001"
+                                                    value={item.quantity}
+                                                    onChange={(e) => handleUpdateSaleItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
+                                                    style={styles.gridInput}
+                                                    onKeyDown={(e) => handleQuantityKeyDown(e, index)}
+                                                />
+                                            </td>
+                                            <td style={styles.td}>
+                                                <input
+                                                    ref={el => { priceInputRefs.current[index] = el; }}
+                                                    type="number"
+                                                    step="0.01"
+                                                    value={item.price}
+                                                    onChange={(e) => handleUpdateSaleItem(item.id, 'price', parseFloat(e.target.value) || 0)}
+                                                    style={styles.gridInput}
+                                                    onKeyDown={handlePriceKeyDown}
+                                                />
+                                            </td>
+                                            <td style={styles.td}>₹{itemTotal.toFixed(1)}</td>
+                                            <td style={styles.td}>
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={item.isReturn} 
+                                                    onChange={(e) => handleUpdateSaleItem(item.id, 'isReturn', e.target.checked)} 
+                                                    style={{width: '20px', height: '20px'}}
+                                                />
+                                            </td>
+                                            <td style={styles.td}>
+                                                <button onClick={() => handleRemoveSaleItem(item.id)} style={{...styles.actionButton, backgroundColor: 'var(--danger-color)'}}>X</button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                         {activeCart.items.length === 0 && <p style={styles.emptyMessage}>No items in sale.</p>}
+                    </div>
+
+                    <div style={styles.totalsSection}>
+                        <div>
+                            <label>Discount (₹)</label>
+                            <input type="number" step="0.01" value={activeCart.discount} onChange={(e) => updateActiveCart({ discount: parseFloat(e.target.value) || 0 })} style={styles.totalsInput}/>
+                        </div>
+                        <div>
+                            <label>Tax (%)</label>
+                            <input type="number" step="0.01" value={activeCart.tax} onChange={(e) => updateActiveCart({ tax: parseFloat(e.target.value) || 0 })} style={styles.totalsInput}/>
+                        </div>
+                        <button 
+                            onClick={onPreview} 
+                            style={{...styles.button, backgroundColor: 'var(--success-color)'}} 
+                            disabled={activeCart.items.length === 0}
+                        >
+                            Preview Invoice
+                        </button>
+                        <div style={styles.grandTotal}>
+                            <h3>Grand Total: ₹{total.toFixed(1)}</h3>
+                        </div>
+                    </div>
+                    
+                    <div style={styles.backupSection}>
+                        <h3 style={styles.backupTitle}>Database Backup & Restore</h3>
+                        <p style={styles.backupDescription}>
+                            Save your entire application database (all shops, products, and sales) to a single file, or restore it from a previous backup.
+                        </p>
+                        <div style={styles.backupActions}>
+                            <button onClick={onSaveBackup} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>
+                                Save Backup to Disk
+                            </button>
+                            <label style={{...styles.button, backgroundColor: 'var(--success-color)', cursor: 'pointer'}}>
+                                Load Backup from Disk
+                                <input
+                                    type="file"
+                                    accept=".sqlite,.db"
+                                    style={{ display: 'none' }}
+                                    onChange={onRestoreBackup}
+                                />
+                            </label>
+                        </div>
+                    </div>
+                </>
+            ) : (
+                <>
+                    <div style={styles.mobileCartList}>
+                        {activeCart.items.length === 0 && <p style={styles.emptyMessage}>No items in sale. Tap 'Add Item' to start.</p>}
+                        {activeCart.items.map((item, index) => (
+                           <MobileCartItem 
+                                key={item.id}
+                                item={item}
+                                language={activeCart.language}
+                                onUpdate={handleUpdateSaleItem}
+                                onRemove={handleRemoveSaleItem}
+                           />
+                        ))}
+                    </div>
+                     <div style={styles.mobileTotalsSection}>
+                        <div style={styles.mobileTotalRow}>
+                            <span>Discount (₹)</span>
+                            <input type="number" step="0.01" value={activeCart.discount} onChange={(e) => updateActiveCart({ discount: parseFloat(e.target.value) || 0 })} style={{...styles.totalsInput, width: '80px'}}/>
+                        </div>
+                         <div style={styles.mobileTotalRow}>
+                            <span>Tax (%)</span>
+                            <input type="number" step="0.01" value={activeCart.tax} onChange={(e) => updateActiveCart({ tax: parseFloat(e.target.value) || 0 })} style={{...styles.totalsInput, width: '80px'}}/>
+                        </div>
+                    </div>
+                    <MobileBottomNav 
+                        onAddItem={() => setIsMobileSearchOpen(true)}
+                        onPreview={onPreview}
+                        cartItemCount={activeCart.items.length}
+                        total={total}
+                    />
+                    {isMobileSearchOpen && (
+                        <MobileProductSearchModal 
+                           products={products}
+                           priceMode={priceMode}
+                           onAddToSale={handleAddToSale}
+                           onAddNewProduct={onAddNewProduct}
+                           onClose={() => setIsMobileSearchOpen(false)}
+                        />
+                    )}
+                </>
+            )}
+
             {isScannerOpen && (
                 <BarcodeScannerModal 
                     onScan={handleBarcodeScanned}
@@ -2431,12 +2657,65 @@ const LoginView = ({ onLoginSuccess }: { onLoginSuccess: () => void }) => {
     );
 };
 
+// --- DROPDOWN NAVIGATION COMPONENT ---
+const DropdownNav = ({ activeView, onSelectView, disabled }: { activeView: string, onSelectView: (view: string) => void, disabled: boolean }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    const navItems = [
+        { key: 'sales', label: 'New Sale' },
+        { key: 'products', label: 'Product Inventory' },
+        { key: 'customers', label: 'Customers' },
+        { key: 'reports', label: 'Reports' },
+    ];
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, [dropdownRef]);
+    
+    const activeLabel = navItems.find(item => item.key === activeView)?.label || 'Menu';
+
+    return (
+        <div ref={dropdownRef} style={styles.dropdownContainer}>
+            <button onClick={() => setIsOpen(!isOpen)} style={styles.dropdownButton} disabled={disabled}>
+                {activeLabel}
+                <span style={{ marginLeft: 'auto', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', display: 'inline-block' }}>▼</span>
+            </button>
+            {isOpen && (
+                <div style={styles.dropdownMenu}>
+                    {navItems.map(item => (
+                        <button
+                            key={item.key}
+                            onClick={() => {
+                                onSelectView(item.key);
+                                setIsOpen(false);
+                            }}
+                            style={activeView === item.key ? {...styles.dropdownMenuItem, ...styles.dropdownMenuItemActive} : styles.dropdownMenuItem}
+                        >
+                            {item.label}
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
 
 // --- MAIN APP COMPONENT ---
 const App = () => {
     const [dbLoading, setDbLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [activeView, setActiveView] = useState('sales');
+    const [viewMode, setViewMode] = useState<'desktop' | 'mobile'>('desktop');
     
     // Multi-Shop State
     const [shops, setShops] = useState<Shop[]>([]);
@@ -3330,35 +3609,12 @@ const App = () => {
     return (
         <div style={styles.appContainer}>
             <nav style={styles.nav}>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <button 
-                        onClick={() => setActiveView('sales')} 
-                        style={activeView === 'sales' ? {...styles.navButton, ...styles.navButtonActive} : styles.navButton}
-                        disabled={!activeShop}
-                    >
-                        Sales
-                    </button>
-                    <button 
-                        onClick={() => setActiveView('products')} 
-                        style={activeView === 'products' ? {...styles.navButton, ...styles.navButtonActive} : styles.navButton}
-                        disabled={!activeShop}
-                    >
-                        Products
-                    </button>
-                    <button 
-                        onClick={() => setActiveView('customers')} 
-                        style={activeView === 'customers' ? {...styles.navButton, ...styles.navButtonActive} : styles.navButton}
-                        disabled={!activeShop}
-                    >
-                        Customers
-                    </button>
-                    <button 
-                        onClick={() => setActiveView('reports')} 
-                        style={activeView === 'reports' ? {...styles.navButton, ...styles.navButtonActive} : styles.navButton}
-                        disabled={!activeShop}
-                    >
-                        Reports
-                    </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <DropdownNav 
+                        activeView={activeView} 
+                        onSelectView={setActiveView} 
+                        disabled={!activeShop} 
+                    />
                     {activeView === 'sales' && activeShop && (
                         <div style={styles.billSelector}>
                             {[1, 2, 3].map((billNumber, index) => (
@@ -3404,6 +3660,8 @@ const App = () => {
                         onUpdateProductPrice={handleUpdateProductPrice}
                         onAddNewProduct={handleAddNewProductFromSale}
                         isOnline={isOnline}
+                        viewMode={viewMode}
+                        setViewMode={setViewMode}
                     />
                 }
                 {activeShop && activeView === 'products' && 
@@ -3612,25 +3870,57 @@ const styles: { [key: string]: React.CSSProperties } = {
         justifyContent: 'space-between',
         alignItems: 'center',
         borderBottom: '1px solid var(--border-color)',
-        padding: '0.5rem',
+        padding: '0.5rem 1.5rem',
         backgroundColor: '#f8f9fa',
         borderTopLeftRadius: '8px',
         borderTopRightRadius: '8px',
     },
-    navButton: {
+    dropdownContainer: {
+        position: 'relative',
+        display: 'inline-block',
+    },
+    dropdownButton: {
         padding: '0.75rem 1.5rem',
-        border: 'none',
-        background: 'none',
+        border: '1px solid var(--border-color)',
+        background: 'var(--surface-color)',
         cursor: 'pointer',
         fontSize: '1rem',
         fontWeight: '500',
-        color: 'var(--secondary-color)',
+        color: 'var(--text-color)',
         borderRadius: '6px',
-        margin: '0 0.25rem',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        minWidth: '220px',
     },
-    navButtonActive: {
-        backgroundColor: 'var(--primary-color)',
-        color: '#fff',
+    dropdownMenu: {
+        position: 'absolute',
+        top: '100%',
+        left: 0,
+        backgroundColor: 'var(--surface-color)',
+        border: '1px solid var(--border-color)',
+        borderRadius: '6px',
+        boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+        listStyle: 'none',
+        padding: '0.5rem 0',
+        margin: '0.25rem 0 0 0',
+        zIndex: 20,
+        width: '100%',
+    },
+    dropdownMenuItem: {
+        padding: '0.75rem 1.5rem',
+        cursor: 'pointer',
+        display: 'block',
+        width: '100%',
+        textAlign: 'left',
+        border: 'none',
+        background: 'none',
+        fontSize: '1rem',
+    },
+    dropdownMenuItemActive: {
+        backgroundColor: '#e0f7fa',
+        fontWeight: 'bold',
+        color: 'var(--primary-color)',
     },
     billSelector: {
         display: 'inline-flex',
@@ -3999,6 +4289,146 @@ const styles: { [key: string]: React.CSSProperties } = {
         border: '1px solid var(--border-color)',
         borderRadius: '6px',
         marginBottom: '1rem',
+    },
+    // --- NEW MOBILE STYLES ---
+    mobileViewContainer: {
+        width: '100%',
+        height: 'calc(100vh - 4rem)', // Full viewport height minus padding
+        display: 'flex',
+        flexDirection: 'column',
+    },
+    mobileCartList: {
+        flex: 1,
+        overflowY: 'auto',
+        padding: '0.5rem',
+        paddingBottom: '150px', // Space for bottom nav and totals
+    },
+    mobileCartItem: {
+        backgroundColor: 'var(--surface-color)',
+        borderRadius: '8px',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.08)',
+        padding: '1rem',
+        marginBottom: '1rem',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: '1rem',
+    },
+    mobileCartItemDetails: {
+        flex: 1,
+    },
+    mobileCartItemActions: {
+        display: 'flex',
+        alignItems: 'center',
+    },
+    mobileQuantityButton: {
+        background: 'var(--background-color)',
+        border: '1px solid var(--border-color)',
+        borderRadius: '50%',
+        width: '32px',
+        height: '32px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+    },
+    mobileQuantityDisplay: {
+        padding: '0 0.75rem',
+        fontSize: '1.1rem',
+        fontWeight: 500,
+    },
+    mobileTotalsSection: {
+        padding: '1rem',
+        borderTop: '1px solid var(--border-color)',
+        backgroundColor: '#f8f9fa',
+    },
+    mobileTotalRow: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '0.5rem',
+        fontSize: '1rem',
+    },
+    mobileBottomNav: {
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        display: 'flex',
+        backgroundColor: 'var(--surface-color)',
+        boxShadow: '0 -2px 10px rgba(0,0,0,0.1)',
+        padding: '0.5rem',
+        zIndex: 100,
+        gap: '0.5rem',
+    },
+    mobileBottomNavButton: {
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '0.25rem',
+        padding: '0.5rem',
+        background: 'none',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        color: 'var(--text-color)',
+        fontSize: '0.8rem',
+        cursor: 'pointer',
+    },
+    mobileBottomNavButtonPrimary: {
+        flex: 2,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '0.5rem',
+        padding: '1rem',
+        border: 'none',
+        borderRadius: '8px',
+        backgroundColor: 'var(--success-color)',
+        color: '#fff',
+        fontSize: '1.1rem',
+        fontWeight: 'bold',
+        cursor: 'pointer',
+    },
+    mobileBottomNavTotal: {
+        backgroundColor: 'rgba(0,0,0,0.15)',
+        padding: '0.2rem 0.6rem',
+        borderRadius: '12px',
+        fontSize: '1rem',
+    },
+    mobileSearchModal: {
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100vw',
+        height: '100vh',
+        backgroundColor: 'var(--surface-color)',
+        zIndex: 1100,
+        display: 'flex',
+        flexDirection: 'column',
+    },
+    mobileSearchHeader: {
+        display: 'flex',
+        gap: '1rem',
+        padding: '1rem',
+        borderBottom: '1px solid var(--border-color)',
+    },
+    mobileSearchCloseButton: {
+        padding: '0.5rem 1rem',
+        border: 'none',
+        background: 'var(--background-color)',
+        borderRadius: '6px',
+        cursor: 'pointer',
+    },
+    mobileSearchResults: {
+        flex: 1,
+        overflowY: 'auto',
+    },
+    mobileSearchResultItem: {
+        padding: '1rem',
+        borderBottom: '1px solid var(--border-color)',
+        cursor: 'pointer',
     }
 };
 
