@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -81,9 +82,13 @@ const getDbFromIndexedDB = (): Promise<Uint8Array | null> => {
 const createSchema = () => {
     if (!db) return;
     const schema = `
-        CREATE TABLE IF NOT EXISTS app_settings (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL, -- 'super_admin', 'shop_admin', 'cashier'
+            shop_id INTEGER,
+            FOREIGN KEY (shop_id) REFERENCES shops(id) ON DELETE SET NULL
         );
         CREATE TABLE IF NOT EXISTS shops (
             id INTEGER PRIMARY KEY,
@@ -154,20 +159,16 @@ const hashPassword = async (password: string): Promise<string> => {
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 };
 
-const getSetting = async (key: string): Promise<string | null> => {
-    if (!db) return null;
-    const res = sqlResultToObjects(db.exec("SELECT value FROM app_settings WHERE key = ?", [key]));
-    return res.length > 0 ? res[0].value : null;
-};
-
-const setSetting = async (key: string, value: string) => {
-    if (!db) return;
-    db.run("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)", [key, value]);
-    await saveDbToIndexedDB();
-};
-
-
 // --- TYPE DEFINITIONS ---
+type UserRole = 'super_admin' | 'shop_admin' | 'cashier';
+
+interface User {
+    id: number;
+    username: string;
+    role: UserRole;
+    shop_id: number | null;
+}
+
 interface SaleItem {
   id: number;
   productId: number;
@@ -215,6 +216,7 @@ interface Shop {
     nextProductId: number;
 }
 
+type UserPlan = 'free' | 'pro';
 
 // --- PRODUCT FORM MODAL COMPONENT ---
 const ProductFormModal = ({ product, onSave, onUpdate, onClose }: { product: Product | null, onSave: (product: Omit<Product, 'id'>) => void, onUpdate: (product: Product) => void, onClose: () => void }) => {
@@ -832,10 +834,13 @@ const BulkAddModal = ({ fileSrc, fileType, fileNames, initialProducts, onSave, o
 
 
 // --- PRODUCTS VIEW COMPONENT ---
-const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddPdfs, selectedProductIds, setSelectedProductIds, onDeleteSelected, isOnline }) => {
+const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddPdfs, selectedProductIds, setSelectedProductIds, onDeleteSelected, isOnline, aiUsage, onUpgrade, currentUser }) => {
     const [filter, setFilter] = useState<'all' | 'low'>('all');
     const [searchQuery, setSearchQuery] = useState('');
     const bulkAddInputRef = useRef<HTMLInputElement>(null);
+    const AI_FREE_LIMIT = 3;
+
+    const isAdmin = currentUser?.role === 'super_admin' || currentUser?.role === 'shop_admin';
 
     const lowStockThreshold = 10;
     const filteredProducts = products
@@ -850,8 +855,19 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddP
             );
         });
         
-    const handleBulkAddClick = () => {
-        bulkAddInputRef.current?.click();
+    const handleBulkAddClick = (isPdf: boolean) => {
+        const canUseAi = onUpgrade();
+        if (canUseAi) {
+            if (isPdf) {
+                onBulkAddPdfs();
+            } else {
+                bulkAddInputRef.current?.click();
+            }
+        }
+    };
+    
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        onBulkAdd(e);
     };
 
     const handleSelectProduct = (id: number) => {
@@ -901,7 +917,7 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddP
                             aria-label="Search products"
                         />
                     </div>
-                    {selectedProductIds.length > 0 && (
+                    {isAdmin && selectedProductIds.length > 0 && (
                          <button onClick={onDeleteSelected} style={{...styles.button, backgroundColor: 'var(--danger-color)'}}>
                             Delete Selected ({selectedProductIds.length})
                         </button>
@@ -909,33 +925,45 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddP
                      <button onClick={() => setFilter(filter === 'all' ? 'low' : 'all')} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>
                         {filter === 'all' ? 'Show Low Stock' : 'Show All Products'}
                     </button>
-                    <input
-                        type="file"
-                        accept="image/*"
-                        ref={bulkAddInputRef}
-                        onChange={onBulkAdd}
-                        style={{ display: 'none' }}
-                        disabled={!isOnline}
-                    />
-                    {!isOnline && <span style={{ color: 'var(--danger-color)', fontSize: '0.9rem' }}>AI features disabled offline</span>}
-                     <button onClick={handleBulkAddClick} style={{...styles.button, backgroundColor: '#ffc107', color: 'black'}} disabled={!isOnline}>Bulk Add from Image</button>
-                     <button onClick={onBulkAddPdfs} style={{...styles.button, marginRight: '1rem', backgroundColor: 'var(--danger-color)'}} disabled={!isOnline}>Bulk Add from PDFs (B2B & B2C)</button>
-                    <button onClick={onAdd} style={styles.button}>Add New Product</button>
+                    {isAdmin && (
+                        <>
+                            <input
+                                type="file"
+                                accept="image/*"
+                                ref={bulkAddInputRef}
+                                onChange={handleFileChange}
+                                style={{ display: 'none' }}
+                                disabled={!isOnline}
+                            />
+                             {!isOnline && <span style={{ color: 'var(--danger-color)', fontSize: '0.9rem' }}>AI features disabled offline</span>}
+                            <div style={{position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center'}}>
+                                <button onClick={() => handleBulkAddClick(false)} style={{...styles.button, backgroundColor: '#ffc107', color: 'black'}} disabled={!isOnline}>Bulk Add from Image</button>
+                                {aiUsage.plan === 'free' && <span style={styles.proBadgeSmall}>Uses left: {Math.max(0, AI_FREE_LIMIT - aiUsage.count)}</span>}
+                            </div>
+                            <div style={{position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center'}}>
+                                <button onClick={() => handleBulkAddClick(true)} style={{...styles.button, backgroundColor: 'var(--danger-color)'}} disabled={!isOnline}>Bulk Add from PDFs</button>
+                                {aiUsage.plan === 'free' && <span style={styles.proBadgeSmall}>Uses left: {Math.max(0, AI_FREE_LIMIT - aiUsage.count)}</span>}
+                            </div>
+                            <button onClick={onAdd} style={styles.button}>Add New Product</button>
+                        </>
+                    )}
                 </div>
             </div>
             {filteredProducts.length > 0 ? (
                  <table style={styles.table}>
                     <thead>
                         <tr>
-                            <th style={{...styles.th, width: '40px', padding: '0.75rem'}}>
-                                <input
-                                    type="checkbox"
-                                    checked={areAllSelected}
-                                    onChange={handleSelectAll}
-                                    style={{width: '18px', height: '18px', verticalAlign: 'middle'}}
-                                    aria-label="Select all products"
-                                />
-                            </th>
+                            {isAdmin && (
+                                <th style={{...styles.th, width: '40px', padding: '0.75rem'}}>
+                                    <input
+                                        type="checkbox"
+                                        checked={areAllSelected}
+                                        onChange={handleSelectAll}
+                                        style={{width: '18px', height: '18px', verticalAlign: 'middle'}}
+                                        aria-label="Select all products"
+                                    />
+                                </th>
+                            )}
                             <th style={styles.th}>Description</th>
                             <th style={styles.th}>Description (Tamil)</th>
                             <th style={styles.th}>Category</th>
@@ -943,21 +971,23 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddP
                             <th style={styles.th}>B2B Price</th>
                             <th style={styles.th}>B2C Price</th>
                             <th style={styles.th}>Stock</th>
-                            <th style={styles.th}>Actions</th>
+                            {isAdmin && <th style={styles.th}>Actions</th>}
                         </tr>
                     </thead>
                     <tbody>
                         {filteredProducts.map(p => (
                             <tr key={p.id} style={p.stock <= lowStockThreshold ? { backgroundColor: '#fffbe6'} : {}}>
-                                <td style={styles.td}>
-                                     <input
-                                        type="checkbox"
-                                        checked={selectedProductIds.includes(p.id)}
-                                        onChange={() => handleSelectProduct(p.id)}
-                                        style={{width: '18px', height: '18px', verticalAlign: 'middle'}}
-                                        aria-label={`Select product ${p.description}`}
-                                    />
-                                </td>
+                                {isAdmin && (
+                                    <td style={styles.td}>
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedProductIds.includes(p.id)}
+                                            onChange={() => handleSelectProduct(p.id)}
+                                            style={{width: '18px', height: '18px', verticalAlign: 'middle'}}
+                                            aria-label={`Select product ${p.description}`}
+                                        />
+                                    </td>
+                                )}
                                 <td style={styles.td}>{p.description}</td>
                                 <td style={styles.td}>{p.descriptionTamil || 'N/A'}</td>
                                 <td style={styles.td}>{p.category || 'N/A'}</td>
@@ -965,10 +995,12 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddP
                                 <td style={styles.td}>₹{p.b2bPrice.toFixed(1)}</td>
                                 <td style={styles.td}>₹{p.b2cPrice.toFixed(1)}</td>
                                 <td style={{...styles.td, color: p.stock <= lowStockThreshold ? 'var(--danger-color)' : 'inherit', fontWeight: p.stock <= lowStockThreshold ? 'bold' : 'normal'}}>{p.stock}</td>
-                                <td style={styles.td}>
-                                    <button onClick={() => onEdit(p)} style={{...styles.actionButton, backgroundColor: '#ffc107'}}>Edit</button>
-                                    <button onClick={() => onDelete(p.id)} style={{...styles.actionButton, backgroundColor: 'var(--danger-color)'}}>Delete</button>
-                                </td>
+                                {isAdmin && (
+                                    <td style={styles.td}>
+                                        <button onClick={() => onEdit(p)} style={{...styles.actionButton, backgroundColor: '#ffc107'}}>Edit</button>
+                                        <button onClick={() => onDelete(p.id)} style={{...styles.actionButton, backgroundColor: 'var(--danger-color)'}}>Delete</button>
+                                    </td>
+                                )}
                             </tr>
                         ))}
                     </tbody>
@@ -1292,12 +1324,16 @@ const HistoryModal = ({ salesHistory, customerMobile, onClose }) => {
 
 
 // --- REPORTS VIEW COMPONENT ---
-const ReportsView = ({ salesHistory, onPrint }) => {
+const ReportsView = ({ salesHistory, onPrint, userPlan, onUpgrade, isOnline }) => {
     const [filterType, setFilterType] = useState('today');
     const todayISO = new Date().toISOString().split('T')[0];
     const [startDate, setStartDate] = useState(todayISO);
     const [endDate, setEndDate] = useState(todayISO);
     const [expandedSale, setExpandedSale] = useState<string | null>(null);
+    const [reportTab, setReportTab] = useState('sales');
+    const [forecast, setForecast] = useState<string | null>(null);
+    const [isForecastLoading, setIsForecastLoading] = useState(false);
+    const [forecastError, setForecastError] = useState<string | null>(null);
 
     const getFilterRange = () => {
         const now = new Date();
@@ -1356,21 +1392,78 @@ const ReportsView = ({ salesHistory, onPrint }) => {
     const totalItemsSold = filteredSales.reduce((sum, sale) => sum + sale.items.filter(i => !i.isReturn).length, 0);
     const totalTransactions = filteredSales.length;
 
+    const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const newFilter = e.target.value;
+        const isProFilter = ['this_week', 'this_month', 'custom'].includes(newFilter);
+        if (userPlan === 'free' && isProFilter) {
+            onUpgrade();
+        } else {
+            setFilterType(newFilter);
+        }
+    };
+    
+    const handleGenerateForecast = async () => {
+        if (!onUpgrade()) return; // This will trigger the modal if user is free
+        if (!isOnline) {
+            setForecastError("AI features require an internet connection.");
+            return;
+        }
+
+        setIsForecastLoading(true);
+        setForecast(null);
+        setForecastError(null);
+        
+        try {
+            const recentSales = salesHistory
+                .filter(sale => new Date(sale.date) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)) // Last 30 days
+                .map(s => ({ date: s.date, total: s.total, items: s.items.map(i => i.description) }));
+                
+            if (recentSales.length < 5) {
+                throw new Error("Not enough sales data from the last 30 days to generate a reliable forecast. At least 5 sales are required.");
+            }
+
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            
+            const prompt = `
+                Based on the following JSON sales data from the last 30 days, please provide a sales forecast and analysis.
+                
+                Data:
+                ${JSON.stringify(recentSales)}
+                
+                Your response should be formatted as follows:
+                1.  **Sales Forecast (Next 7 Days):** A brief, day-by-day prediction of total sales revenue.
+                2.  **Top 3 Products to Restock:** Based on sales frequency, identify the three most important products to re-order.
+                3.  **Key Trend Analysis:** A short paragraph (2-3 sentences) identifying any noticeable trends, like peak sales days or popular product categories.
+                
+                Keep your analysis concise and easy to read for a busy shop owner.
+            `;
+            
+            const response = await ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: prompt,
+            });
+
+            setForecast(response.text);
+
+        } catch (error: any) {
+            console.error("Error generating forecast:", error);
+            setForecastError(error.message || "An unknown error occurred.");
+        } finally {
+            setIsForecastLoading(false);
+        }
+    };
+
+
     const getReportTitle = () => {
         switch (filterType) {
-            case 'today':
-                return `Today's Sales Report`;
-            case 'yesterday':
-                return `Yesterday's Sales Report`;
-            case 'this_week':
-                return `This Week's Sales Report`;
-            case 'this_month':
-                return `This Month's Sales Report`;
+            case 'today': return `Today's Sales Report`;
+            case 'yesterday': return `Yesterday's Sales Report`;
+            case 'this_week': return `This Week's Sales Report`;
+            case 'this_month': return `This Month's Sales Report`;
             case 'custom':
                  if (startDate === endDate) return `Sales Report for ${new Date(start).toLocaleDateString()}`;
                 return `Sales Report from ${new Date(start).toLocaleDateString()} to ${new Date(end).toLocaleDateString()}`;
-            default:
-                return 'Sales Report';
+            default: return 'Sales Report';
         }
     };
     
@@ -1379,14 +1472,14 @@ const ReportsView = ({ salesHistory, onPrint }) => {
             <div style={styles.viewHeader}>
                 <h2>{getReportTitle()}</h2>
                 <div style={styles.reportFilters}>
-                    <select value={filterType} onChange={e => setFilterType(e.target.value)} style={{...styles.input, height: 'auto'}}>
+                    <select value={filterType} onChange={handleFilterChange} style={{...styles.input, height: 'auto'}}>
                         <option value="today">Today</option>
                         <option value="yesterday">Yesterday</option>
-                        <option value="this_week">This Week</option>
-                        <option value="this_month">This Month</option>
-                        <option value="custom">Custom Range</option>
+                        <option value="this_week" disabled={userPlan === 'free'}>This Week {userPlan === 'free' && '(PRO)'}</option>
+                        <option value="this_month" disabled={userPlan === 'free'}>This Month {userPlan === 'free' && '(PRO)'}</option>
+                        <option value="custom" disabled={userPlan === 'free'}>Custom Range {userPlan === 'free' && '(PRO)'}</option>
                     </select>
-                    {filterType === 'custom' && (
+                    {filterType === 'custom' && userPlan === 'pro' && (
                         <div style={styles.dateRangePicker}>
                             <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={styles.input} />
                             <span style={{color: 'var(--secondary-color)'}}>to</span>
@@ -1395,74 +1488,118 @@ const ReportsView = ({ salesHistory, onPrint }) => {
                     )}
                 </div>
             </div>
-            <div style={styles.reportSummary}>
-                 <div style={styles.summaryCard}><h3>Total Revenue</h3><p>₹{totalRevenue.toFixed(1)}</p></div>
-                 <div style={styles.summaryCard}><h3>Items Sold</h3><p>{totalItemsSold}</p></div>
-                 <div style={styles.summaryCard}><h3>Transactions</h3><p>{totalTransactions}</p></div>
-            </div>
-            <h3>Transactions</h3>
-            {filteredSales.length > 0 ? (
-                <div style={{maxHeight: '50vh', overflowY: 'auto'}}>
-                <table style={styles.table}>
-                    <thead>
-                        <tr>
-                            <th style={styles.th}>Time</th>
-                            <th style={styles.th}>Customer</th>
-                            <th style={styles.th}>Items</th>
-                            <th style={styles.th}>Total</th>
-                            <th style={styles.th}>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {filteredSales.map(sale => (
-                            <React.Fragment key={sale.id}>
-                                <tr>
-                                    <td style={styles.td}>{new Date(sale.date).toLocaleString()}</td>
-                                    <td style={styles.td}>{sale.customerName || 'N/A'} ({sale.customerMobile || 'N/A'})</td>
-                                    <td style={styles.td}>{sale.items.length}</td>
-                                    <td style={styles.td}>₹{sale.total.toFixed(1)}</td>
-                                    <td style={styles.td}>
-                                        <button onClick={() => setExpandedSale(expandedSale === sale.id ? null : sale.id)} style={{...styles.actionButton, backgroundColor: 'var(--secondary-color)', marginRight: '0.5rem'}}>
-                                            {expandedSale === sale.id ? 'Hide' : 'View'}
-                                        </button>
-                                        <button onClick={() => onPrint(sale)} style={{...styles.actionButton, backgroundColor: 'var(--primary-color)'}}>
-                                            Print
-                                        </button>
-                                    </td>
-                                </tr>
-                                {expandedSale === sale.id && (
-                                    <tr>
-                                        <td colSpan={5} style={{padding: '0.5rem', backgroundColor: '#f9f9f9'}}>
-                                            <table style={styles.table}>
-                                                 <thead>
-                                                    <tr>
-                                                        <th style={styles.th}>Description</th>
-                                                        <th style={styles.th}>Qty</th>
-                                                        <th style={styles.th}>Price</th>
-                                                        <th style={styles.th}>Return</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {sale.items.map((item: SaleItem) => (
-                                                        <tr key={item.id}>
-                                                            <td style={styles.td}>{item.description}</td>
-                                                            <td style={styles.td}>{item.quantity}</td>
-                                                            <td style={styles.td}>₹{item.price.toFixed(1)}</td>
-                                                            <td style={styles.td}>{item.isReturn ? 'Yes' : 'No'}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </td>
-                                    </tr>
-                                )}
-                            </React.Fragment>
-                        ))}
-                    </tbody>
-                </table>
+             <div style={styles.reportTabs}>
+                <button onClick={() => setReportTab('sales')} style={reportTab === 'sales' ? {...styles.reportTabButton, ...styles.reportTabButtonActive} : styles.reportTabButton}>Sales Summary</button>
+                <div style={{position: 'relative'}}>
+                     <button onClick={() => setReportTab('forecast')} style={reportTab === 'forecast' ? {...styles.reportTabButton, ...styles.reportTabButtonActive} : styles.reportTabButton}>AI Forecast</button>
+                     {userPlan === 'free' && <span style={styles.proBadge}>PRO</span>}
                 </div>
-            ) : (
-                <p style={styles.emptyMessage}>No sales recorded for this period.</p>
+            </div>
+            {reportTab === 'sales' && (
+                <>
+                    <div style={styles.reportSummary}>
+                         <div style={styles.summaryCard}><h3>Total Revenue</h3><p>₹{totalRevenue.toFixed(1)}</p></div>
+                         <div style={styles.summaryCard}><h3>Items Sold</h3><p>{totalItemsSold}</p></div>
+                         <div style={styles.summaryCard}><h3>Transactions</h3><p>{totalTransactions}</p></div>
+                    </div>
+                    <h3>Transactions</h3>
+                    {filteredSales.length > 0 ? (
+                        <div style={{maxHeight: '50vh', overflowY: 'auto'}}>
+                        <table style={styles.table}>
+                            <thead>
+                                <tr>
+                                    <th style={styles.th}>Time</th>
+                                    <th style={styles.th}>Customer</th>
+                                    <th style={styles.th}>Items</th>
+                                    <th style={styles.th}>Total</th>
+                                    <th style={styles.th}>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredSales.map(sale => (
+                                    <React.Fragment key={sale.id}>
+                                        <tr>
+                                            <td style={styles.td}>{new Date(sale.date).toLocaleString()}</td>
+                                            <td style={styles.td}>{sale.customerName || 'N/A'} ({sale.customerMobile || 'N/A'})</td>
+                                            <td style={styles.td}>{sale.items.length}</td>
+                                            <td style={styles.td}>₹{sale.total.toFixed(1)}</td>
+                                            <td style={styles.td}>
+                                                <button onClick={() => setExpandedSale(expandedSale === sale.id ? null : sale.id)} style={{...styles.actionButton, backgroundColor: 'var(--secondary-color)', marginRight: '0.5rem'}}>
+                                                    {expandedSale === sale.id ? 'Hide' : 'View'}
+                                                </button>
+                                                <button onClick={() => onPrint(sale)} style={{...styles.actionButton, backgroundColor: 'var(--primary-color)'}}>
+                                                    Print
+                                                </button>
+                                            </td>
+                                        </tr>
+                                        {expandedSale === sale.id && (
+                                            <tr>
+                                                <td colSpan={5} style={{padding: '0.5rem', backgroundColor: '#f9f9f9'}}>
+                                                    <table style={styles.table}>
+                                                         <thead>
+                                                            <tr>
+                                                                <th style={styles.th}>Description</th>
+                                                                <th style={styles.th}>Qty</th>
+                                                                <th style={styles.th}>Price</th>
+                                                                <th style={styles.th}>Return</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {sale.items.map((item: SaleItem) => (
+                                                                <tr key={item.id}>
+                                                                    <td style={styles.td}>{item.description}</td>
+                                                                    <td style={styles.td}>{item.quantity}</td>
+                                                                    <td style={styles.td}>₹{item.price.toFixed(1)}</td>
+                                                                    <td style={styles.td}>{item.isReturn ? 'Yes' : 'No'}</td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </React.Fragment>
+                                ))}
+                            </tbody>
+                        </table>
+                        </div>
+                    ) : (
+                        <p style={styles.emptyMessage}>No sales recorded for this period.</p>
+                    )}
+                </>
+            )}
+            {reportTab === 'forecast' && (
+                <div style={{padding: '1rem'}}>
+                    {userPlan === 'free' ? (
+                        <div style={{textAlign: 'center', padding: '2rem', border: '2px dashed var(--border-color)', borderRadius: '8px'}}>
+                            <h3>Unlock AI-Powered Sales Forecasting</h3>
+                            <p style={{color: 'var(--secondary-color)'}}>Upgrade to the Pro plan to predict future sales, get smart restocking suggestions, and identify key trends in your business.</p>
+                            <button onClick={onUpgrade} style={styles.button}>Upgrade to Pro</button>
+                        </div>
+                    ) : (
+                        <div>
+                             <button onClick={handleGenerateForecast} disabled={isForecastLoading || !isOnline} style={styles.button}>
+                                {isForecastLoading ? 'Generating Forecast...' : 'Generate New Forecast'}
+                            </button>
+                            {!isOnline && <p style={{color: 'var(--danger-color)', marginTop: '1rem'}}>AI Forecast is unavailable offline. Please connect to the internet.</p>}
+                            {isForecastLoading && <p style={{marginTop: '1rem'}}>Analyzing your sales data... please wait.</p>}
+                            {forecastError && <p style={{color: 'var(--danger-color)', marginTop: '1rem'}}>{forecastError}</p>}
+                            {forecast && (
+                                <div style={{
+                                    marginTop: '1.5rem',
+                                    border: '1px solid var(--border-color)',
+                                    borderRadius: '8px',
+                                    padding: '1.5rem',
+                                    backgroundColor: '#f8f9fa',
+                                    whiteSpace: 'pre-wrap',
+                                    lineHeight: '1.6'
+                                }}>
+                                    {forecast}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
             )}
         </div>
     );
@@ -1470,9 +1607,10 @@ const ReportsView = ({ salesHistory, onPrint }) => {
 
 
 // --- CUSTOMERS VIEW COMPONENT ---
-const CustomersView = ({ customers, salesHistory, onAdd, onEdit, onDelete }) => {
+const CustomersView = ({ customers, salesHistory, onAdd, onEdit, onDelete, currentUser }) => {
     const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
+    const isAdmin = currentUser?.role === 'super_admin' || currentUser?.role === 'shop_admin';
 
     const filteredCustomers = customers.filter(c => 
         c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -1493,9 +1631,11 @@ const CustomersView = ({ customers, salesHistory, onAdd, onEdit, onDelete }) => 
         <div style={styles.viewContainer}>
             <div style={styles.viewHeader}>
                 <h2>Customer Management</h2>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <button onClick={onAdd} style={styles.button}>Add New Customer</button>
-                </div>
+                {isAdmin && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                        <button onClick={onAdd} style={styles.button}>Add New Customer</button>
+                    </div>
+                )}
             </div>
             <div style={styles.customerViewLayout}>
                 <div style={styles.customerListPanel}>
@@ -1533,10 +1673,12 @@ const CustomersView = ({ customers, salesHistory, onAdd, onEdit, onDelete }) => 
                                     <h3>{selectedCustomer.name}</h3>
                                     <p style={{margin: 0, color: 'var(--secondary-color)'}}>{selectedCustomer.mobile}</p>
                                 </div>
-                                <div style={{display: 'flex', gap: '0.5rem'}}>
-                                    <button onClick={() => onEdit(selectedCustomer)} style={{...styles.actionButton, backgroundColor: '#ffc107'}}>Edit</button>
-                                    <button onClick={() => onDelete(selectedCustomer)} style={{...styles.actionButton, backgroundColor: 'var(--danger-color)'}}>Delete</button>
-                                </div>
+                                {isAdmin && (
+                                    <div style={{display: 'flex', gap: '0.5rem'}}>
+                                        <button onClick={() => onEdit(selectedCustomer)} style={{...styles.actionButton, backgroundColor: '#ffc107'}}>Edit</button>
+                                        <button onClick={() => onDelete(selectedCustomer)} style={{...styles.actionButton, backgroundColor: 'var(--danger-color)'}}>Delete</button>
+                                    </div>
+                                )}
                             </div>
                             <h4>Purchase History</h4>
                             <div style={{maxHeight: '55vh', overflowY: 'auto'}}>
@@ -1621,6 +1763,14 @@ const TrashIcon = ({ size = 24, color = 'currentColor' }) => (
     </svg>
 );
 
+const CloudIcon = ({ size = 24, color = 'currentColor' }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" height={`${size}px`} viewBox="0 0 24 24" width={`${size}px`} fill={color}>
+        <path d="M0 0h24v24H0V0z" fill="none"/>
+        <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/>
+    </svg>
+);
+
+
 // --- SALES VIEW COMPONENT ---
 const SalesView = ({ 
     products, 
@@ -1636,6 +1786,7 @@ const SalesView = ({
     isOnline,
     viewMode,
     setViewMode,
+    currentUser
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [searchResults, setSearchResults] = useState<Product[]>([]);
@@ -1654,6 +1805,20 @@ const SalesView = ({
     const quantityInputRefs = useRef<{ [key: number]: HTMLInputElement | null }>({});
     const priceInputRefs = useRef<{ [key: number]: HTMLInputElement | null }>({});
     const recognitionRef = useRef<any>(null);
+    const searchResultsContainerRef = useRef<HTMLUListElement>(null);
+
+    useEffect(() => {
+        if (highlightedIndex > -1 && searchResultsContainerRef.current) {
+            const highlightedItem = searchResultsContainerRef.current.children[highlightedIndex] as HTMLLIElement;
+            if (highlightedItem) {
+                highlightedItem.scrollIntoView({
+                    block: 'nearest',
+                });
+            }
+        }
+    }, [highlightedIndex]);
+
+    const canChangePrice = currentUser?.role !== 'cashier';
 
     useEffect(() => {
         customerNameRef.current?.focus();
@@ -1793,7 +1958,7 @@ const SalesView = ({
 
     const handleSearchKeyDown = (e: React.KeyboardEvent) => {
         const hasResults = searchResults.length > 0;
-        const canAddNew = searchTerm.trim() !== '' && !hasResults;
+        const canAddNew = searchTerm.trim() !== '' && !hasResults && currentUser?.role !== 'cashier';
 
         if (!hasResults && !canAddNew) return;
 
@@ -1827,9 +1992,13 @@ const SalesView = ({
     const handleQuantityKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
         if(e.key === 'Enter') {
             e.preventDefault();
-            const priceInput = priceInputRefs.current[index];
-            priceInput?.focus();
-            priceInput?.select();
+            if (canChangePrice) {
+                const priceInput = priceInputRefs.current[index];
+                priceInput?.focus();
+                priceInput?.select();
+            } else {
+                productSearchRef.current?.focus();
+            }
         }
     };
 
@@ -1980,13 +2149,13 @@ const SalesView = ({
                         <MicIcon color={isListening ? 'var(--danger-color)' : (isOnline ? 'var(--secondary-color)' : '#cccccc')} />
                     </button>
                     {searchTerm && (
-                        <ul style={styles.searchResults}>
+                        <ul ref={searchResultsContainerRef} style={styles.searchResults}>
                             {searchResults.map((p, index) => (
                                 <li key={p.id} onClick={() => handleAddToSale(p)} style={index === highlightedIndex ? {...styles.searchResultItem, ...styles.highlighted} : styles.searchResultItem} onMouseEnter={() => setHighlightedIndex(index)} >
                                     {p.description} {p.descriptionTamil && `(${p.descriptionTamil})`} (₹{(priceMode === 'b2b' ? p.b2bPrice : p.b2cPrice).toFixed(1)}) - Stock: {p.stock}
                                 </li>
                             ))}
-                            {searchResults.length === 0 && searchTerm.trim() !== '' && (
+                            {searchResults.length === 0 && searchTerm.trim() !== '' && currentUser?.role !== 'cashier' && (
                                 <li onClick={handleCreateAndAddProduct} style={highlightedIndex === 0 ? {...styles.searchResultItem, ...styles.highlighted} : styles.searchResultItem} onMouseEnter={() => setHighlightedIndex(0)} >
                                     + Add "<strong>{searchTerm}</strong>" as a new product
                                 </li>
@@ -2010,7 +2179,7 @@ const SalesView = ({
                                         <td style={styles.td}>{index + 1}</td>
                                         <td style={styles.td}>{activeCart.language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description}</td>
                                         <td style={styles.td}><input ref={el => { quantityInputRefs.current[index] = el; }} type="number" step="0.001" value={item.quantity} onChange={(e) => handleUpdateSaleItem(item.id, 'quantity', parseFloat(e.target.value) || 0)} style={styles.gridInput} onKeyDown={(e) => handleQuantityKeyDown(e, index)} /></td>
-                                        <td style={styles.td}><input ref={el => { priceInputRefs.current[index] = el; }} type="number" step="0.01" value={item.price} onChange={(e) => handleUpdateSaleItem(item.id, 'price', parseFloat(e.target.value) || 0)} style={styles.gridInput} onKeyDown={handlePriceKeyDown} /></td>
+                                        <td style={styles.td}><input ref={el => { priceInputRefs.current[index] = el; }} type="number" step="0.01" value={item.price} onChange={(e) => handleUpdateSaleItem(item.id, 'price', parseFloat(e.target.value) || 0)} style={styles.gridInput} onKeyDown={handlePriceKeyDown} disabled={!canChangePrice} /></td>
                                         <td style={styles.td}>₹{itemTotal.toFixed(1)}</td>
                                         <td style={styles.td}><input type="checkbox" checked={item.isReturn} onChange={(e) => handleUpdateSaleItem(item.id, 'isReturn', e.target.checked)} style={{width: '20px', height: '20px'}} /></td>
                                         <td style={styles.td}><button onClick={() => handleRemoveSaleItem(item.id)} style={{...styles.actionButton, backgroundColor: 'var(--danger-color)'}}>X</button></td>
@@ -2029,17 +2198,19 @@ const SalesView = ({
                     <div style={styles.grandTotal}><h3>Grand Total: ₹{total.toFixed(1)}</h3></div>
                 </div>
                 
-                <div style={styles.backupSection}>
-                    <h3 style={styles.backupTitle}>Database Backup & Restore</h3>
-                    <p style={styles.backupDescription}>Save your entire application database (all shops, products, and sales) to a single file, or restore it from a previous backup.</p>
-                    <div style={styles.backupActions}>
-                        <button onClick={onSaveBackup} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Save Backup to Disk</button>
-                        <label style={{...styles.button, backgroundColor: 'var(--success-color)', cursor: 'pointer'}}>
-                            Load Backup from Disk
-                            <input type="file" accept=".sqlite,.db" style={{ display: 'none' }} onChange={onRestoreBackup} />
-                        </label>
+                {currentUser?.role === 'super_admin' && (
+                    <div style={styles.backupSection}>
+                        <h3 style={styles.backupTitle}>Database Backup & Restore</h3>
+                        <p style={styles.backupDescription}>Save your entire application database (all shops, products, and sales) to a single file, or restore it from a previous backup.</p>
+                        <div style={styles.backupActions}>
+                            <button onClick={onSaveBackup} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Save Backup to Disk</button>
+                            <label style={{...styles.button, backgroundColor: 'var(--success-color)', cursor: 'pointer'}}>
+                                Load Backup from Disk
+                                <input type="file" accept=".sqlite,.db" style={{ display: 'none' }} onChange={onRestoreBackup} />
+                            </label>
+                        </div>
                     </div>
-                </div>
+                )}
                 {isScannerOpen && <BarcodeScannerModal onScan={handleBarcodeScanned} onClose={() => setIsScannerOpen(false)} />}
             </div>
         );
@@ -2081,14 +2252,14 @@ const SalesView = ({
                         <input ref={productSearchRef} type="text" placeholder="Search or Scan..." value={searchTerm} onChange={handleSearchChange} onKeyDown={handleSearchKeyDown} style={{ ...styles.mobileInput, paddingRight: '50px' }} />
                         <button onClick={() => setIsScannerOpen(true)} style={styles.mobileInputIconButton} title="Scan Barcode"><ScanIcon color="var(--secondary-color)" /></button>
                         {searchTerm && (
-                             <ul style={styles.mobileInlineSearchResults}>
+                             <ul ref={searchResultsContainerRef} style={styles.mobileInlineSearchResults}>
                                 {searchResults.map((p, index) => (
                                     <li key={p.id} onClick={() => handleAddToSale(p)} style={index === highlightedIndex ? {...styles.mobileInlineSearchResultItem, ...styles.highlighted} : styles.mobileInlineSearchResultItem} onMouseEnter={() => setHighlightedIndex(index)}>
                                         <p style={{margin:0, fontWeight: 500}}>{p.description}</p>
                                         <p style={{margin: '0.2rem 0 0 0', color: 'var(--secondary-color)', fontSize: '0.9rem'}}>₹{(priceMode === 'b2b' ? p.b2bPrice : p.b2cPrice).toFixed(1)} | Stock: {p.stock}</p>
                                     </li>
                                 ))}
-                                {searchResults.length === 0 && searchTerm.trim() !== '' && (
+                                {searchResults.length === 0 && searchTerm.trim() !== '' && currentUser?.role !== 'cashier' && (
                                     <li onClick={handleCreateAndAddProduct} style={highlightedIndex === 0 ? {...styles.mobileInlineSearchResultItem, ...styles.highlighted} : styles.mobileInlineSearchResultItem} onMouseEnter={() => setHighlightedIndex(0)}>
                                         + Add "<strong>{searchTerm}</strong>" as new product
                                     </li>
@@ -2176,15 +2347,18 @@ const defaultCartState: CartState = {
 };
 
 // --- SHOP MANAGER MODAL ---
-const ShopManagerModal = ({ shops, activeShopId, onSelect, onCreate, onClose }: {
+const ShopManagerModal = ({ shops, activeShopId, onSelect, onCreate, onClose, userPlan, onUpgrade }: {
     shops: Shop[],
     activeShopId: number | null,
     onSelect: (shopId: number) => void,
     onCreate: (shopName: string) => void,
     onClose: () => void,
+    userPlan: UserPlan,
+    onUpgrade: () => void,
 }) => {
     const [newShopName, setNewShopName] = useState('');
     const newShopInputRef = useRef<HTMLInputElement>(null);
+    const isCreateDisabled = userPlan === 'free' && shops.length >= 1;
 
     useEffect(() => {
         newShopInputRef.current?.focus();
@@ -2192,6 +2366,10 @@ const ShopManagerModal = ({ shops, activeShopId, onSelect, onCreate, onClose }: 
 
     const handleCreate = (e: React.FormEvent) => {
         e.preventDefault();
+        if (isCreateDisabled) {
+            onUpgrade();
+            return;
+        }
         const trimmedName = newShopName.trim();
         if (trimmedName) {
             onCreate(trimmedName);
@@ -2218,7 +2396,7 @@ const ShopManagerModal = ({ shops, activeShopId, onSelect, onCreate, onClose }: 
                 </div>
                 <form onSubmit={handleCreate}>
                     <label style={styles.label}>Create New Shop</label>
-                    <div style={{ display: 'flex', gap: '1rem' }}>
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
                         <input
                             ref={newShopInputRef}
                             type="text"
@@ -2228,8 +2406,9 @@ const ShopManagerModal = ({ shops, activeShopId, onSelect, onCreate, onClose }: 
                             style={{ ...styles.input, flex: 1 }}
                             required
                         />
-                        <button type="submit" style={styles.button}>Create</button>
+                        <button type="submit" style={styles.button} title={isCreateDisabled ? "Upgrade to Pro to add more shops" : ""}>{isCreateDisabled ? 'Upgrade to Add' : 'Create'}</button>
                     </div>
+                     {isCreateDisabled && <p style={{fontSize: '0.9rem', color: 'var(--secondary-color)', marginTop: '0.5rem'}}>The free plan supports one shop. Please upgrade to Pro for multi-shop management.</p>}
                 </form>
                 <div style={styles.modalActions}>
                     <button onClick={onClose} style={{ ...styles.button, backgroundColor: 'var(--secondary-color)' }}>Close</button>
@@ -2313,35 +2492,41 @@ const RestoreProgressModal = ({ percentage, eta, message }: { percentage: number
     </div>
 );
 
-
 // --- LOGIN VIEW COMPONENT ---
-const LoginView = ({ onLoginSuccess }: { onLoginSuccess: () => void }) => {
-    type View = 'loading' | 'create' | 'login' | 'reset_start' | 'reset_otp';
+const LoginView = ({ onLoginSuccess }: { onLoginSuccess: (user: User) => void }) => {
+    type View = 'loading' | 'create_super_admin' | 'login';
     const [view, setView] = useState<View>('loading');
+    const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
-    const [resetIdentifier, setResetIdentifier] = useState('');
-    const [otp, setOtp] = useState('');
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-
-    const passwordInputRef = useRef<HTMLInputElement>(null);
+    const userInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
-        const checkPassword = async () => {
-            const storedPasswordHash = await getSetting('admin_password');
-            if (storedPasswordHash) {
-                setView('login');
-                // Use a short timeout to ensure the input is rendered before focusing
-                setTimeout(() => passwordInputRef.current?.focus(), 100);
-            } else {
-                setView('create');
+        const checkInitialSetup = async () => {
+            if (!db) return;
+            try {
+                const users = sqlResultToObjects(db.exec("SELECT id FROM users LIMIT 1"));
+                if (users.length === 0) {
+                    setView('create_super_admin');
+                } else {
+                    setView('login');
+                }
+            } catch (e) {
+                console.error("Error checking for users:", e);
+                setError("Could not verify database. Please refresh.");
             }
         };
-        checkPassword();
+        // Delay check to ensure DB is initialized by the parent
+        setTimeout(checkInitialSetup, 100);
     }, []);
 
-    const handleCreatePassword = async (e: React.FormEvent) => {
+    useEffect(() => {
+        userInputRef.current?.focus();
+    }, [view]);
+
+    const handleCreateSuperAdmin = async (e: React.FormEvent) => {
         e.preventDefault();
         if (password.length < 4) {
             setError('Password must be at least 4 characters long.');
@@ -2355,10 +2540,12 @@ const LoginView = ({ onLoginSuccess }: { onLoginSuccess: () => void }) => {
         setError('');
         try {
             const hashedPassword = await hashPassword(password);
-            await setSetting('admin_password', hashedPassword);
-            onLoginSuccess();
-        } catch (err) {
-            setError('Failed to create password. Please try again.');
+            db.run("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)", [username.toLowerCase(), hashedPassword, 'super_admin']);
+            await saveDbToIndexedDB();
+            const newUser = sqlResultToObjects(db.exec("SELECT * FROM users WHERE username = ?", [username.toLowerCase()]))[0];
+            onLoginSuccess(newUser);
+        } catch (err: any) {
+            setError(err.message.includes('UNIQUE constraint failed') ? 'Username already exists.' : 'Failed to create user. Please try again.');
         } finally {
             setIsLoading(false);
         }
@@ -2369,90 +2556,50 @@ const LoginView = ({ onLoginSuccess }: { onLoginSuccess: () => void }) => {
         setIsLoading(true);
         setError('');
         try {
-            const storedPasswordHash = await getSetting('admin_password');
+            const result = sqlResultToObjects(db.exec("SELECT * FROM users WHERE username = ?", [username.toLowerCase()]));
+            if (result.length === 0) {
+                setError('Invalid username or password.');
+                return;
+            }
+            const user = result[0];
             const enteredPasswordHash = await hashPassword(password);
-            if (storedPasswordHash === enteredPasswordHash) {
-                onLoginSuccess();
+            if (user.password_hash === enteredPasswordHash) {
+                onLoginSuccess({ id: user.id, username: user.username, role: user.role, shop_id: user.shop_id });
             } else {
-                setError('Invalid password.');
-                setPassword('');
+                setError('Invalid username or password.');
             }
         } catch (err) {
             setError('An error occurred during login. Please try again.');
         } finally {
             setIsLoading(false);
-        }
-    };
-    
-    const handleSendOtp = (e: React.FormEvent) => {
-        e.preventDefault();
-        if(!resetIdentifier) {
-            setError('Please enter your email or mobile number.');
-            return;
-        }
-        setError('');
-        setView('reset_otp');
-    };
-    
-    const handleVerifyOtp = (e: React.FormEvent) => {
-        e.preventDefault();
-        if(otp === '123456') { // Dummy OTP
-            onLoginSuccess();
-        } else {
-            setError('Invalid OTP. Please try again.');
-            setOtp('');
+            setPassword('');
         }
     };
 
     const renderContent = () => {
         switch (view) {
-            case 'create':
+            case 'create_super_admin':
                 return (
                     <>
-                        <h2 style={loginStyles.title}>Create Admin Password</h2>
-                        <p style={loginStyles.subtitle}>Set a password to secure your POS system.</p>
-                        <form onSubmit={handleCreatePassword}>
-                            <input style={loginStyles.input} type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="New Password" required />
+                        <h2 style={loginStyles.title}>Create Super Admin</h2>
+                        <p style={loginStyles.subtitle}>Set up the first administrator account for the system.</p>
+                        <form onSubmit={handleCreateSuperAdmin}>
+                            <input ref={userInputRef} style={loginStyles.input} type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" required />
+                            <input style={loginStyles.input} type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password (min 4 chars)" required />
                             <input style={loginStyles.input} type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Confirm Password" required />
-                            <button style={loginStyles.button} type="submit" disabled={isLoading}>{isLoading ? 'Saving...' : 'Create Password'}</button>
+                            <button style={loginStyles.button} type="submit" disabled={isLoading}>{isLoading ? 'Creating...' : 'Create Admin'}</button>
                         </form>
                     </>
                 );
             case 'login':
                 return (
                     <>
-                        <h2 style={loginStyles.title}>Admin Login</h2>
+                        <h2 style={loginStyles.title}>Login</h2>
                         <form onSubmit={handleLogin}>
-                             <input style={{...loginStyles.input, backgroundColor: '#e9ecef', cursor: 'not-allowed'}} type="text" value="admin" readOnly disabled />
-                             <input ref={passwordInputRef} style={loginStyles.input} type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" required />
+                             <input ref={userInputRef} style={loginStyles.input} type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" required />
+                             <input style={loginStyles.input} type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" required />
                              <button style={loginStyles.button} type="submit" disabled={isLoading}>{isLoading ? 'Logging in...' : 'Login'}</button>
                         </form>
-                        <button onClick={() => setView('reset_start')} style={loginStyles.linkButton}>Forgot Password?</button>
-                    </>
-                );
-            case 'reset_start':
-                 return (
-                    <>
-                        <h2 style={loginStyles.title}>Reset Password</h2>
-                        <p style={loginStyles.subtitle}>Enter your email or mobile to receive an OTP.</p>
-                        <form onSubmit={handleSendOtp}>
-                             <input style={loginStyles.input} type="text" value={resetIdentifier} onChange={e => setResetIdentifier(e.target.value)} placeholder="Gmail ID or Mobile Number" required />
-                             <button style={loginStyles.button} type="submit">Send OTP</button>
-                        </form>
-                        <button onClick={() => setView('login')} style={loginStyles.linkButton}>Back to Login</button>
-                    </>
-                );
-            case 'reset_otp':
-                 return (
-                    <>
-                        <h2 style={loginStyles.title}>Enter OTP</h2>
-                        <p style={loginStyles.subtitle}>An OTP has been sent to {resetIdentifier}.</p>
-                        <p style={{textAlign: 'center', fontSize: '0.9rem', color: 'var(--secondary-color)'}}>(Hint: The OTP is 123456)</p>
-                        <form onSubmit={handleVerifyOtp}>
-                             <input style={loginStyles.input} type="text" value={otp} onChange={e => setOtp(e.target.value)} placeholder="Enter OTP" required />
-                             <button style={loginStyles.button} type="submit">Verify & Login</button>
-                        </form>
-                        <button onClick={() => setView('reset_start')} style={loginStyles.linkButton}>Go Back</button>
                     </>
                 );
             default:
@@ -2471,16 +2618,20 @@ const LoginView = ({ onLoginSuccess }: { onLoginSuccess: () => void }) => {
 };
 
 // --- DROPDOWN NAVIGATION COMPONENT ---
-const DropdownNav = ({ activeView, onSelectView, disabled }: { activeView: string, onSelectView: (view: string) => void, disabled: boolean }) => {
+const DropdownNav = ({ activeView, onSelectView, disabled, currentUser }: { activeView: string, onSelectView: (view: string) => void, disabled: boolean, currentUser: User | null }) => {
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
-    const navItems = [
-        { key: 'sales', label: 'New Sale' },
-        { key: 'products', label: 'Product Inventory' },
-        { key: 'customers', label: 'Customers' },
-        { key: 'reports', label: 'Reports' },
+    const allNavItems = [
+        { key: 'sales', label: 'New Sale', roles: ['super_admin', 'shop_admin', 'cashier'] },
+        { key: 'products', label: 'Product Inventory', roles: ['super_admin', 'shop_admin'] },
+        { key: 'customers', label: 'Customers', roles: ['super_admin', 'shop_admin'] },
+        { key: 'reports', label: 'Reports', roles: ['super_admin', 'shop_admin'] },
+        { key: 'users', label: 'Users', roles: ['super_admin', 'shop_admin'] },
+        { key: 'settings', label: 'Settings', roles: ['super_admin', 'shop_admin'] },
     ];
+
+    const navItems = allNavItems.filter(item => currentUser && item.roles.includes(currentUser.role));
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -2522,19 +2673,243 @@ const DropdownNav = ({ activeView, onSelectView, disabled }: { activeView: strin
     );
 };
 
+// --- SETTINGS VIEW ---
+const SettingsView = ({ userPlan, onRequestUpgrade, onDowngrade, isCloudSyncEnabled, onToggleCloudSync, onManageUsers }) => {
+    return (
+        <div style={styles.viewContainer}>
+            <div style={styles.viewHeader}>
+                <h2>Settings & Subscription</h2>
+            </div>
+            <div style={{ maxWidth: '800px' }}>
+                <div style={styles.settingsCard}>
+                    <h3>Subscription Plan</h3>
+                    {userPlan === 'free' ? (
+                        <>
+                            <p>You are currently on the <strong style={{color: 'var(--primary-color)'}}>Free Plan</strong>.</p>
+                            <p style={{color: 'var(--secondary-color)'}}>Upgrade to Pro to unlock powerful features like multi-shop management, AI sales forecasting, and advanced reporting.</p>
+                            <button onClick={onRequestUpgrade} style={{...styles.button, backgroundColor: 'var(--success-color)'}}>Upgrade to Pro</button>
+                        </>
+                    ) : (
+                        <>
+                            <p>You are on the <strong style={{color: 'var(--success-color)'}}>Pro Plan</strong>. Thank you for your support!</p>
+                             <p style={{color: 'var(--secondary-color)'}}>You have access to all premium features.</p>
+                            <button onClick={onDowngrade} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Switch to Free Plan</button>
+                        </>
+                    )}
+                </div>
+
+                <div style={styles.settingsCard}>
+                    <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
+                        <h3>Automated Cloud Sync</h3>
+                        <span style={{...styles.proBadge, position: 'static'}}>PRO</span>
+                    </div>
+                     {isCloudSyncEnabled && userPlan === 'pro' ? (
+                         <p style={{color: 'var(--secondary-color)'}}>Your data is being automatically backed up. Changes are saved periodically.</p>
+                    ) : (
+                         <p style={{color: 'var(--secondary-color)'}}>Enable this feature to automatically back up your data and sync across devices.</p>
+                    )}
+                    <button 
+                        onClick={userPlan === 'free' ? onRequestUpgrade : onToggleCloudSync} 
+                        style={{...styles.button, backgroundColor: isCloudSyncEnabled && userPlan === 'pro' ? 'var(--secondary-color)' : 'var(--success-color)'}}
+                    >
+                        {isCloudSyncEnabled && userPlan === 'pro' ? 'Disable Cloud Sync' : 'Enable Cloud Sync'}
+                    </button>
+                </div>
+                 <div style={styles.settingsCard}>
+                    <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
+                        <h3>User Roles & Permissions</h3>
+                         <span style={{...styles.proBadge, position: 'static'}}>PRO</span>
+                    </div>
+                    <p style={{color: 'var(--secondary-color)'}}>Create and manage accounts for your staff with specific roles like 'Shop Admin' or 'Cashier'.</p>
+                    <button onClick={userPlan === 'free' ? onRequestUpgrade : onManageUsers} style={styles.button}>
+                        Manage Users
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+// --- GO PRO MODAL ---
+const GoProModal = ({ onClose, onUpgrade }) => (
+    <div style={styles.modalBackdrop}>
+        <div style={{ ...styles.modalContent, maxWidth: '550px', textAlign: 'center' }}>
+            <h2 style={{color: 'var(--primary-color)', marginTop: 0}}>Upgrade to Pro</h2>
+            <p style={{color: 'var(--secondary-color)', fontSize: '1.1rem'}}>Unlock exclusive features to supercharge your business!</p>
+            <ul style={{textAlign: 'left', listStyle: 'none', padding: 0, margin: '2rem 0'}}>
+                <li style={styles.featureListItem}>✅ Manage unlimited shops from one account.</li>
+                <li style={styles.featureListItem}>🤖 Access AI-powered Sales Forecasting & insights.</li>
+                <li style={styles.featureListItem}>📈 Use advanced reporting with custom date ranges.</li>
+                <li style={styles.featureListItem}>♾️ Enjoy unlimited AI bulk product uploads.</li>
+                <li style={styles.featureListItem}>☁️ Automated cloud backup & sync.</li>
+            </ul>
+            <div style={{...styles.modalActions, justifyContent: 'center'}}>
+                <button onClick={onClose} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Maybe Later</button>
+                <button onClick={onUpgrade} style={{...styles.button, backgroundColor: 'var(--success-color)', transform: 'scale(1.1)'}}>Upgrade Now</button>
+            </div>
+        </div>
+    </div>
+);
+
+// --- USER MANAGEMENT VIEW & MODAL ---
+const UserFormModal = ({ user, onSave, onClose, currentUser, shops }: { user: User | null, onSave: (userData: any) => Promise<void>, onClose: () => void, currentUser: User, shops: Shop[] }) => {
+    const [username, setUsername] = useState(user?.username || '');
+    const [password, setPassword] = useState('');
+    const [role, setRole] = useState<UserRole>(user?.role || (currentUser.role === 'super_admin' ? 'shop_admin' : 'cashier'));
+    const [shopId, setShopId] = useState<string>(String(user?.shop_id || ''));
+    
+    const isSuperAdmin = currentUser.role === 'super_admin';
+    const isEditing = !!user;
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const userData: any = { username, role };
+        if (password) userData.password = password;
+        if (isSuperAdmin && role === 'shop_admin') userData.shop_id = parseInt(shopId, 10);
+        if (isEditing) userData.id = user.id;
+
+        onSave(userData);
+    };
+
+    return (
+        <div style={styles.modalBackdrop}>
+            <div style={styles.modalContent}>
+                <h2>{isEditing ? 'Edit User' : 'Add New User'}</h2>
+                <form onSubmit={handleSubmit} style={styles.productForm}>
+                    <label style={styles.label}>Username</label>
+                    <input type="text" value={username} onChange={e => setUsername(e.target.value)} style={styles.input} required />
+
+                    <label style={styles.label}>Password</label>
+                    <input type="password" value={password} onChange={e => setPassword(e.target.value)} style={styles.input} placeholder={isEditing ? 'Leave blank to keep current' : ''} required={!isEditing} />
+
+                    <label style={styles.label}>Role</label>
+                    <select value={role} onChange={e => setRole(e.target.value as UserRole)} style={styles.input}>
+                        {isSuperAdmin && <option value="shop_admin">Shop Admin</option>}
+                        <option value="cashier">Cashier</option>
+                    </select>
+
+                    {isSuperAdmin && role === 'shop_admin' && (
+                        <>
+                            <label style={styles.label}>Assign to Shop</label>
+                            <select value={shopId} onChange={e => setShopId(e.target.value)} style={styles.input} required>
+                                <option value="" disabled>Select a shop</option>
+                                {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
+                        </>
+                    )}
+
+                    <div style={styles.modalActions}>
+                        <button type="button" onClick={onClose} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Cancel</button>
+                        <button type="submit" style={styles.button}>Save User</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+
+const UsersView = ({ currentUser, users, shops, onUserAdd, onUserUpdate, onUserDelete }) => {
+    const [editingUser, setEditingUser] = useState<User | null>(null);
+    const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+    const [userToDelete, setUserToDelete] = useState<User | null>(null);
+
+    const handleOpenModal = (user: User | null = null) => {
+        setEditingUser(user);
+        setIsUserModalOpen(true);
+    };
+
+    const handleSave = async (userData: any) => {
+        if (userData.id) {
+            await onUserUpdate(userData);
+        } else {
+            await onUserAdd(userData);
+        }
+        setIsUserModalOpen(false);
+        setEditingUser(null);
+    };
+    
+    const getShopName = (shopId: number | null) => {
+        if (shopId === null) return 'N/A';
+        return shops.find(s => s.id === shopId)?.name || 'Unknown Shop';
+    };
+
+    return (
+        <div style={styles.viewContainer}>
+            <div style={styles.viewHeader}>
+                <h2>User Management</h2>
+                <button onClick={() => handleOpenModal()} style={styles.button}>Add New User</button>
+            </div>
+
+             <table style={styles.table}>
+                <thead>
+                    <tr>
+                        <th style={styles.th}>Username</th>
+                        <th style={styles.th}>Role</th>
+                        <th style={styles.th}>Shop</th>
+                        <th style={styles.th}>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {users.map(user => (
+                        <tr key={user.id}>
+                            <td style={styles.td}>{user.username}</td>
+                            <td style={styles.td}>{user.role.replace('_', ' ')}</td>
+                            <td style={styles.td}>{getShopName(user.shop_id)}</td>
+                            <td style={styles.td}>
+                                <button onClick={() => handleOpenModal(user)} style={{...styles.actionButton, backgroundColor: '#ffc107'}}>Edit</button>
+                                <button onClick={() => setUserToDelete(user)} style={{...styles.actionButton, backgroundColor: 'var(--danger-color)'}} disabled={user.id === currentUser.id}>Delete</button>
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+            
+            {isUserModalOpen && (
+                <UserFormModal
+                    user={editingUser}
+                    onSave={handleSave}
+                    onClose={() => setIsUserModalOpen(false)}
+                    currentUser={currentUser}
+                    shops={shops}
+                />
+            )}
+            {userToDelete && (
+                 <ConfirmationModal
+                    message={`Are you sure you want to delete the user "${userToDelete.username}"? This action cannot be undone.`}
+                    onConfirm={() => { onUserDelete(userToDelete.id); setUserToDelete(null); }}
+                    onCancel={() => setUserToDelete(null)}
+                />
+            )}
+
+        </div>
+    );
+};
+
 
 // --- MAIN APP COMPONENT ---
 const App = () => {
     const [dbLoading, setDbLoading] = useState(true);
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [activeView, setActiveView] = useState('sales');
     const [viewMode, setViewMode] = useState<'desktop' | 'mobile'>('desktop');
     
     // Multi-Shop State
     const [shops, setShops] = useState<Shop[]>([]);
+    const [users, setUsers] = useState<User[]>([]);
     const [activeShopId, setActiveShopId] = useState<number | null>(null);
     const [isShopManagerOpen, setIsShopManagerOpen] = useState(false);
     const [isInitialSetup, setIsInitialSetup] = useState(false);
+
+    // Monetization State
+    const [userPlan, setUserPlan] = useState<UserPlan>('free');
+    const [isGoProModalOpen, setIsGoProModalOpen] = useState(false);
+    const [aiUsage, setAiUsage] = useState<{ count: number, lastReset: string }>({ count: 0, lastReset: new Date().toISOString().slice(0, 10) });
+    const AI_FREE_LIMIT = 3;
+    const [isCloudSyncEnabled, setIsCloudSyncEnabled] = useState(false);
+    const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+    const syncIntervalRef = useRef<number | null>(null);
 
     // Derived state for the active shop
     const activeShop = shops.find(s => s.id === activeShopId) || null;
@@ -2590,14 +2965,121 @@ const App = () => {
 
     // State for Restore Backup Progress
     const [restoreProgress, setRestoreProgress] = useState({ visible: false, percentage: 0, eta: '...', message: '' });
+    
+    // --- Monetization Logic ---
+    const handleUpgrade = () => {
+        setUserPlan('pro');
+        setIsGoProModalOpen(false);
+        // Persist choice for simulation
+        localStorage.setItem('userPlan', 'pro');
+    };
+    
+    const handleDowngrade = () => {
+        setUserPlan('free');
+        localStorage.setItem('userPlan', 'free');
+    };
+
+    const handleUpgradeRequest = () => {
+        setIsGoProModalOpen(true);
+    };
+    
+    const checkAndIncrementAiUsage = () => {
+        const today = new Date().toISOString().slice(0, 10);
+        let currentUsage = aiUsage;
+
+        // Reset daily counter
+        if (aiUsage.lastReset !== today) {
+            currentUsage = { count: 0, lastReset: today };
+        }
+        
+        if (userPlan === 'free' && currentUsage.count >= AI_FREE_LIMIT) {
+            handleUpgradeRequest();
+            return false;
+        }
+        
+        const newUsage = { ...currentUsage, count: currentUsage.count + 1 };
+        setAiUsage(newUsage);
+        localStorage.setItem('aiUsage', JSON.stringify(newUsage));
+        return true;
+    };
+    
+    useEffect(() => {
+        // Load user plan and AI usage from local storage to persist simulation
+        const savedPlan = localStorage.getItem('userPlan') as UserPlan;
+        if (savedPlan) setUserPlan(savedPlan);
+
+        const savedUsage = localStorage.getItem('aiUsage');
+        if (savedUsage) {
+            const parsedUsage = JSON.parse(savedUsage);
+            // Daily reset logic on load
+            if (parsedUsage.lastReset !== new Date().toISOString().slice(0, 10)) {
+                setAiUsage({ count: 0, lastReset: new Date().toISOString().slice(0, 10) });
+            } else {
+                setAiUsage(parsedUsage);
+            }
+        }
+        const savedSync = localStorage.getItem('cloudSyncEnabled');
+        if (savedSync === 'true') {
+            setIsCloudSyncEnabled(true);
+        }
+    }, []);
+
+    const toggleCloudSync = () => {
+        const newState = !isCloudSyncEnabled;
+        setIsCloudSyncEnabled(newState);
+        localStorage.setItem('cloudSyncEnabled', String(newState));
+        if (!newState) {
+            setSyncStatus('idle'); // Reset status when disabled
+        }
+    };
 
     useEffect(() => {
-        // Check session storage on initial load to maintain login state across refreshes
-        const loggedIn = sessionStorage.getItem('isLoggedIn') === 'true';
-        if (loggedIn) {
-            setIsAuthenticated(true);
+        const performSync = async () => {
+            if (!db) return;
+            setSyncStatus('syncing');
+            try {
+                await saveDbToIndexedDB();
+                await new Promise(resolve => setTimeout(resolve, 500));
+                setSyncStatus('synced');
+            } catch (err) {
+                console.error("Cloud sync failed:", err);
+                setSyncStatus('error');
+            }
+        };
+
+        if (isCloudSyncEnabled && currentUser && userPlan === 'pro') {
+            performSync();
+            syncIntervalRef.current = window.setInterval(performSync, 30000); // Sync every 30 seconds
         }
 
+        return () => {
+            if (syncIntervalRef.current) {
+                clearInterval(syncIntervalRef.current);
+                syncIntervalRef.current = null;
+            }
+        };
+    }, [isCloudSyncEnabled, currentUser, userPlan, db]);
+
+
+    // --- DB & AUTH ---
+    useEffect(() => {
+        const init = async () => {
+            await initDb();
+            const loggedInUserJson = sessionStorage.getItem('loggedInUser');
+            if (loggedInUserJson) {
+                const user: User = JSON.parse(loggedInUserJson);
+                // Re-verify user from DB in case of tampering
+                const userFromDb = sqlResultToObjects(db.exec("SELECT * FROM users WHERE id = ?", [user.id]));
+                if (userFromDb.length > 0) {
+                    setCurrentUser(userFromDb[0]);
+                } else {
+                    sessionStorage.removeItem('loggedInUser'); // Clear invalid session
+                }
+            }
+            setDbLoading(false);
+        };
+        init();
+        
         const setOnline = () => setIsOnline(true);
         const setOffline = () => setIsOnline(false);
 
@@ -2610,14 +3092,21 @@ const App = () => {
         };
     }, []);
 
-    const handleLoginSuccess = () => {
-        sessionStorage.setItem('isLoggedIn', 'true');
-        setIsAuthenticated(true);
+
+    const handleLoginSuccess = (user: User) => {
+        sessionStorage.setItem('loggedInUser', JSON.stringify(user));
+        setCurrentUser(user);
+        if (user.role === 'cashier') setActiveView('sales');
     };
 
     const handleLogout = () => {
-        sessionStorage.removeItem('isLoggedIn');
-        setIsAuthenticated(false);
+        sessionStorage.removeItem('loggedInUser');
+        setCurrentUser(null);
+        setShops([]);
+        setUsers([]);
+        setActiveShopId(null);
+        setCarts([defaultCartState, defaultCartState, defaultCartState]);
+        setActiveCartIndex(0);
     };
 
     const extractAndParseJson = (rawText: string | undefined): any => {
@@ -2674,68 +3163,37 @@ const App = () => {
     const ACTIVE_SHOP_KEY = 'pos-active-shop-id';
 
     
-    // Load data from DB on initial render
+    // Load data from DB based on current user
     useEffect(() => {
-        const migrateFromLocalStorage = async () => {
-            console.log("Checking for localStorage data to migrate...");
-            const STORAGE_KEY = 'pos-multi-shop-data';
-            const storedShopsRaw = localStorage.getItem(STORAGE_KEY);
-            if (!storedShopsRaw) {
-                console.log("No localStorage data found. Skipping migration.");
-                return;
-            }
-            
-            try {
-                const storedShops: Shop[] = JSON.parse(storedShopsRaw);
-                if (!Array.isArray(storedShops) || storedShops.length === 0) {
-                    localStorage.removeItem(STORAGE_KEY);
-                    return;
-                }
-        
-                console.log(`Found ${storedShops.length} shops in localStorage. Migrating...`);
-        
-                db.exec("BEGIN TRANSACTION;");
-                storedShops.forEach(shop => {
-                    db.run("INSERT INTO shops (id, name, nextProductId) VALUES (?, ?, ?)", [shop.id, shop.name, shop.nextProductId]);
-                    shop.products.forEach(p => {
-                        db.run("INSERT INTO products (id, shop_id, description, descriptionTamil, barcode, b2bPrice, b2cPrice, stock, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                            [p.id, shop.id, p.description, p.descriptionTamil, p.barcode, p.b2bPrice, p.b2cPrice, p.stock, p.category]
-                        );
-                    });
-                    shop.salesHistory.forEach(s => {
-                        db.run("INSERT INTO sales_history (id, shop_id, date, subtotal, discount, tax, total, customerName, customerMobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                            [s.id, shop.id, s.date, s.subtotal, s.discount, s.tax, s.total, s.customerName, s.customerMobile]
-                        );
-                        s.items.forEach(i => {
-                            db.run("INSERT INTO sale_items (sale_id, productId, shop_id, description, descriptionTamil, quantity, price, isReturn) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                                [s.id, i.productId, shop.id, i.description, i.descriptionTamil, i.quantity, i.price, i.isReturn ? 1 : 0]
-                            );
-                        });
-                    });
-                });
-                db.exec("COMMIT;");
-                await saveDbToIndexedDB();
-                
-                console.log("Migration successful. Clearing old localStorage data.");
-                localStorage.removeItem(STORAGE_KEY);
-                localStorage.removeItem('pos-active-shop-id');
-            } catch(e) {
-                console.error("Migration failed:", e);
-                db.exec("ROLLBACK;");
-            }
-        };
+        if (!currentUser || !db) {
+            return;
+        }
 
-        const loadData = async () => {
-            await initDb();
-            const shopsCountRes = sqlResultToObjects(db.exec("SELECT COUNT(*) as count FROM shops"));
-            if (shopsCountRes[0].count === 0) {
-                await migrateFromLocalStorage();
-            }
+        const loadDataForUser = async () => {
+            let shopsFromDb = [];
+            let usersFromDb = [];
 
-            const shopsFromDb = sqlResultToObjects(db.exec("SELECT * FROM shops"));
+            if (currentUser.role === 'super_admin') {
+                shopsFromDb = sqlResultToObjects(db.exec("SELECT * FROM shops"));
+                usersFromDb = sqlResultToObjects(db.exec("SELECT id, username, role, shop_id FROM users"));
+                const storedActiveId = localStorage.getItem(ACTIVE_SHOP_KEY);
+                const activeId = storedActiveId ? parseInt(storedActiveId, 10) : (shopsFromDb.length > 0 ? shopsFromDb[0].id : null);
+                setActiveShopId(activeId);
+
+            } else if (currentUser.role === 'shop_admin') {
+                shopsFromDb = sqlResultToObjects(db.exec("SELECT * FROM shops WHERE id = ?", [currentUser.shop_id]));
+                usersFromDb = sqlResultToObjects(db.exec("SELECT id, username, role, shop_id FROM users WHERE shop_id = ?", [currentUser.shop_id]));
+                setActiveShopId(currentUser.shop_id);
+
+            } else if (currentUser.role === 'cashier') {
+                shopsFromDb = sqlResultToObjects(db.exec("SELECT * FROM shops WHERE id = ?", [currentUser.shop_id]));
+                // Cashiers don't need to see the user list
+                usersFromDb = [];
+                setActiveShopId(currentUser.shop_id);
+            }
 
             if (shopsFromDb.length > 0) {
-                const fullShopsDataPromises = shopsFromDb.map(async (shop: any) => {
+                 const fullShopsDataPromises = shopsFromDb.map(async (shop: any) => {
                     const products = sqlResultToObjects(db.exec("SELECT * FROM products WHERE shop_id = ?", [shop.id]));
                     const salesHistoryRaw = sqlResultToObjects(db.exec("SELECT * FROM sales_history WHERE shop_id = ?", [shop.id]));
                     const salesHistoryPromises = salesHistoryRaw.map(async (sale) => {
@@ -2747,24 +3205,18 @@ const App = () => {
                 });
                 const fullShopsData = await Promise.all(fullShopsDataPromises);
                 setShops(fullShopsData);
-
-                const storedActiveId = localStorage.getItem(ACTIVE_SHOP_KEY);
-                const activeId = storedActiveId ? parseInt(storedActiveId, 10) : shopsFromDb[0].id;
-                setActiveShopId(activeId);
             } else {
-                 if (isAuthenticated) { // Only show initial setup if logged in but no shops exist
-                    setIsInitialSetup(true);
-                }
+                setShops([]);
+                setIsInitialSetup(currentUser.role === 'super_admin');
             }
             
+            setUsers(usersFromDb);
             const customersFromDb = sqlResultToObjects(db.exec("SELECT * FROM customers ORDER BY name"));
             setCustomers(customersFromDb);
-            
-            setDbLoading(false);
         };
 
-        loadData().catch(console.error);
-    }, [isAuthenticated]); // Re-run this effect if the user logs in
+        loadDataForUser().catch(console.error);
+    }, [currentUser, db]);
 
     const handleCreateShop = async (name: string) => {
         const newShopId = Date.now();
@@ -2955,6 +3407,59 @@ const App = () => {
             setCustomerToDelete(null);
         } catch(e) {
             alert("Failed to delete customer.");
+        }
+    };
+
+    // --- USER CRUD ---
+    const refreshUsers = () => {
+        if (!db || !currentUser) return;
+        let usersFromDb = [];
+        if (currentUser.role === 'super_admin') {
+            usersFromDb = sqlResultToObjects(db.exec("SELECT id, username, role, shop_id FROM users"));
+        } else if (currentUser.role === 'shop_admin') {
+            usersFromDb = sqlResultToObjects(db.exec("SELECT id, username, role, shop_id FROM users WHERE shop_id = ?", [currentUser.shop_id]));
+        }
+        setUsers(usersFromDb);
+    };
+
+    const handleUserAdd = async (userData: any) => {
+        if (!currentUser) return;
+        try {
+            const hashedPassword = await hashPassword(userData.password);
+            const shopId = currentUser.role === 'super_admin' ? userData.shop_id : currentUser.shop_id;
+            db.run("INSERT INTO users (username, password_hash, role, shop_id) VALUES (?, ?, ?, ?)",
+                [userData.username.toLowerCase(), hashedPassword, userData.role, shopId]);
+            await saveDbToIndexedDB();
+            refreshUsers();
+        } catch (e: any) {
+            alert(`Error adding user: ${e.message}`);
+        }
+    };
+
+    const handleUserUpdate = async (userData: any) => {
+        try {
+            if (userData.password) {
+                const hashedPassword = await hashPassword(userData.password);
+                db.run("UPDATE users SET username = ?, password_hash = ?, role = ?, shop_id = ? WHERE id = ?",
+                    [userData.username.toLowerCase(), hashedPassword, userData.role, userData.shop_id, userData.id]);
+            } else {
+                db.run("UPDATE users SET username = ?, role = ?, shop_id = ? WHERE id = ?",
+                    [userData.username.toLowerCase(), userData.role, userData.shop_id, userData.id]);
+            }
+            await saveDbToIndexedDB();
+            refreshUsers();
+        } catch (e: any) {
+            alert(`Error updating user: ${e.message}`);
+        }
+    };
+    
+    const handleUserDelete = async (userId: number) => {
+        try {
+            db.run("DELETE FROM users WHERE id = ?", [userId]);
+            await saveDbToIndexedDB();
+            refreshUsers();
+        } catch (e: any) {
+             alert(`Error deleting user: ${e.message}`);
         }
     };
 
@@ -3406,6 +3911,32 @@ const App = () => {
         ? `the product "${activeShop.products.find(p => p.id === productIdsToDelete[0])?.description}"`
         : `${productIdsToDelete.length} products`;
 
+    const getSyncStatusStyle = (status: typeof syncStatus) => {
+        switch (status) {
+            case 'syncing':
+                return { color: '#007bff', borderColor: '#007bff' };
+            case 'synced':
+                return { color: 'var(--success-color)', borderColor: 'var(--success-color)' };
+            case 'error':
+                return { color: 'var(--danger-color)', borderColor: 'var(--danger-color)' };
+            default:
+                return {};
+        }
+    };
+
+    const getSyncStatusText = (status: typeof syncStatus) => {
+        switch (status) {
+            case 'syncing':
+                return 'Syncing...';
+            case 'synced':
+                return 'Data Synced';
+            case 'error':
+                return 'Sync Error';
+            default:
+                return 'Sync Enabled';
+        }
+    };
+
     if (dbLoading) {
         return (
             <div style={{...styles.appContainer, justifyContent: 'center', alignItems: 'center', minHeight: '400px'}}>
@@ -3415,7 +3946,7 @@ const App = () => {
         );
     }
 
-    if (!isAuthenticated) {
+    if (!currentUser) {
         return <LoginView onLoginSuccess={handleLoginSuccess} />;
     }
 
@@ -3427,6 +3958,7 @@ const App = () => {
                         activeView={activeView} 
                         onSelectView={setActiveView} 
                         disabled={!activeShop} 
+                        currentUser={currentUser}
                     />
                     {activeView === 'sales' && activeShop && (
                         <div style={styles.billSelector}>
@@ -3445,14 +3977,26 @@ const App = () => {
                     )}
                 </div>
                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    {activeShop && (
-                        <div style={styles.activeShopDisplay}>
-                            <strong>Active Shop:</strong> {activeShop.name}
+                    {isCloudSyncEnabled && userPlan === 'pro' && (
+                        <div style={{...styles.activeShopDisplay, ...getSyncStatusStyle(syncStatus)}}>
+                            <CloudIcon size={18} />
+                            <span style={{marginLeft: '0.5rem'}}>{getSyncStatusText(syncStatus)}</span>
                         </div>
                     )}
-                    <button onClick={() => setIsShopManagerOpen(true)} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>
-                        Shop Manager
-                    </button>
+                    {activeShop && (
+                        <div style={styles.activeShopDisplay}>
+                            <strong>Shop:</strong> {activeShop.name}
+                        </div>
+                    )}
+                     <div style={styles.activeShopDisplay}>
+                        <UserIcon size={18} />
+                        <strong style={{marginLeft: '0.5rem'}}>User:</strong> {currentUser.username} ({currentUser.role.replace('_', ' ')})
+                    </div>
+                    {currentUser.role === 'super_admin' && (
+                        <button onClick={() => setIsShopManagerOpen(true)} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>
+                            Shop Manager
+                        </button>
+                    )}
                     <button onClick={handleLogout} style={{...styles.button, backgroundColor: 'var(--danger-color)'}}>
                         Logout
                     </button>
@@ -3475,6 +4019,7 @@ const App = () => {
                         isOnline={isOnline}
                         viewMode={viewMode}
                         setViewMode={setViewMode}
+                        currentUser={currentUser}
                     />
                 }
                 {activeShop && activeView === 'products' && 
@@ -3489,6 +4034,9 @@ const App = () => {
                         setSelectedProductIds={setSelectedProductIds}
                         onDeleteSelected={handleBulkDeleteRequest}
                         isOnline={isOnline}
+                        aiUsage={{ plan: userPlan, count: aiUsage.count }}
+                        onUpgrade={checkAndIncrementAiUsage}
+                        currentUser={currentUser}
                     />
                 }
                 {activeShop && activeView === 'customers' &&
@@ -3498,9 +4046,38 @@ const App = () => {
                         onAdd={() => handleOpenCustomerModal()}
                         onEdit={handleOpenCustomerModal}
                         onDelete={setCustomerToDelete}
+                        currentUser={currentUser}
                     />
                 }
-                {activeShop && activeView === 'reports' && <ReportsView salesHistory={activeShop.salesHistory} onPrint={setSaleToPrint}/>}
+                {activeShop && activeView === 'reports' && 
+                    <ReportsView 
+                        salesHistory={activeShop.salesHistory} 
+                        onPrint={setSaleToPrint} 
+                        userPlan={userPlan} 
+                        onUpgrade={handleUpgradeRequest}
+                        isOnline={isOnline}
+                    />
+                }
+                {activeView === 'users' && 
+                    <UsersView
+                        currentUser={currentUser}
+                        users={users}
+                        shops={shops}
+                        onUserAdd={handleUserAdd}
+                        onUserUpdate={handleUserUpdate}
+                        onUserDelete={handleUserDelete}
+                    />
+                }
+                 {activeView === 'settings' && 
+                    <SettingsView 
+                        userPlan={userPlan}
+                        onRequestUpgrade={handleUpgradeRequest}
+                        onDowngrade={handleDowngrade}
+                        isCloudSyncEnabled={isCloudSyncEnabled}
+                        onToggleCloudSync={toggleCloudSync}
+                        onManageUsers={() => setActiveView('users')}
+                    />
+                 }
             </main>
             
             {isProductModalOpen && 
@@ -3586,6 +4163,8 @@ const App = () => {
                     onSelect={handleSelectShop}
                     onCreate={handleCreateShop}
                     onClose={() => setIsShopManagerOpen(false)}
+                    userPlan={userPlan}
+                    onUpgrade={handleUpgradeRequest}
                 />
             }
             {isInitialSetup &&
@@ -3593,6 +4172,9 @@ const App = () => {
             }
             {restoreProgress.visible &&
                 <RestoreProgressModal percentage={restoreProgress.percentage} eta={restoreProgress.eta} message={restoreProgress.message} />
+            }
+            {isGoProModalOpen &&
+                <GoProModal onClose={() => setIsGoProModalOpen(false)} onUpgrade={handleUpgrade} />
             }
         </div>
     );
@@ -3766,6 +4348,9 @@ const styles: { [key: string]: React.CSSProperties } = {
         backgroundColor: 'var(--surface-color)',
         border: '1px solid var(--border-color)',
         borderRadius: '6px',
+        display: 'flex',
+        alignItems: 'center',
+        transition: 'color 0.3s, border-color 0.3s',
     },
     mainContent: {
         padding: '1.5rem',
@@ -4104,6 +4689,59 @@ const styles: { [key: string]: React.CSSProperties } = {
         border: '1px solid var(--border-color)',
         borderRadius: '6px',
         marginBottom: '1rem',
+    },
+    // --- NEW MONETIZATION STYLES ---
+    settingsCard: {
+        backgroundColor: '#f8f9fa',
+        padding: '1.5rem',
+        borderRadius: '8px',
+        border: '1px solid var(--border-color)',
+        marginBottom: '1.5rem',
+    },
+    proBadge: {
+        backgroundColor: '#ffc107',
+        color: 'black',
+        padding: '0.2rem 0.5rem',
+        borderRadius: '4px',
+        fontSize: '0.8rem',
+        fontWeight: 'bold',
+        position: 'absolute',
+        top: '5px',
+        right: '5px',
+    },
+    proBadgeSmall: {
+        backgroundColor: '#6c757d',
+        color: 'white',
+        padding: '0.1rem 0.4rem',
+        borderRadius: '4px',
+        fontSize: '0.7rem',
+        fontWeight: 'bold',
+        marginTop: '0.25rem',
+    },
+    featureListItem: {
+        padding: '0.75rem 0',
+        fontSize: '1.1rem',
+        borderBottom: '1px solid var(--border-color)',
+    },
+    reportTabs: {
+        display: 'flex',
+        gap: '0.5rem',
+        borderBottom: '1px solid var(--border-color)',
+        marginBottom: '1.5rem',
+    },
+    reportTabButton: {
+        padding: '0.75rem 1.5rem',
+        border: 'none',
+        background: 'none',
+        cursor: 'pointer',
+        fontSize: '1rem',
+        fontWeight: '500',
+        color: 'var(--secondary-color)',
+        borderBottom: '3px solid transparent',
+    },
+    reportTabButtonActive: {
+        color: 'var(--primary-color)',
+        borderBottom: '3px solid var(--primary-color)',
     },
     // --- NEW MOBILE SINGLE-COLUMN STYLES ---
     mobileSingleColumnLayout: {
