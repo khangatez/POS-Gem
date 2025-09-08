@@ -1034,6 +1034,11 @@ const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, o
     const [margins, setMargins] = useState({ top: 20, right: 20, bottom: 20, left: 20 });
     const [dragging, setDragging] = useState<null | 'top' | 'right' | 'bottom' | 'left'>(null);
 
+    // State for draggable column
+    const [itemColWidth, setItemColWidth] = useState(50); // percentage
+    const [isResizingCol, setIsResizingCol] = useState(false);
+    const resizeStartInfo = useRef({ startX: 0, startWidth: 0, tableWidth: 0 });
+
     const purchasedItems = sale.items.filter((item: SaleItem) => !item.isReturn);
     const returnedItems = sale.items.filter((item: SaleItem) => item.isReturn);
 
@@ -1047,8 +1052,25 @@ const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, o
         e.preventDefault();
         setDragging(side);
     };
+    
+    const handleColResizeMouseDown = (e: React.MouseEvent) => {
+        e.preventDefault();
+        const itemTh = (e.currentTarget as HTMLElement).parentElement;
+        const table = itemTh?.closest('table');
+        if (itemTh && table) {
+            resizeStartInfo.current = {
+                startX: e.clientX,
+                startWidth: itemTh.offsetWidth,
+                tableWidth: table.offsetWidth,
+            };
+            setIsResizingCol(true);
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+        }
+    };
 
-    // Effect to handle mouse movement and release for dragging
+
+    // Effect to handle mouse movement and release for dragging margins
     useEffect(() => {
         const handleMouseMove = (e: MouseEvent) => {
             if (!dragging || !previewWrapperRef.current) return;
@@ -1084,6 +1106,38 @@ const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, o
             window.removeEventListener('mouseup', handleMouseUp);
         };
     }, [dragging]);
+    
+    // Effect to handle column resizing
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!isResizingCol) return;
+            const { startX, startWidth, tableWidth } = resizeStartInfo.current;
+            const newWidthPx = startWidth + (e.clientX - startX);
+            
+            if (tableWidth > 0) {
+                let newWidthPercent = (newWidthPx / tableWidth) * 100;
+                if (newWidthPercent < 20) newWidthPercent = 20; // Min width
+                if (newWidthPercent > 80) newWidthPercent = 80; // Max width
+                setItemColWidth(newWidthPercent);
+            }
+        };
+
+        const handleMouseUp = () => {
+            setIsResizingCol(false);
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        };
+        
+        if (isResizingCol) {
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', handleMouseUp);
+        }
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [isResizingCol]);
+
 
     const handleSavePdf = () => {
         const element = printAreaRef.current;
@@ -1091,7 +1145,7 @@ const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, o
     
         // Temporarily hide non-printable elements
         const actions = document.querySelector('.invoice-actions') as HTMLElement;
-        const guides = document.querySelectorAll('.margin-guide') as NodeListOf<HTMLElement>;
+        const guides = document.querySelectorAll('.margin-guide, .resize-handle') as NodeListOf<HTMLElement>;
         if (actions) actions.style.display = 'none';
         guides.forEach(g => g.style.display = 'none');
         
@@ -1146,10 +1200,9 @@ ${returnedItemsText}
 -----------------------------------
 Gross Total: ₹${grossTotal.toFixed(1)}
 ${returnTotal > 0 ? `Total Returns: -₹${returnTotal.toFixed(1)}` : ''}
------------------------------------
-Subtotal: ₹${sale.subtotal.toFixed(1)}
 ${sale.discount > 0 ? `Discount: -₹${sale.discount.toFixed(1)}` : ''}
 ${sale.tax > 0 ? `Tax: ₹${sale.tax.toFixed(1)}` : ''}
+-----------------------------------
 Grand Total: ₹${sale.total.toFixed(1)}
 -----------------------------------
 Thank you for your purchase!
@@ -1161,17 +1214,38 @@ Goods once sold cannot be taken back.
         onWhatsApp(phoneNumber);
     };
 
-    const renderTable = (items: SaleItem[], title: string, isReturn = false) => (
+    const renderTable = (items: SaleItem[], title: string, isReturn = false) => {
+        const remainingWidth = 100 - itemColWidth;
+        const qtyWidth = remainingWidth * 0.25;
+        const priceWidth = remainingWidth * 0.375;
+        const totalWidth = remainingWidth * 0.375;
+        
+        return (
         <>
             {title && <h4 style={{ margin: '0.8rem 0 0.4rem 0', borderBottom: '1px solid #eee', paddingBottom: '0.2rem' }}>{title}</h4>}
             <table style={{...styles.table, fontSize: '10pt', width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed'}}>
                 <thead>
                     <tr>
                         <th style={{...styles.th, textAlign: 'left', padding: '2px', width: '30px'}}>S.No.</th>
-                        <th style={{...styles.th, textAlign: 'left', padding: '2px', width: '50%'}}>Item</th>
-                        <th style={{...styles.th, textAlign: 'right', padding: '2px'}}>Qty</th>
-                        <th style={{...styles.th, textAlign: 'right', padding: '2px'}}>Price</th>
-                        <th style={{...styles.th, textAlign: 'right', padding: '2px'}}>Total</th>
+                        <th style={{...styles.th, textAlign: 'left', padding: '2px', width: `${itemColWidth}%`, position: 'relative'}}>
+                            Item
+                             <div
+                                className="resize-handle no-print"
+                                onMouseDown={handleColResizeMouseDown}
+                                style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    right: '-3px',
+                                    width: '6px',
+                                    height: '100%',
+                                    cursor: 'col-resize',
+                                    zIndex: 1,
+                                }}
+                            />
+                        </th>
+                        <th style={{...styles.th, textAlign: 'right', padding: '2px', width: `${qtyWidth}%`}}>Qty</th>
+                        <th style={{...styles.th, textAlign: 'right', padding: '2px', width: `${priceWidth}%`}}>Price</th>
+                        <th style={{...styles.th, textAlign: 'right', padding: '2px', width: `${totalWidth}%`}}>Total</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1196,7 +1270,7 @@ Goods once sold cannot be taken back.
                 </tbody>
             </table>
         </>
-    );
+    )};
 
     return (
         <div className="invoice-preview-backdrop" style={styles.modalBackdrop}>
@@ -1233,15 +1307,27 @@ Goods once sold cannot be taken back.
                     {customerName && <p style={{margin: '0.2rem 0'}}><b>Customer:</b> {customerName}</p>}
                     {customerMobile && <p style={{margin: '0.2rem 0'}}><b>Mobile:</b> {customerMobile}</p>}
 
-                    {purchasedItems.length > 0 && renderTable(purchasedItems, '')}
-                    {returnedItems.length > 0 && renderTable(returnedItems, 'Returned Items', true)}
+                    {purchasedItems.length > 0 && (
+                        <>
+                            {renderTable(purchasedItems, '')}
+                            <div style={{textAlign: 'right', fontSize: '10pt', borderTop: '1px solid #eee', paddingTop: '4px', marginTop: '4px'}}>
+                                <p style={{margin: '2px 0'}}><b>Gross Total:</b> ₹{grossTotal.toFixed(1)}</p>
+                            </div>
+                        </>
+                    )}
+                    
+                    {returnedItems.length > 0 && (
+                        <>
+                            {renderTable(returnedItems, 'Returned Items', true)}
+                            <div style={{textAlign: 'right', fontSize: '10pt', borderTop: '1px solid #eee', paddingTop: '4px', marginTop: '4px'}}>
+                                <p style={{margin: '2px 0', color: 'var(--danger-color)'}}><b>Total Returns:</b> -₹{returnTotal.toFixed(1)}</p>
+                            </div>
+                        </>
+                    )}
 
                     <hr style={{border: '1px dashed #ccc', margin: '0.5rem 0'}}/>
 
                     <div style={{textAlign: 'right', fontSize: '10pt'}}>
-                        {purchasedItems.length > 0 && <p style={{margin: '2px 0'}}><b>Gross Total:</b> ₹{grossTotal.toFixed(1)}</p>}
-                        {returnedItems.length > 0 && <p style={{margin: '2px 0', color: 'var(--danger-color)'}}><b>Total Returns:</b> -₹{returnTotal.toFixed(1)}</p>}
-                        <p style={{margin: '2px 0'}}><b>Subtotal:</b> ₹{sale.subtotal.toFixed(1)}</p>
                         {sale.discount > 0 && <p style={{margin: '2px 0'}}><b>Discount:</b> -₹{sale.discount.toFixed(1)}</p>}
                         {sale.tax > 0 && <p style={{margin: '2px 0'}}><b>Tax:</b> ₹{sale.tax.toFixed(1)}</p>}
                         <p style={{margin: '2px 0', fontSize: '12pt'}}><b>Grand Total:</b> ₹{sale.total.toFixed(1)}</p>
@@ -1782,6 +1868,7 @@ const SalesView = ({
     onSaveBackup,
     onRestoreBackup,
     onUpdateProductPrice,
+    onUpdateProductDetails,
     onAddNewProduct,
     isOnline,
     viewMode,
@@ -1819,6 +1906,7 @@ const SalesView = ({
     }, [highlightedIndex]);
 
     const canChangePrice = currentUser?.role !== 'cashier';
+    const canEditProductDetails = currentUser?.role !== 'cashier';
 
     useEffect(() => {
         customerNameRef.current?.focus();
@@ -1942,13 +2030,17 @@ const SalesView = ({
             item.id === id ? { ...item, [field]: value } : item
         );
         updateActiveCart({ items: updatedItems });
-
+    
+        const updatedItem = updatedItems.find(item => item.id === id);
+        if (!updatedItem) return;
+    
         // If the price was changed, update the product in the main inventory
         if (field === 'price') {
-            const updatedItem = updatedItems.find(item => item.id === id);
-            if (updatedItem) {
-                onUpdateProductPrice(updatedItem.productId, parseFloat(String(value)) || 0, priceMode);
-            }
+            onUpdateProductPrice(updatedItem.productId, parseFloat(String(value)) || 0, priceMode);
+        }
+        // If description is changed, update product in main inventory
+        if (field === 'description') {
+            onUpdateProductDetails(updatedItem.productId, field, String(value));
         }
     };
     
@@ -2168,7 +2260,13 @@ const SalesView = ({
                     <table style={styles.table}>
                         <thead>
                             <tr>
-                                <th style={styles.th}>S.No.</th><th style={styles.th}>Description</th><th style={styles.th}>Quantity</th><th style={styles.th}>Price</th><th style={styles.th}>Total</th><th style={styles.th}>Return</th><th style={styles.th}>Actions</th>
+                                <th style={styles.th}>S.No.</th>
+                                <th style={{...styles.th, width: '50%'}}>Description</th>
+                                <th style={styles.th}>Quantity</th>
+                                <th style={styles.th}>Price</th>
+                                <th style={styles.th}>Total</th>
+                                <th style={styles.th}>Return</th>
+                                <th style={styles.th}>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -2177,7 +2275,15 @@ const SalesView = ({
                                 return (
                                     <tr key={item.id} style={item.isReturn ? {backgroundColor: '#ffebee'} : {}}>
                                         <td style={styles.td}>{index + 1}</td>
-                                        <td style={styles.td}>{activeCart.language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description}</td>
+                                        <td style={styles.td}>
+                                            <input
+                                                type="text"
+                                                value={item.description}
+                                                onChange={(e) => handleUpdateSaleItem(item.id, 'description', e.target.value)}
+                                                style={styles.wideGridInput}
+                                                disabled={!canEditProductDetails}
+                                            />
+                                        </td>
                                         <td style={styles.td}><input ref={el => { quantityInputRefs.current[index] = el; }} type="number" step="0.001" value={item.quantity} onChange={(e) => handleUpdateSaleItem(item.id, 'quantity', parseFloat(e.target.value) || 0)} style={styles.gridInput} onKeyDown={(e) => handleQuantityKeyDown(e, index)} /></td>
                                         <td style={styles.td}><input ref={el => { priceInputRefs.current[index] = el; }} type="number" step="0.01" value={item.price} onChange={(e) => handleUpdateSaleItem(item.id, 'price', parseFloat(e.target.value) || 0)} style={styles.gridInput} onKeyDown={handlePriceKeyDown} disabled={!canChangePrice} /></td>
                                         <td style={styles.td}>₹{itemTotal.toFixed(1)}</td>
@@ -2277,7 +2383,14 @@ const SalesView = ({
                          return (
                             <div key={item.id} style={item.isReturn ? {...styles.mobileBillItemCard, ...styles.mobileBillItemCardReturn} : styles.mobileBillItemCard}>
                                 <div style={styles.mobileBillItemInfo}>
-                                    <p style={{ margin: 0, fontWeight: 'bold' }}>{activeCart.language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description}</p>
+                                     <input
+                                        type="text"
+                                        value={item.description}
+                                        onChange={(e) => handleUpdateSaleItem(item.id, 'description', e.target.value)}
+                                        style={{ ...styles.mobileInput, marginBottom: '0.25rem', padding: '0.5rem', fontSize: '1rem', fontWeight: 'bold' }}
+                                        placeholder="Description"
+                                        disabled={!canEditProductDetails}
+                                    />
                                     <p style={{ margin: '0.25rem 0', color: 'var(--secondary-color)' }}>
                                         Price: ₹{item.price.toFixed(1)} | Total: ₹{itemTotal.toFixed(1)}
                                     </p>
@@ -3323,6 +3436,18 @@ const App = () => {
         setShops(updatedShops);
     };
     
+    const handleUpdateProductDetails = async (productId: number, field: 'description' | 'descriptionTamil', value: string) => {
+        if (!activeShop) return;
+        db.run(`UPDATE products SET ${field} = ? WHERE id = ? AND shop_id = ?`, [value, productId, activeShop.id]);
+        await saveDbToIndexedDB();
+    
+        const updatedShops = shops.map(s => s.id === activeShop.id ? {
+            ...s,
+            products: s.products.map(p => p.id === productId ? { ...p, [field]: value } : p)
+        } : s);
+        setShops(updatedShops);
+    };
+
     const handleSingleDeleteRequest = (id: number) => {
         setProductIdsToDelete([id]);
         setIsConfirmModalOpen(true);
@@ -4015,6 +4140,7 @@ const App = () => {
                         onSaveBackup={handleSaveBackup}
                         onRestoreBackup={handleRestoreBackup}
                         onUpdateProductPrice={handleUpdateProductPrice}
+                        onUpdateProductDetails={handleUpdateProductDetails}
                         onAddNewProduct={handleAddNewProductFromSale}
                         isOnline={isOnline}
                         viewMode={viewMode}
@@ -4479,6 +4605,13 @@ const styles: { [key: string]: React.CSSProperties } = {
         padding: '0.4rem',
         border: '1px solid var(--border-color)',
         borderRadius: '4px',
+    },
+    wideGridInput: {
+        width: '100%',
+        padding: '0.4rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '4px',
+        boxSizing: 'border-box',
     },
     totalsSection: {
         display: 'flex',
