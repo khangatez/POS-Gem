@@ -1044,6 +1044,7 @@ const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, o
 
     const grossTotal = purchasedItems.reduce((acc: number, item: SaleItem) => acc + item.quantity * item.price, 0);
     const returnTotal = returnedItems.reduce((acc: number, item: SaleItem) => acc + item.quantity * item.price, 0);
+    const roundedGrandTotal = Math.round(sale.total);
 
     const saleDate = onFinalize ? new Date() : new Date(sale.date);
 
@@ -1203,7 +1204,7 @@ ${returnTotal > 0 ? `Total Returns: -₹${returnTotal.toFixed(1)}` : ''}
 ${sale.discount > 0 ? `Discount: -₹${sale.discount.toFixed(1)}` : ''}
 ${sale.tax > 0 ? `Tax: ₹${sale.tax.toFixed(1)}` : ''}
 -----------------------------------
-Grand Total: ₹${sale.total.toFixed(1)}
+Grand Total: ₹${roundedGrandTotal.toFixed(2)}
 -----------------------------------
 Thank you for your purchase!
 Goods once sold cannot be taken back.
@@ -1264,7 +1265,7 @@ Goods once sold cannot be taken back.
                             </td>
                             <td style={{...styles.td, textAlign: 'right', padding: '2px'}}>{item.quantity}</td>
                             <td style={{...styles.td, textAlign: 'right', padding: '2px'}}>{item.price.toFixed(1)}</td>
-                            <td style={{...styles.td, textAlign: 'right', padding: '2px'}}>{(item.quantity * item.price).toFixed(1)}</td>
+                            <td style={{...styles.td, textAlign: 'right', padding: '2px', fontWeight: 'bold'}}>{(item.quantity * item.price).toFixed(1)}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -1311,7 +1312,7 @@ Goods once sold cannot be taken back.
                         <>
                             {renderTable(purchasedItems, '')}
                             <div style={{textAlign: 'right', fontSize: '10pt', borderTop: '1px solid #eee', paddingTop: '4px', marginTop: '4px'}}>
-                                <p style={{margin: '2px 0'}}><b>Gross Total:</b> ₹{grossTotal.toFixed(1)}</p>
+                                <p style={{margin: '2px 0'}}><b>Gross Total: </b><b>₹{grossTotal.toFixed(1)}</b></p>
                             </div>
                         </>
                     )}
@@ -1320,7 +1321,7 @@ Goods once sold cannot be taken back.
                         <>
                             {renderTable(returnedItems, 'Returned Items', true)}
                             <div style={{textAlign: 'right', fontSize: '10pt', borderTop: '1px solid #eee', paddingTop: '4px', marginTop: '4px'}}>
-                                <p style={{margin: '2px 0', color: 'var(--danger-color)'}}><b>Total Returns:</b> -₹{returnTotal.toFixed(1)}</p>
+                                <p style={{margin: '2px 0', color: 'var(--danger-color)'}}><b>Total Returns: </b><b>-₹{returnTotal.toFixed(1)}</b></p>
                             </div>
                         </>
                     )}
@@ -1328,9 +1329,9 @@ Goods once sold cannot be taken back.
                     <hr style={{border: '1px dashed #ccc', margin: '0.5rem 0'}}/>
 
                     <div style={{textAlign: 'right', fontSize: '10pt'}}>
-                        {sale.discount > 0 && <p style={{margin: '2px 0'}}><b>Discount:</b> -₹{sale.discount.toFixed(1)}</p>}
-                        {sale.tax > 0 && <p style={{margin: '2px 0'}}><b>Tax:</b> ₹{sale.tax.toFixed(1)}</p>}
-                        <p style={{margin: '2px 0', fontSize: '12pt'}}><b>Grand Total:</b> ₹{sale.total.toFixed(1)}</p>
+                        {sale.discount > 0 && <p style={{margin: '2px 0'}}><b>Discount: </b><b>-₹{sale.discount.toFixed(1)}</b></p>}
+                        {sale.tax > 0 && <p style={{margin: '2px 0'}}><b>Tax: </b><b>₹{sale.tax.toFixed(1)}</b></p>}
+                        <p style={{margin: '2px 0', fontSize: '12pt'}}><b>Grand Total: </b><b>₹{roundedGrandTotal.toFixed(2)}</b></p>
                     </div>
 
                     <p style={{textAlign: 'center', fontSize: '9pt', marginTop: '1rem'}}>
@@ -2301,7 +2302,7 @@ const SalesView = ({
                     <div><label>Discount (₹)</label><input type="number" step="0.01" value={activeCart.discount} onChange={(e) => updateActiveCart({ discount: parseFloat(e.target.value) || 0 })} style={styles.totalsInput}/></div>
                     <div><label>Tax (%)</label><input type="number" step="0.01" value={activeCart.tax} onChange={(e) => updateActiveCart({ tax: parseFloat(e.target.value) || 0 })} style={styles.totalsInput}/></div>
                     <button onClick={onPreview} style={{...styles.button, backgroundColor: 'var(--success-color)'}} disabled={activeCart.items.length === 0}>Preview Invoice</button>
-                    <div style={styles.grandTotal}><h3>Grand Total: ₹{total.toFixed(1)}</h3></div>
+                    <div style={styles.grandTotal}><h3>Grand Total: ₹{total.toFixed(2)}</h3></div>
                 </div>
                 
                 {currentUser?.role === 'super_admin' && (
@@ -2425,7 +2426,7 @@ const SalesView = ({
                     </div>
                     <div style={styles.mobileGrandTotal}>
                         <span>Grand Total</span>
-                        <span>₹{total.toFixed(1)}</span>
+                        <span>₹{total.toFixed(2)}</span>
                     </div>
                 </div>
 
@@ -3594,7 +3595,7 @@ const App = () => {
         return item.isReturn ? acc - itemTotal : acc + itemTotal;
     }, 0);
     const taxAmount = (subtotal - activeCart.discount) * (activeCart.tax / 100);
-    const total = subtotal - activeCart.discount + taxAmount;
+    const total = Math.round(subtotal - activeCart.discount + taxAmount);
     
     const resetSale = () => {
         updateActiveCart(defaultCartState);
@@ -4196,371 +4197,250 @@ const App = () => {
                 }
                  {activeView === 'settings' && 
                     <SettingsView 
-                        userPlan={userPlan}
+                        userPlan={userPlan} 
                         onRequestUpgrade={handleUpgradeRequest}
                         onDowngrade={handleDowngrade}
                         isCloudSyncEnabled={isCloudSyncEnabled}
                         onToggleCloudSync={toggleCloudSync}
                         onManageUsers={() => setActiveView('users')}
                     />
-                 }
+                }
+                {isInitialSetup && <InitialSetupModal onCreate={handleCreateShop} />}
+                {isShopManagerOpen && (
+                    <ShopManagerModal 
+                        shops={shops} 
+                        activeShopId={activeShopId} 
+                        onSelect={handleSelectShop} 
+                        onCreate={handleCreateShop} 
+                        onClose={() => setIsShopManagerOpen(false)}
+                        userPlan={userPlan}
+                        onUpgrade={handleUpgradeRequest}
+                    />
+                )}
+                {isGoProModalOpen && <GoProModal onClose={() => setIsGoProModalOpen(false)} onUpgrade={handleUpgrade} />}
+                {isProductModalOpen && 
+                    <ProductFormModal 
+                        product={editingProduct} 
+                        onSave={handleSaveProduct} 
+                        onUpdate={handleUpdateProduct} 
+                        onClose={() => { setIsProductModalOpen(false); setEditingProduct(null); }} 
+                    />
+                }
+                {isCustomerModalOpen &&
+                    <CustomerFormModal
+                        customer={editingCustomer}
+                        onSave={handleSaveOrUpdateCustomer}
+                        onClose={() => { setIsCustomerModalOpen(false); setEditingCustomer(null); }}
+                    />
+                }
+                {customerToDelete &&
+                    <ConfirmationModal
+                        message={`Are you sure you want to delete ${customerToDelete.name}? This will remove the customer but their sales history will remain.`}
+                        onConfirm={handleConfirmDeleteCustomer}
+                        onCancel={() => setCustomerToDelete(null)}
+                    />
+                }
+                {isInvoiceModalOpen && 
+                    <InvoicePreviewModal 
+                        sale={{ ...activeCart, total }}
+                        customerName={activeCart.customerName}
+                        customerMobile={activeCart.customerMobile}
+                        onFinalize={handleFinalizeSale}
+                        onClose={() => setIsInvoiceModalOpen(false)}
+                        onPrint={() => window.print()}
+                        onWhatsApp={(number) => updateActiveCart({ customerMobile: number })}
+                        language={activeCart.language}
+                    />
+                }
+                {saleToPrint && 
+                    <InvoicePreviewModal
+                        sale={saleToPrint}
+                        customerName={saleToPrint.customerName}
+                        customerMobile={saleToPrint.customerMobile}
+                        onClose={() => setSaleToPrint(null)}
+                        onPrint={() => window.print()}
+                        onWhatsApp={() => {}} // No update needed for historical sales
+                        language={'english'} // default to english for history
+                    />
+                }
+                {isHistoryModalOpen && activeShop &&
+                    <HistoryModal 
+                        salesHistory={activeShop.salesHistory} 
+                        customerMobile={activeCart.customerMobile} 
+                        onClose={() => setIsHistoryModalOpen(false)} 
+                    />
+                }
+                {isBulkAddModalOpen && (
+                    <BulkAddModal
+                        fileSrc={bulkAddFileSrc}
+                        fileType={bulkAddFileType}
+                        fileNames={bulkAddFileNames}
+                        initialProducts={bulkAddProducts}
+                        onSave={handleSaveBulkProducts}
+                        onClose={handleCloseBulkAddModal}
+                        loading={isBulkAddLoading}
+                        error={bulkAddError}
+                    />
+                )}
+                 {isPdfUploadModalOpen && (
+                    <PdfUploadModal 
+                        onProcess={handleProcessPdfs}
+                        onClose={() => setIsPdfUploadModalOpen(false)}
+                    />
+                )}
+                {isConfirmModalOpen && activeShop && (
+                    <ConfirmationModal
+                        message={`Are you sure you want to delete ${deletionMessage}? This action cannot be undone.`}
+                        onConfirm={handleConfirmDelete}
+                        onCancel={handleCancelDelete}
+                    />
+                )}
+                {restoreProgress.visible && (
+                    <RestoreProgressModal 
+                        percentage={restoreProgress.percentage}
+                        eta={restoreProgress.eta}
+                        message={restoreProgress.message}
+                    />
+                )}
             </main>
-            
-            {isProductModalOpen && 
-                <ProductFormModal 
-                    product={editingProduct} 
-                    onSave={handleSaveProduct}
-                    onUpdate={handleUpdateProduct}
-                    onClose={() => { setIsProductModalOpen(false); setEditingProduct(null); }} 
-                />
-            }
-            {isCustomerModalOpen &&
-                <CustomerFormModal
-                    customer={editingCustomer}
-                    onSave={handleSaveOrUpdateCustomer}
-                    onClose={() => { setIsCustomerModalOpen(false); setEditingCustomer(null); }}
-                />
-            }
-            {isInvoiceModalOpen && 
-                <InvoicePreviewModal 
-                    sale={{items: activeCart.items, subtotal, discount: activeCart.discount, tax: taxAmount, total, date: new Date().toISOString()}} 
-                    customerName={activeCart.customerName}
-                    customerMobile={activeCart.customerMobile}
-                    onFinalize={handleFinalizeSale}
-                    onClose={() => setIsInvoiceModalOpen(false)} 
-                    onPrint={() => window.print()}
-                    onWhatsApp={(number) => updateActiveCart({ customerMobile: number })}
-                    language={activeCart.language}
-                />
-            }
-             {isBulkAddModalOpen &&
-                <BulkAddModal
-                    fileSrc={bulkAddFileSrc}
-                    fileType={bulkAddFileType}
-                    fileNames={bulkAddFileNames}
-                    initialProducts={bulkAddProducts}
-                    onSave={handleSaveBulkProducts}
-                    onClose={handleCloseBulkAddModal}
-                    loading={isBulkAddLoading}
-                    error={bulkAddError}
-                />
-            }
-            {isPdfUploadModalOpen && 
-                <PdfUploadModal
-                    onProcess={handleProcessPdfs}
-                    onClose={() => setIsPdfUploadModalOpen(false)}
-                />
-            }
-            {saleToPrint &&
-                 <InvoicePreviewModal
-                    sale={saleToPrint}
-                    customerName={saleToPrint.customerName}
-                    customerMobile={saleToPrint.customerMobile}
-                    onClose={() => setSaleToPrint(null)}
-                    onPrint={() => window.print()}
-                    language={'english'}
-                />
-            }
-            {isHistoryModalOpen && activeShop &&
-                <HistoryModal
-                    salesHistory={activeShop.salesHistory}
-                    customerMobile={activeCart.customerMobile}
-                    onClose={() => setIsHistoryModalOpen(false)}
-                />
-            }
-            {isConfirmModalOpen && productIdsToDelete.length > 0 && (
-                <ConfirmationModal 
-                    message={`Are you sure you want to delete ${deletionMessage}? This action cannot be undone.`}
-                    onConfirm={handleConfirmDelete}
-                    onCancel={handleCancelDelete}
-                />
-            )}
-            {customerToDelete && (
-                <ConfirmationModal
-                    message={`Are you sure you want to delete the customer "${customerToDelete.name}"? This action will not affect their past sales records.`}
-                    onConfirm={handleConfirmDeleteCustomer}
-                    onCancel={() => setCustomerToDelete(null)}
-                />
-            )}
-            {isShopManagerOpen &&
-                <ShopManagerModal
-                    shops={shops}
-                    activeShopId={activeShopId}
-                    onSelect={handleSelectShop}
-                    onCreate={handleCreateShop}
-                    onClose={() => setIsShopManagerOpen(false)}
-                    userPlan={userPlan}
-                    onUpgrade={handleUpgradeRequest}
-                />
-            }
-            {isInitialSetup &&
-                <InitialSetupModal onCreate={handleCreateShop} />
-            }
-            {restoreProgress.visible &&
-                <RestoreProgressModal percentage={restoreProgress.percentage} eta={restoreProgress.eta} message={restoreProgress.message} />
-            }
-            {isGoProModalOpen &&
-                <GoProModal onClose={() => setIsGoProModalOpen(false)} onUpgrade={handleUpgrade} />
-            }
         </div>
     );
 };
 
 // --- STYLES ---
-const loginStyles: { [key: string]: React.CSSProperties } = {
-    container: {
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: '100%',
-        minHeight: '100vh',
-    },
-    card: {
-        width: '100%',
-        maxWidth: '400px',
-        padding: '2.5rem',
-        backgroundColor: 'var(--surface-color)',
-        borderRadius: '8px',
-        boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-        display: 'flex',
-        flexDirection: 'column',
-    },
-    title: {
-        textAlign: 'center',
-        margin: '0 0 0.5rem 0',
-        color: 'var(--text-color)',
-    },
-    subtitle: {
-        textAlign: 'center',
-        margin: '0 0 2rem 0',
-        color: 'var(--secondary-color)',
-    },
-    input: {
-        width: '100%',
-        padding: '0.8rem',
-        marginBottom: '1rem',
-        fontSize: '1rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '6px',
-        boxSizing: 'border-box',
-    },
-    button: {
-        width: '100%',
-        padding: '0.8rem',
-        fontSize: '1rem',
-        fontWeight: 'bold',
-        border: 'none',
-        borderRadius: '6px',
-        backgroundColor: 'var(--primary-color)',
-        color: '#fff',
-        cursor: 'pointer',
-    },
-    linkButton: {
-        background: 'none',
-        border: 'none',
-        color: 'var(--primary-color)',
-        cursor: 'pointer',
-        textAlign: 'center',
-        marginTop: '1.5rem',
-        fontSize: '0.9rem',
-        width: '100%',
-    },
-    error: {
-        color: 'var(--danger-color)',
-        backgroundColor: '#ffebee',
-        border: '1px solid var(--danger-color)',
-        borderRadius: '6px',
-        padding: '0.8rem',
-        textAlign: 'center',
-        marginBottom: '1rem',
-    }
-};
-
 const styles: { [key: string]: React.CSSProperties } = {
     appContainer: {
         width: '100%',
-        maxWidth: '1400px',
+        maxWidth: '1600px',
         backgroundColor: 'var(--surface-color)',
-        borderRadius: '8px',
+        borderRadius: '12px',
         boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-        display: 'flex',
-        flexDirection: 'column',
+        padding: '1.5rem',
+        boxSizing: 'border-box',
     },
     nav: {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
+        paddingBottom: '1rem',
         borderBottom: '1px solid var(--border-color)',
-        padding: '0.5rem 1.5rem',
-        backgroundColor: '#f8f9fa',
-        borderTopLeftRadius: '8px',
-        borderTopRightRadius: '8px',
+        marginBottom: '1rem',
+        flexWrap: 'wrap',
+        gap: '1rem'
     },
-    dropdownContainer: {
-        position: 'relative',
-        display: 'inline-block',
-    },
-    dropdownButton: {
-        padding: '0.75rem 1.5rem',
-        border: '1px solid var(--border-color)',
-        background: 'var(--surface-color)',
-        cursor: 'pointer',
-        fontSize: '1rem',
-        fontWeight: '500',
-        color: 'var(--text-color)',
-        borderRadius: '6px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        minWidth: '220px',
-    },
-    dropdownMenu: {
-        position: 'absolute',
-        top: '100%',
-        left: 0,
-        backgroundColor: 'var(--surface-color)',
-        border: '1px solid var(--border-color)',
-        borderRadius: '6px',
-        boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
-        listStyle: 'none',
-        padding: '0.5rem 0',
-        margin: '0.25rem 0 0 0',
-        zIndex: 20,
-        width: '100%',
-    },
-    dropdownMenuItem: {
-        padding: '0.75rem 1.5rem',
-        cursor: 'pointer',
-        display: 'block',
-        width: '100%',
-        textAlign: 'left',
+    navButton: {
+        padding: '0.6rem 1rem',
         border: 'none',
-        background: 'none',
+        borderRadius: '8px',
+        backgroundColor: 'transparent',
+        cursor: 'pointer',
         fontSize: '1rem',
+        fontWeight: 500,
+        color: 'var(--secondary-color)',
     },
-    dropdownMenuItemActive: {
-        backgroundColor: '#e0f7fa',
-        fontWeight: 'bold',
-        color: 'var(--primary-color)',
+    navButtonActive: {
+        backgroundColor: 'var(--primary-color)',
+        color: '#fff',
     },
     billSelector: {
-        display: 'inline-flex',
-        marginLeft: '1rem',
+        display: 'flex',
         backgroundColor: 'var(--background-color)',
-        borderRadius: '6px',
-        padding: '3px',
-        alignItems: 'center',
+        borderRadius: '8px',
+        padding: '0.25rem',
         border: '1px solid var(--border-color)',
     },
     billButton: {
-        padding: '0.5rem 1rem',
+        padding: '0.4rem 0.8rem',
         border: 'none',
-        background: 'none',
+        borderRadius: '6px',
+        backgroundColor: 'transparent',
         cursor: 'pointer',
-        fontSize: '0.9rem',
-        fontWeight: '500',
+        fontWeight: 500,
         color: 'var(--secondary-color)',
-        borderRadius: '4px',
     },
     billButtonActive: {
         backgroundColor: 'var(--surface-color)',
         color: 'var(--primary-color)',
-        boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-    },
-    activeShopDisplay: {
-        fontSize: '0.9rem',
-        color: 'var(--secondary-color)',
-        padding: '0.5rem 1rem',
-        backgroundColor: 'var(--surface-color)',
-        border: '1px solid var(--border-color)',
-        borderRadius: '6px',
-        display: 'flex',
-        alignItems: 'center',
-        transition: 'color 0.3s, border-color 0.3s',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
     },
     mainContent: {
-        padding: '1.5rem',
-        flex: 1,
-        overflow: 'auto',
+        paddingTop: '0.5rem',
     },
     viewContainer: {
-        display: 'flex',
-        flexDirection: 'column',
+        padding: '1rem',
     },
     viewHeader: {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: '1.5rem',
+        flexWrap: 'wrap',
+        gap: '1rem'
     },
     button: {
-        padding: '0.6rem 1.2rem',
+        padding: '0.75rem 1.25rem',
         border: 'none',
-        borderRadius: '6px',
+        borderRadius: '8px',
         backgroundColor: 'var(--primary-color)',
         color: '#fff',
         cursor: 'pointer',
-        fontSize: '0.9rem',
-        fontWeight: '500',
+        fontSize: '1rem',
+        fontWeight: 'bold',
     },
     input: {
-        padding: '0.6rem',
+        padding: '0.75rem 1rem',
+        borderRadius: '8px',
         border: '1px solid var(--border-color)',
-        borderRadius: '6px',
         fontSize: '1rem',
+        width: 'auto',
     },
     table: {
         width: '100%',
         borderCollapse: 'collapse',
     },
     th: {
-        padding: '0.75rem',
+        padding: '0.75rem 1rem',
         textAlign: 'left',
         borderBottom: '2px solid var(--border-color)',
         backgroundColor: '#f8f9fa',
-        color: 'var(--secondary-color)',
-        textTransform: 'uppercase',
-        fontSize: '0.85rem'
+        fontWeight: 600,
+        fontSize: '0.9rem',
     },
     td: {
-        padding: '0.75rem',
+        padding: '0.75rem 1rem',
         borderBottom: '1px solid var(--border-color)',
+        verticalAlign: 'middle',
     },
     actionButton: {
         padding: '0.4rem 0.8rem',
+        marginRight: '0.5rem',
         border: 'none',
-        borderRadius: '4px',
+        borderRadius: '6px',
         color: '#fff',
         cursor: 'pointer',
-        marginRight: '0.5rem',
+        fontSize: '0.8rem',
     },
     modalBackdrop: {
         position: 'fixed',
         top: 0,
         left: 0,
-        width: '100vw',
-        height: '100vh',
-        backgroundColor: 'rgba(0,0,0,0.5)',
+        width: '100%',
+        height: '100%',
+        backgroundColor: 'rgba(0,0,0,0.6)',
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center',
         zIndex: 1000,
     },
     modalContent: {
-        backgroundColor: 'var(--surface-color)',
+        backgroundColor: '#fff',
         padding: '2rem',
-        borderRadius: '8px',
+        borderRadius: '12px',
         boxShadow: '0 4px 20px rgba(0,0,0,0.2)',
         width: '90%',
-        maxWidth: '600px',
+        maxWidth: '700px',
         maxHeight: '90vh',
         overflowY: 'auto',
-    },
-    modalActions: {
-        display: 'flex',
-        justifyContent: 'flex-end',
-        marginTop: '1.5rem',
-        gap: '1rem',
     },
     productForm: {
         display: 'flex',
@@ -4568,32 +4448,60 @@ const styles: { [key: string]: React.CSSProperties } = {
         gap: '1rem',
     },
     label: {
-        fontWeight: '500',
+        fontWeight: 'bold',
         marginBottom: '-0.5rem',
     },
-    emptyMessage: {
-        textAlign: 'center',
-        padding: '2rem',
-        color: 'var(--secondary-color)',
+    modalActions: {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        marginTop: '1.5rem',
+        gap: '1rem',
+    },
+    customerSection: {
+        display: 'flex',
+        gap: '1rem',
+        marginBottom: '1.5rem',
+    },
+    customerInput: {
+        flex: 2,
+        padding: '0.75rem',
+        borderRadius: '8px',
+        border: '1px solid var(--border-color)',
+        fontSize: '1rem',
+    },
+    countryCodeInput: {
+        flex: '0 0 70px',
+        padding: '0.75rem',
+        borderRadius: '8px 0 0 8px',
+        border: '1px solid var(--border-color)',
+        borderRight: 'none',
+        fontSize: '1rem',
+    },
+    mobileNumberInput: {
+        flex: 1,
+        padding: '0.75rem',
+        borderRadius: '0 8px 8px 0',
+        border: '1px solid var(--border-color)',
+        fontSize: '1rem',
     },
     searchResults: {
         position: 'absolute',
         top: '100%',
         left: 0,
         right: 0,
-        backgroundColor: 'var(--surface-color)',
+        backgroundColor: '#fff',
         border: '1px solid var(--border-color)',
-        borderRadius: '6px',
-        boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+        borderRadius: '0 0 8px 8px',
+        boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
         listStyle: 'none',
         padding: 0,
         margin: 0,
-        maxHeight: '200px',
+        zIndex: 100,
+        maxHeight: '300px',
         overflowY: 'auto',
-        zIndex: 10,
     },
     searchResultItem: {
-        padding: '0.75rem',
+        padding: '0.75rem 1rem',
         cursor: 'pointer',
     },
     highlighted: {
@@ -4601,17 +4509,16 @@ const styles: { [key: string]: React.CSSProperties } = {
         color: '#fff',
     },
     gridInput: {
-        width: '80px',
-        padding: '0.4rem',
+        width: '100px',
+        padding: '0.5rem',
+        borderRadius: '6px',
         border: '1px solid var(--border-color)',
-        borderRadius: '4px',
     },
     wideGridInput: {
-        width: '100%',
-        padding: '0.4rem',
+        width: '95%',
+        padding: '0.5rem',
+        borderRadius: '6px',
         border: '1px solid var(--border-color)',
-        borderRadius: '4px',
-        boxSizing: 'border-box',
     },
     totalsSection: {
         display: 'flex',
@@ -4619,138 +4526,182 @@ const styles: { [key: string]: React.CSSProperties } = {
         alignItems: 'center',
         gap: '1.5rem',
         marginTop: '1.5rem',
-        paddingTop: '1rem',
+        paddingTop: '1.5rem',
         borderTop: '1px solid var(--border-color)',
     },
     totalsInput: {
         width: '100px',
         padding: '0.5rem',
+        borderRadius: '6px',
         border: '1px solid var(--border-color)',
-        borderRadius: '4px',
     },
     grandTotal: {
-        marginLeft: '2rem',
+        fontSize: '1.5rem',
+        fontWeight: 'bold',
+        color: 'var(--primary-color)',
     },
-    customerSection: {
+    priceModeSelector: {
+        display: 'flex',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        overflow: 'hidden',
+    },
+    priceModeLabel: {
+        padding: '0.5rem 1rem',
+        cursor: 'pointer',
+        backgroundColor: '#f8f9fa',
+        color: 'var(--secondary-color)',
+    },
+    // Hide actual radio button but keep it accessible
+    priceModeLabel_input: {
+        position: 'absolute',
+        opacity: 0,
+        width: 0,
+        height: 0,
+    },
+    // Style the label when its radio is checked
+    priceModeLabel_input_checked: {
+        backgroundColor: 'var(--primary-color)',
+        color: 'white',
+    },
+    backupSection: {
+        marginTop: '2rem',
+        padding: '1.5rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        backgroundColor: '#f8f9fa',
+    },
+    backupTitle: {
+        marginTop: 0,
+    },
+    backupDescription: {
+        color: 'var(--secondary-color)',
+    },
+    backupActions: {
+        display: 'flex',
+        gap: '1rem',
+        marginTop: '1rem',
+    },
+    voiceSearchButton: {
+        position: 'absolute',
+        right: '10px',
+        top: '50%',
+        transform: 'translateY(-50%)',
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: '0.5rem',
+        display: 'flex',
+        alignItems: 'center',
+    },
+    barcodeScanButton: {
+        position: 'absolute',
+        right: '50px',
+        top: '50%',
+        transform: 'translateY(-50%)',
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: '0.5rem',
+        display: 'flex',
+        alignItems: 'center',
+    },
+    emptyMessage: {
+        textAlign: 'center',
+        padding: '2rem',
+        color: 'var(--secondary-color)',
+        fontSize: '1.1rem',
+    },
+    reportFilters: {
         display: 'flex',
         gap: '1rem',
         alignItems: 'center',
-        marginBottom: '1.5rem',
-        padding: '1rem',
-        backgroundColor: '#f8f9fa',
-        borderRadius: '8px'
     },
-    customerInput: {
-        padding: '0.6rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '6px',
-        fontSize: '1rem',
-        flex: 1,
-    },
-    countryCodeInput: {
-        padding: '0.6rem 0.1rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '6px 0 0 6px',
-        fontSize: '1rem',
-        flex: '0 0 45px',
-        textAlign: 'center',
-    },
-    mobileNumberInput: {
-        padding: '0.6rem',
-        border: '1px solid var(--border-color)',
-        borderLeft: 'none',
-        borderRadius: '0 6px 6px 0',
-        fontSize: '1rem',
-        flex: 1,
+    dateRangePicker: {
+        display: 'flex',
+        gap: '0.5rem',
+        alignItems: 'center',
     },
     reportSummary: {
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '1rem',
+        gap: '1.5rem',
         marginBottom: '2rem',
     },
     summaryCard: {
         backgroundColor: '#f8f9fa',
         padding: '1.5rem',
         borderRadius: '8px',
-        textAlign: 'center',
         border: '1px solid var(--border-color)',
-    },
-    reportFilters: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '1rem',
-    },
-    dateRangePicker: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem',
-        backgroundColor: '#f8f9fa',
-        padding: '0.5rem',
-        borderRadius: '6px',
-        border: '1px solid var(--border-color)',
-    },
-    priceModeSelector: {
-        display: 'flex',
-        gap: '1rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '6px',
-        padding: '0.5rem 0.75rem',
-        backgroundColor: 'var(--surface-color)',
-    },
-    priceModeLabel: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.35rem',
-        cursor: 'pointer',
-        fontWeight: '500',
-    },
-    backupSection: {
-        marginTop: '2rem',
-        paddingTop: '1.5rem',
-        borderTop: '2px solid var(--border-color)',
         textAlign: 'center',
     },
-    backupTitle: {
-        marginBottom: '0.5rem',
-        color: 'var(--text-color)',
-    },
-    backupDescription: {
-        marginBottom: '1.5rem',
+    summaryCard_h3: {
+        margin: '0 0 0.5rem 0',
         color: 'var(--secondary-color)',
-        maxWidth: '600px',
-        margin: '0 auto 1.5rem auto',
+        fontSize: '1rem',
     },
-    backupActions: {
+    summaryCard_p: {
+        margin: 0,
+        fontSize: '2rem',
+        fontWeight: 'bold',
+        color: 'var(--primary-color)',
+    },
+    customerViewLayout: {
+        display: 'grid',
+        gridTemplateColumns: '300px 1fr',
+        gap: '1.5rem',
+        height: '70vh',
+    },
+    customerListPanel: {
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
         display: 'flex',
-        justifyContent: 'center',
-        gap: '1rem',
+        flexDirection: 'column',
     },
-    voiceSearchButton: {
-        position: 'absolute',
-        right: '5px',
-        top: '50%',
-        transform: 'translateY(-50%)',
-        background: 'none',
-        border: 'none',
+    customerListItem: {
+        padding: '1rem',
+        borderBottom: '1px solid var(--border-color)',
         cursor: 'pointer',
-        padding: '0.5rem',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
     },
-    barcodeScanButton: {
-        position: 'absolute',
-        right: '45px',
-        top: '50%',
-        transform: 'translateY(-50%)',
-        background: 'none',
-        border: 'none',
-        cursor: 'pointer',
-        padding: '0.5rem',
+    customerListItemActive: {
+        backgroundColor: 'var(--primary-color)',
+        color: 'white',
+    },
+    customerDetailPanel: {
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        padding: '1.5rem',
+    },
+    customerDetailHeader: {
         display: 'flex',
+        justifyContent: 'space-between',
         alignItems: 'center',
-        justifyContent: 'center',
+        borderBottom: '1px solid var(--border-color)',
+        paddingBottom: '1rem',
+        marginBottom: '1rem',
+    },
+    purchaseHistoryItem: {
+        padding: '1rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        marginBottom: '1rem',
+    },
+    marginGuide: {
+        position: 'absolute',
+        backgroundColor: 'rgba(0, 123, 255, 0.5)',
+        zIndex: 10,
+    },
+    marginGuideHorizontal: {
+        left: 0,
+        right: 0,
+        height: '2px',
+        cursor: 'ns-resize',
+    },
+    marginGuideVertical: {
+        top: 0,
+        bottom: 0,
+        width: '2px',
+        cursor: 'ew-resize',
     },
     shopListItem: {
         padding: '1rem',
@@ -4760,238 +4711,227 @@ const styles: { [key: string]: React.CSSProperties } = {
     shopListItemActive: {
         backgroundColor: 'var(--primary-color)',
         color: '#fff',
-        fontWeight: 'bold',
     },
-    marginGuide: {
+    activeShopDisplay: {
+        display: 'flex',
+        alignItems: 'center',
+        padding: '0.5rem 1rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        fontSize: '0.9rem',
+        backgroundColor: '#f8f9fa'
+    },
+    dropdownContainer: {
+        position: 'relative',
+        display: 'inline-block',
+    },
+    dropdownButton: {
+        backgroundColor: 'var(--surface-color)',
+        color: 'var(--text-color)',
+        padding: '0.6rem 1rem',
+        fontSize: '1rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        width: '200px',
+    },
+    dropdownMenu: {
+        display: 'block',
         position: 'absolute',
-        zIndex: 10,
-        borderStyle: 'dashed',
-        borderColor: 'rgba(0, 123, 255, 0.7)',
-    },
-    marginGuideHorizontal: {
-        borderTopWidth: '2px',
-        height: '0px',
-        left: '5px',
-        right: '5px',
-        cursor: 'row-resize',
-    },
-    marginGuideVertical: {
-        borderLeftWidth: '2px',
-        width: '0px',
-        top: '5px',
-        bottom: '5px',
-        cursor: 'col-resize',
-    },
-    customerViewLayout: {
-        display: 'flex',
-        gap: '1.5rem',
-        height: '75vh',
-    },
-    customerListPanel: {
-        flex: 1,
-        border: '1px solid var(--border-color)',
+        backgroundColor: 'var(--surface-color)',
+        minWidth: '200px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+        zIndex: 1,
         borderRadius: '8px',
-        display: 'flex',
-        flexDirection: 'column',
-    },
-    customerDetailPanel: {
-        flex: 2,
         border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        padding: '1.5rem',
+        marginTop: '0.5rem',
+        overflow: 'hidden',
     },
-    customerListItem: {
-        padding: '1rem',
-        borderBottom: '1px solid var(--border-color)',
+    dropdownMenuItem: {
+        color: 'var(--text-color)',
+        backgroundColor: 'transparent',
+        padding: '0.75rem 1rem',
+        textDecoration: 'none',
+        display: 'block',
+        width: '100%',
+        textAlign: 'left',
+        border: 'none',
         cursor: 'pointer',
     },
-    customerListItemActive: {
-        backgroundColor: '#e0f7fa',
-        borderRight: '4px solid var(--primary-color)',
+    dropdownMenuItemActive: {
+        backgroundColor: 'var(--primary-color)',
+        color: 'white',
     },
-    customerDetailHeader: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingBottom: '1rem',
-        borderBottom: '1px solid var(--border-color)',
-        marginBottom: '1rem',
-    },
-    purchaseHistoryItem: {
-        padding: '1rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '6px',
-        marginBottom: '1rem',
-    },
-    // --- NEW MONETIZATION STYLES ---
     settingsCard: {
         backgroundColor: '#f8f9fa',
-        padding: '1.5rem',
-        borderRadius: '8px',
         border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        padding: '1.5rem',
         marginBottom: '1.5rem',
     },
     proBadge: {
         backgroundColor: '#ffc107',
         color: 'black',
-        padding: '0.2rem 0.5rem',
-        borderRadius: '4px',
+        padding: '0.2rem 0.6rem',
+        borderRadius: '12px',
         fontSize: '0.8rem',
         fontWeight: 'bold',
         position: 'absolute',
-        top: '5px',
-        right: '5px',
+        top: '-10px',
+        right: '-10px',
+        transform: 'rotate(15deg)',
     },
     proBadgeSmall: {
         backgroundColor: '#6c757d',
         color: 'white',
         padding: '0.1rem 0.4rem',
-        borderRadius: '4px',
+        borderRadius: '8px',
         fontSize: '0.7rem',
-        fontWeight: 'bold',
-        marginTop: '0.25rem',
+        position: 'absolute',
+        top: '-8px',
+        right: '0',
     },
     featureListItem: {
-        padding: '0.75rem 0',
         fontSize: '1.1rem',
-        borderBottom: '1px solid var(--border-color)',
+        marginBottom: '1rem',
+        paddingLeft: '1.5rem',
+        position: 'relative',
     },
     reportTabs: {
         display: 'flex',
-        gap: '0.5rem',
         borderBottom: '1px solid var(--border-color)',
-        marginBottom: '1.5rem',
+        marginBottom: '1rem',
     },
     reportTabButton: {
         padding: '0.75rem 1.5rem',
         border: 'none',
-        background: 'none',
         cursor: 'pointer',
+        backgroundColor: 'transparent',
         fontSize: '1rem',
-        fontWeight: '500',
         color: 'var(--secondary-color)',
-        borderBottom: '3px solid transparent',
+        position: 'relative',
+        bottom: '-1px',
     },
     reportTabButtonActive: {
         color: 'var(--primary-color)',
         borderBottom: '3px solid var(--primary-color)',
+        fontWeight: 'bold',
     },
-    // --- NEW MOBILE SINGLE-COLUMN STYLES ---
     mobileSingleColumnLayout: {
-        height: 'calc(100vh - 100px)', // Adjust based on nav height and padding
         display: 'flex',
         flexDirection: 'column',
-        backgroundColor: 'var(--background-color)',
+        height: 'calc(100vh - 4rem)',
+        width: '100%',
+        maxWidth: '500px',
+        margin: '0 auto',
     },
     mobileScrollableContent: {
         flex: 1,
         overflowY: 'auto',
-        padding: '0.5rem',
-        paddingBottom: '90px', // Space for the fixed action bar
+        padding: '1rem',
+        paddingBottom: '80px', // Space for the bottom action bar
+    },
+    mobileBottomActionBar: {
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        padding: '1rem',
+        backgroundColor: 'var(--surface-color)',
+        boxShadow: '0 -2px 8px rgba(0,0,0,0.1)',
+        zIndex: 10,
+    },
+    mobileFinalizeButton: {
+        width: '100%',
+        padding: '1rem',
+        fontSize: '1.2rem',
+        fontWeight: 'bold',
+        backgroundColor: 'var(--success-color)',
+        color: 'white',
+        border: 'none',
+        borderRadius: '8px',
     },
     mobileSection: {
-        backgroundColor: 'var(--surface-color)',
-        borderRadius: '12px',
-        padding: '1rem',
-        marginBottom: '1rem',
-        boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
+        marginBottom: '1.5rem',
     },
     mobileSectionTitle: {
-        margin: '0 0 1rem 0',
-        fontSize: '1.1rem',
-        color: 'var(--primary-color)',
+        marginTop: 0,
+        marginBottom: '1rem',
         borderBottom: '1px solid var(--border-color)',
         paddingBottom: '0.5rem',
     },
     mobileInput: {
         width: '100%',
-        padding: '0.8rem',
+        padding: '0.8rem 1rem',
         fontSize: '1rem',
         border: '1px solid var(--border-color)',
         borderRadius: '8px',
         boxSizing: 'border-box',
-        marginBottom: '0.5rem',
+    },
+    mobileButton: {
+         width: '100%',
+        padding: '0.8rem 1rem',
+        fontSize: '1rem',
+        border: 'none',
+        borderRadius: '8px',
+        boxSizing: 'border-box',
     },
     mobileInputIconButton: {
         position: 'absolute',
         right: '5px',
-        top: '5px',
+        top: '50%',
+        transform: 'translateY(-50%)',
         background: 'none',
         border: 'none',
         cursor: 'pointer',
         padding: '0.5rem',
-        height: 'calc(100% - 10px)',
-        display: 'flex',
-        alignItems: 'center',
-    },
-    mobileButton: {
-        padding: '0.8rem 1.2rem',
-        border: 'none',
-        borderRadius: '8px',
-        backgroundColor: 'var(--primary-color)',
-        color: '#fff',
-        cursor: 'pointer',
-        fontSize: '1rem',
-        fontWeight: '500',
-    },
-    mobileSettingsGroup: {
-        marginBottom: '1rem',
-    },
-    mobileSettingsLabel: {
-        margin: '0 0 0.5rem 0',
-        fontWeight: 500,
-        color: 'var(--secondary-color)',
     },
     mobileInlineSearchResults: {
         listStyle: 'none',
         padding: 0,
         margin: '0.5rem 0 0 0',
-        maxHeight: '250px',
-        overflowY: 'auto',
         border: '1px solid var(--border-color)',
         borderRadius: '8px',
-        backgroundColor: 'var(--surface-color)',
-        position: 'absolute',
-        width: '100%',
-        zIndex: 10,
-        boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+        maxHeight: '200px',
+        overflowY: 'auto',
     },
     mobileInlineSearchResultItem: {
         padding: '0.75rem',
-        cursor: 'pointer',
         borderBottom: '1px solid var(--border-color)',
     },
     mobileBillItemCard: {
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '0.5rem',
         border: '1px solid var(--border-color)',
         borderRadius: '8px',
-        padding: '0.75rem',
-        marginBottom: '0.5rem',
+        padding: '1rem',
+        marginBottom: '1rem',
+        backgroundColor: 'var(--surface-color)',
     },
      mobileBillItemCardReturn: {
+        backgroundColor: '#ffebee',
         borderColor: 'var(--danger-color)',
-        backgroundColor: '#fff8f8',
     },
-    mobileBillItemInfo: {},
+    mobileBillItemInfo: {
+        marginBottom: '0.75rem',
+    },
     mobileBillItemControls: {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginTop: '0.5rem',
     },
     mobileQuantityControls: {
         display: 'flex',
         alignItems: 'center',
-        gap: '0.5rem',
+        gap: '1rem',
     },
     mobileRoundButton: {
-        background: 'var(--background-color)',
-        border: '1px solid var(--border-color)',
+        width: '32px',
+        height: '32px',
         borderRadius: '50%',
-        width: '36px',
-        height: '36px',
+        border: '1px solid var(--border-color)',
+        backgroundColor: 'white',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -5001,50 +4941,95 @@ const styles: { [key: string]: React.CSSProperties } = {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: '0.5rem 0',
-        fontSize: '1rem',
+        padding: '0.75rem 0',
+        borderBottom: '1px solid var(--border-color)',
     },
     mobilePaymentInput: {
         width: '100px',
-        padding: '0.5rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
         textAlign: 'right',
         fontSize: '1rem',
+        border: 'none',
+        padding: '0.25rem',
     },
     mobileGrandTotal: {
         display: 'flex',
         justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '1rem 0',
         fontSize: '1.2rem',
         fontWeight: 'bold',
-        marginTop: '1rem',
-        paddingTop: '1rem',
-        borderTop: '1px solid var(--border-color)',
     },
-    mobileBottomActionBar: {
+    mobileSettingsGroup: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '0.5rem',
+    },
+    mobileSettingsLabel: {
+        margin: 0,
+    }
+};
+
+const loginStyles: { [key: string]: React.CSSProperties } = {
+    container: {
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: '100vh',
+        width: '100vw',
         position: 'fixed',
-        bottom: 0,
+        top: 0,
         left: 0,
-        right: 0,
-        padding: '1rem',
-        backgroundColor: 'var(--surface-color)',
-        boxShadow: '0 -2px 10px rgba(0,0,0,0.1)',
-        zIndex: 100,
-        borderTop: '1px solid var(--border-color)',
+        backgroundColor: 'var(--background-color)',
     },
-    mobileFinalizeButton: {
+    card: {
         width: '100%',
-        padding: '1rem',
-        fontSize: '1.1rem',
-        fontWeight: 'bold',
-        border: 'none',
+        maxWidth: '400px',
+        padding: '2.5rem',
+        backgroundColor: 'var(--surface-color)',
         borderRadius: '12px',
-        backgroundColor: 'var(--success-color)',
-        color: '#fff',
-        cursor: 'pointer',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
         textAlign: 'center',
     },
+    title: {
+        marginTop: 0,
+        marginBottom: '0.5rem',
+        color: 'var(--primary-color)',
+    },
+    subtitle: {
+        marginBottom: '2rem',
+        color: 'var(--secondary-color)',
+    },
+    input: {
+        width: '100%',
+        padding: '0.8rem 1rem',
+        fontSize: '1rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        boxSizing: 'border-box',
+        marginBottom: '1rem',
+    },
+    button: {
+        width: '100%',
+        padding: '0.8rem 1rem',
+        fontSize: '1.1rem',
+        fontWeight: 'bold',
+        color: 'white',
+        backgroundColor: 'var(--primary-color)',
+        border: 'none',
+        borderRadius: '8px',
+        cursor: 'pointer',
+        marginTop: '0.5rem',
+    },
+    error: {
+        color: 'white',
+        backgroundColor: 'var(--danger-color)',
+        padding: '0.75rem',
+        borderRadius: '8px',
+        marginBottom: '1rem',
+    }
 };
+
 
 const container = document.getElementById('root');
 const root = createRoot(container!);
