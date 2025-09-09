@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -115,6 +117,8 @@ const createSchema = () => {
             discount REAL NOT NULL,
             tax REAL NOT NULL,
             total REAL NOT NULL,
+            paid_amount REAL NOT NULL DEFAULT 0,
+            balance_due REAL NOT NULL DEFAULT 0,
             customerName TEXT,
             customerMobile TEXT
         );
@@ -133,6 +137,14 @@ const createSchema = () => {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             mobile TEXT NOT NULL UNIQUE
+        );
+        CREATE TABLE IF NOT EXISTS payment_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sale_id TEXT NOT NULL,
+            date TEXT NOT NULL,
+            amount_paid REAL NOT NULL,
+            payment_method TEXT,
+            FOREIGN KEY (sale_id) REFERENCES sales_history(id) ON DELETE CASCADE
         );
     `;
     db.exec(schema);
@@ -198,9 +210,20 @@ interface SaleRecord {
     discount: number;
     tax: number;
     total: number;
+    paid_amount: number;
+    balance_due: number;
     customerName?: string;
     customerMobile?: string;
 }
+
+interface Payment {
+    id: number;
+    sale_id: string;
+    date: string;
+    amount_paid: number;
+    payment_method: string;
+}
+
 
 interface Customer {
     id: number;
@@ -725,6 +748,7 @@ const BulkAddModal = ({ fileSrc, fileType, fileNames, initialProducts, onSave, o
                                 <div style={{textAlign: 'center'}}>
                                     <PdfIcon size={50} />
                                     <h4 style={{margin: '0 0 0.5rem 0'}}>B2C List</h4>
+                                    {/* FIX: Corrected typo from `c2c` to `b2c` to match the type definition for `fileNames`. */}
                                     <p style={{fontSize: '0.8rem', margin: 0, wordBreak: 'break-all'}}>{fileNames?.b2c}</p>
                                 </div>
                             </div>
@@ -1015,7 +1039,7 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddP
 };
 
 // --- INVOICE PREVIEW MODAL ---
-const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, onClose, onPrint, onWhatsApp, language }: {
+const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, onClose, onPrint, onWhatsApp, language, previousBalanceDue }: {
     sale: any;
     customerName?: string;
     customerMobile?: string;
@@ -1024,6 +1048,7 @@ const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, o
     onPrint?: () => void;
     onWhatsApp?: (number: string) => void;
     language: 'english' | 'tamil';
+    previousBalanceDue: number;
 }) => {
     const [phoneNumber, setPhoneNumber] = useState(customerMobile || '');
     const printAreaRef = useRef<HTMLDivElement>(null);
@@ -1044,7 +1069,11 @@ const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, o
 
     const grossTotal = purchasedItems.reduce((acc: number, item: SaleItem) => acc + item.quantity * item.price, 0);
     const returnTotal = returnedItems.reduce((acc: number, item: SaleItem) => acc + item.quantity * item.price, 0);
+    
+    // Use the sale.total for the final amount, as it includes tax/discount and previous balance
     const roundedGrandTotal = Math.round(sale.total);
+    const balanceDue = sale.balance_due;
+
 
     const saleDate = onFinalize ? new Date() : new Date(sale.date);
 
@@ -1199,12 +1228,15 @@ Here is your invoice summary:
 ${purchasedItemsText}
 ${returnedItemsText}
 -----------------------------------
-Gross Total: ₹${grossTotal.toFixed(1)}
+Subtotal: ₹${sale.subtotal.toFixed(1)}
 ${returnTotal > 0 ? `Total Returns: -₹${returnTotal.toFixed(1)}` : ''}
 ${sale.discount > 0 ? `Discount: -₹${sale.discount.toFixed(1)}` : ''}
 ${sale.tax > 0 ? `Tax: ₹${sale.tax.toFixed(1)}` : ''}
+${previousBalanceDue > 0 ? `Previous Balance: ₹${previousBalanceDue.toFixed(2)}` : ''}
 -----------------------------------
 Grand Total: ₹${roundedGrandTotal.toFixed(2)}
+Amount Paid: ₹${(sale.paid_amount).toFixed(2)}
+Balance Due: ₹${balanceDue.toFixed(2)}
 -----------------------------------
 Thank you for your purchase!
 Goods once sold cannot be taken back.
@@ -1311,9 +1343,6 @@ Goods once sold cannot be taken back.
                     {purchasedItems.length > 0 && (
                         <>
                             {renderTable(purchasedItems, '')}
-                            <div style={{textAlign: 'right', fontSize: '10pt', borderTop: '1px solid #eee', paddingTop: '4px', marginTop: '4px'}}>
-                                <p style={{margin: '2px 0'}}><b>Gross Total: </b><b>₹{grossTotal.toFixed(1)}</b></p>
-                            </div>
                         </>
                     )}
                     
@@ -1329,10 +1358,20 @@ Goods once sold cannot be taken back.
                     <hr style={{border: '1px dashed #ccc', margin: '0.5rem 0'}}/>
 
                     <div style={{textAlign: 'right', fontSize: '10pt'}}>
+                        <p style={{margin: '2px 0'}}><b>Subtotal: </b><b>₹{sale.subtotal.toFixed(1)}</b></p>
                         {sale.discount > 0 && <p style={{margin: '2px 0'}}><b>Discount: </b><b>-₹{sale.discount.toFixed(1)}</b></p>}
                         {sale.tax > 0 && <p style={{margin: '2px 0'}}><b>Tax: </b><b>₹{sale.tax.toFixed(1)}</b></p>}
+                        {previousBalanceDue > 0 && <p style={{margin: '2px 0'}}><b>Previous Balance: </b><b>₹{previousBalanceDue.toFixed(2)}</b></p>}
                         <p style={{margin: '2px 0', fontSize: '12pt'}}><b>Grand Total: </b><b>₹{roundedGrandTotal.toFixed(2)}</b></p>
                     </div>
+                    
+                    <hr style={{border: '1px solid #ccc', margin: '0.5rem 0'}}/>
+
+                    <div style={{textAlign: 'right', fontSize: '10pt'}}>
+                        <p style={{margin: '2px 0'}}><b>Amount Paid: </b><b>₹{(sale.paid_amount).toFixed(2)}</b></p>
+                        {balanceDue > 0 && <p style={{margin: '2px 0', color: 'var(--danger-color)', fontSize: '12pt'}}><b>Balance Due: </b><b>₹{balanceDue.toFixed(2)}</b></p>}
+                    </div>
+
 
                     <p style={{textAlign: 'center', fontSize: '9pt', marginTop: '1rem'}}>
                         Goods once sold cannot be taken back.
@@ -1475,7 +1514,8 @@ const ReportsView = ({ salesHistory, onPrint, userPlan, onUpgrade, isOnline }) =
         return saleDate >= start && saleDate <= end;
     });
 
-    const totalRevenue = filteredSales.reduce((sum, sale) => sum + sale.total, 0);
+    const totalRevenue = filteredSales.reduce((sum, sale) => sum + sale.paid_amount, 0);
+    const totalOutstanding = filteredSales.reduce((sum, sale) => sum + sale.balance_due, 0);
     const totalItemsSold = filteredSales.reduce((sum, sale) => sum + sale.items.filter(i => !i.isReturn).length, 0);
     const totalTransactions = filteredSales.length;
 
@@ -1586,6 +1626,7 @@ const ReportsView = ({ salesHistory, onPrint, userPlan, onUpgrade, isOnline }) =
                 <>
                     <div style={styles.reportSummary}>
                          <div style={styles.summaryCard}><h3>Total Revenue</h3><p>₹{totalRevenue.toFixed(1)}</p></div>
+                         <div style={{...styles.summaryCard, border: '1px solid var(--danger-color)'}}><h3>Outstanding</h3><p style={{color: 'var(--danger-color)'}}>₹{totalOutstanding.toFixed(1)}</p></div>
                          <div style={styles.summaryCard}><h3>Items Sold</h3><p>{totalItemsSold}</p></div>
                          <div style={styles.summaryCard}><h3>Transactions</h3><p>{totalTransactions}</p></div>
                     </div>
@@ -1599,17 +1640,19 @@ const ReportsView = ({ salesHistory, onPrint, userPlan, onUpgrade, isOnline }) =
                                     <th style={styles.th}>Customer</th>
                                     <th style={styles.th}>Items</th>
                                     <th style={styles.th}>Total</th>
+                                    <th style={styles.th}>Balance Due</th>
                                     <th style={styles.th}>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {filteredSales.map(sale => (
                                     <React.Fragment key={sale.id}>
-                                        <tr>
+                                        <tr style={sale.balance_due > 0 ? {backgroundColor: '#fffbe6'} : {}}>
                                             <td style={styles.td}>{new Date(sale.date).toLocaleString()}</td>
                                             <td style={styles.td}>{sale.customerName || 'N/A'} ({sale.customerMobile || 'N/A'})</td>
                                             <td style={styles.td}>{sale.items.length}</td>
                                             <td style={styles.td}>₹{sale.total.toFixed(1)}</td>
+                                            <td style={{...styles.td, color: sale.balance_due > 0 ? 'var(--danger-color)' : 'inherit', fontWeight: 'bold'}}>₹{sale.balance_due.toFixed(1)}</td>
                                             <td style={styles.td}>
                                                 <button onClick={() => setExpandedSale(expandedSale === sale.id ? null : sale.id)} style={{...styles.actionButton, backgroundColor: 'var(--secondary-color)', marginRight: '0.5rem'}}>
                                                     {expandedSale === sale.id ? 'Hide' : 'View'}
@@ -1621,7 +1664,7 @@ const ReportsView = ({ salesHistory, onPrint, userPlan, onUpgrade, isOnline }) =
                                         </tr>
                                         {expandedSale === sale.id && (
                                             <tr>
-                                                <td colSpan={5} style={{padding: '0.5rem', backgroundColor: '#f9f9f9'}}>
+                                                <td colSpan={6} style={{padding: '0.5rem', backgroundColor: '#f9f9f9'}}>
                                                     <table style={styles.table}>
                                                          <thead>
                                                             <tr>
@@ -1706,9 +1749,18 @@ const CustomersView = ({ customers, salesHistory, onAdd, onEdit, onDelete, curre
     
     const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
     
-    const customerSales = selectedCustomer 
-        ? salesHistory.filter(s => s.customerMobile === selectedCustomer.mobile).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-        : [];
+    const { customerSales, totalBalanceDue } = React.useMemo(() => {
+        if (!selectedCustomer) return { customerSales: [], totalBalanceDue: 0 };
+
+        const sales = salesHistory
+            .filter(s => s.customerMobile === selectedCustomer.mobile)
+            .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        
+        const balance = sales.reduce((acc, sale) => acc + (sale.balance_due || 0), 0);
+
+        return { customerSales: sales, totalBalanceDue: balance };
+    }, [selectedCustomer, salesHistory]);
+
         
     const handleSelectCustomer = (customer: Customer) => {
         setSelectedCustomerId(customer.id);
@@ -1759,6 +1811,11 @@ const CustomersView = ({ customers, salesHistory, onAdd, onEdit, onDelete, curre
                                 <div>
                                     <h3>{selectedCustomer.name}</h3>
                                     <p style={{margin: 0, color: 'var(--secondary-color)'}}>{selectedCustomer.mobile}</p>
+                                    {totalBalanceDue > 0 && 
+                                        <p style={{margin: '0.5rem 0 0', color: 'var(--danger-color)', fontWeight: 'bold', fontSize: '1.1rem'}}>
+                                            Total Outstanding: ₹{totalBalanceDue.toFixed(2)}
+                                        </p>
+                                    }
                                 </div>
                                 {isAdmin && (
                                     <div style={{display: 'flex', gap: '0.5rem'}}>
@@ -1774,7 +1831,10 @@ const CustomersView = ({ customers, salesHistory, onAdd, onEdit, onDelete, curre
                                         <div key={sale.id} style={styles.purchaseHistoryItem}>
                                             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem'}}>
                                                 <strong>{new Date(sale.date).toLocaleString()}</strong>
-                                                <strong>Total: ₹{sale.total.toFixed(1)}</strong>
+                                                <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                                                     {sale.balance_due > 0 && <span style={styles.dueTag}>DUE</span>}
+                                                    <strong>Total: ₹{sale.total.toFixed(1)}</strong>
+                                                </div>
                                             </div>
                                             <ul style={{margin: 0, paddingLeft: '1.5rem'}}>
                                                 {sale.items.map(item => (
@@ -1865,6 +1925,9 @@ const SalesView = ({
     updateActiveCart,
     onPreview, 
     total,
+    paidAmount,
+    setPaidAmount,
+    previousBalanceDue,
     onShowHistory,
     onSaveBackup,
     onRestoreBackup,
@@ -1894,6 +1957,8 @@ const SalesView = ({
     const priceInputRefs = useRef<{ [key: number]: HTMLInputElement | null }>({});
     const recognitionRef = useRef<any>(null);
     const searchResultsContainerRef = useRef<HTMLUListElement>(null);
+    
+    const finalBalance = total - paidAmount;
 
     useEffect(() => {
         if (highlightedIndex > -1 && searchResultsContainerRef.current) {
@@ -2301,8 +2366,19 @@ const SalesView = ({
                 <div style={styles.totalsSection}>
                     <div><label>Discount (₹)</label><input type="number" step="0.01" value={activeCart.discount} onChange={(e) => updateActiveCart({ discount: parseFloat(e.target.value) || 0 })} style={styles.totalsInput}/></div>
                     <div><label>Tax (%)</label><input type="number" step="0.01" value={activeCart.tax} onChange={(e) => updateActiveCart({ tax: parseFloat(e.target.value) || 0 })} style={styles.totalsInput}/></div>
+                    <div>
+                        <label>Previous Balance (₹)</label>
+                        <input type="number" value={previousBalanceDue.toFixed(2)} style={{...styles.totalsInput, backgroundColor: '#f8f9fa', border: 'none'}} readOnly tabIndex={-1}/>
+                    </div>
+                     <div>
+                        <label>Amount Paid (₹)</label>
+                        <input type="number" step="0.01" value={paidAmount} onChange={(e) => setPaidAmount(parseFloat(e.target.value) || 0)} style={styles.totalsInput}/>
+                    </div>
                     <button onClick={onPreview} style={{...styles.button, backgroundColor: 'var(--success-color)'}} disabled={activeCart.items.length === 0}>Preview Invoice</button>
-                    <div style={styles.grandTotal}><h3>Grand Total: ₹{total.toFixed(2)}</h3></div>
+                    <div style={styles.grandTotal}>
+                        <h3>Grand Total: ₹{total.toFixed(2)}</h3>
+                        {finalBalance !== 0 && <h4 style={{color: finalBalance > 0 ? 'var(--danger-color)' : 'var(--success-color)', margin: 0}}>Balance: ₹{finalBalance.toFixed(2)}</h4>}
+                    </div>
                 </div>
                 
                 {currentUser?.role === 'super_admin' && (
@@ -2424,10 +2500,24 @@ const SalesView = ({
                         <span>Tax (%)</span>
                         <input type="number" step="0.01" value={activeCart.tax} onChange={(e) => updateActiveCart({ tax: parseFloat(e.target.value) || 0 })} style={styles.mobilePaymentInput} />
                     </div>
+                     <div style={styles.mobilePaymentRow}>
+                        <span>Previous Balance</span>
+                        <span>₹{previousBalanceDue.toFixed(2)}</span>
+                    </div>
                     <div style={styles.mobileGrandTotal}>
                         <span>Grand Total</span>
                         <span>₹{total.toFixed(2)}</span>
                     </div>
+                    <div style={{...styles.mobilePaymentRow, borderTop: '1px solid var(--border-color)'}}>
+                        <span>Amount Paid</span>
+                        <input type="number" step="0.01" value={paidAmount} onChange={(e) => setPaidAmount(parseFloat(e.target.value) || 0)} style={{...styles.mobilePaymentInput, fontWeight: 'bold'}} />
+                    </div>
+                     {finalBalance > 0 && 
+                        <div style={{...styles.mobileGrandTotal, color: 'var(--danger-color)'}}>
+                            <span>Balance Due</span>
+                            <span>₹{finalBalance.toFixed(2)}</span>
+                        </div>
+                    }
                 </div>
 
             </div>
@@ -2739,6 +2829,7 @@ const DropdownNav = ({ activeView, onSelectView, disabled, currentUser }: { acti
     const allNavItems = [
         { key: 'sales', label: 'New Sale', roles: ['super_admin', 'shop_admin', 'cashier'] },
         { key: 'products', label: 'Product Inventory', roles: ['super_admin', 'shop_admin'] },
+        { key: 'balance_due', label: 'Balance Due', roles: ['super_admin', 'shop_admin'] },
         { key: 'customers', label: 'Customers', roles: ['super_admin', 'shop_admin'] },
         { key: 'reports', label: 'Reports', roles: ['super_admin', 'shop_admin'] },
         { key: 'users', label: 'Users', roles: ['super_admin', 'shop_admin'] },
@@ -3002,6 +3093,134 @@ const UsersView = ({ currentUser, users, shops, onUserAdd, onUserUpdate, onUserD
 };
 
 
+// --- PAYMENT MODAL ---
+const PaymentModal = ({ sale, onClose, onAddPayment }: { sale: SaleRecord, onClose: () => void, onAddPayment: (saleId: string, amount: number, method: string) => void }) => {
+    const [amount, setAmount] = useState<string>(sale.balance_due.toFixed(2));
+    const [paymentMethod, setPaymentMethod] = useState('Cash');
+    const amountInputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        amountInputRef.current?.focus();
+        amountInputRef.current?.select();
+    }, []);
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const paidAmount = parseFloat(amount);
+        if (!isNaN(paidAmount) && paidAmount > 0) {
+            if (paidAmount > sale.balance_due) {
+                alert(`Payment cannot be greater than the balance due of ₹${sale.balance_due.toFixed(2)}`);
+                return;
+            }
+            onAddPayment(sale.id, paidAmount, paymentMethod);
+        }
+    };
+
+    return (
+        <div style={styles.modalBackdrop}>
+            <div style={{ ...styles.modalContent, maxWidth: '450px' }}>
+                <h2 style={{ marginTop: 0 }}>Add Payment</h2>
+                <p><strong>Customer:</strong> {sale.customerName || 'N/A'}</p>
+                <p><strong>Total Bill:</strong> ₹{sale.total.toFixed(2)}</p>
+                <p style={{ color: 'var(--danger-color)', fontWeight: 'bold' }}><strong>Balance Due:</strong> ₹{sale.balance_due.toFixed(2)}</p>
+                <form onSubmit={handleSubmit} style={styles.productForm}>
+                    <label style={styles.label}>Payment Amount</label>
+                    <input
+                        ref={amountInputRef}
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        max={sale.balance_due.toFixed(2)}
+                        value={amount}
+                        onChange={e => setAmount(e.target.value)}
+                        style={styles.input}
+                        required
+                    />
+                    <label style={styles.label}>Payment Method</label>
+                    <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} style={styles.input}>
+                        <option>Cash</option>
+                        <option>Card</option>
+                        <option>UPI</option>
+                        <option>Other</option>
+                    </select>
+                    <div style={styles.modalActions}>
+                        <button type="button" onClick={onClose} style={{ ...styles.button, backgroundColor: 'var(--secondary-color)' }}>Cancel</button>
+                        <button type="submit" style={styles.button}>Save Payment</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+
+// --- BALANCE DUE VIEW ---
+const BalanceDueView = ({ salesHistory, onAddPayment, onPrint }) => {
+    const [searchQuery, setSearchQuery] = useState('');
+    const [saleToPay, setSaleToPay] = useState<SaleRecord | null>(null);
+
+    const outstandingSales = salesHistory
+        .filter(s => s.balance_due > 0)
+        .filter(s => 
+            (s.customerName && s.customerName.toLowerCase().includes(searchQuery.toLowerCase())) ||
+            (s.customerMobile && s.customerMobile.includes(searchQuery))
+        );
+
+    return (
+        <div style={styles.viewContainer}>
+            <div style={styles.viewHeader}>
+                <h2>Outstanding Balances</h2>
+                <div style={{ position: 'relative' }}>
+                    <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', display: 'flex', alignItems: 'center', pointerEvents: 'none' }}>
+                        <SearchIcon color="var(--secondary-color)" />
+                    </span>
+                    <input
+                        type="search"
+                        placeholder="Search by customer..."
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        style={{ ...styles.input, width: '300px', paddingLeft: '40px' }}
+                        aria-label="Search outstanding balances"
+                    />
+                </div>
+            </div>
+            {outstandingSales.length > 0 ? (
+                <table style={styles.table}>
+                    <thead>
+                        <tr>
+                            <th style={styles.th}>Date</th>
+                            <th style={styles.th}>Customer</th>
+                            <th style={styles.th}>Total</th>
+                            <th style={styles.th}>Paid</th>
+                            <th style={{...styles.th, color: 'var(--danger-color)'}}>Balance Due</th>
+                            <th style={styles.th}>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {outstandingSales.map(sale => (
+                            <tr key={sale.id}>
+                                <td style={styles.td}>{new Date(sale.date).toLocaleDateString()}</td>
+                                <td style={styles.td}>{sale.customerName || 'N/A'} ({sale.customerMobile || 'N/A'})</td>
+                                <td style={styles.td}>₹{sale.total.toFixed(2)}</td>
+                                <td style={styles.td}>₹{sale.paid_amount.toFixed(2)}</td>
+                                <td style={{...styles.td, color: 'var(--danger-color)', fontWeight: 'bold'}}>₹{sale.balance_due.toFixed(2)}</td>
+                                <td style={styles.td}>
+                                    <button onClick={() => setSaleToPay(sale)} style={{...styles.actionButton, backgroundColor: 'var(--success-color)'}}>Add Payment</button>
+                                    <button onClick={() => onPrint(sale)} style={{...styles.actionButton, backgroundColor: 'var(--secondary-color)'}}>Print</button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            ) : (
+                <p style={styles.emptyMessage}>No outstanding balances found.</p>
+            )}
+            {saleToPay && <PaymentModal sale={saleToPay} onClose={() => setSaleToPay(null)} onAddPayment={onAddPayment} />}
+        </div>
+    );
+};
+
+
 // --- MAIN APP COMPONENT ---
 const App = () => {
     const [dbLoading, setDbLoading] = useState(true);
@@ -3041,8 +3260,12 @@ const App = () => {
         {...defaultCartState},
     ]);
     const [activeCartIndex, setActiveCartIndex] = useState(0);
+    const [paidAmounts, setPaidAmounts] = useState<number[]>([0, 0, 0]);
+    const [previousBalancesDue, setPreviousBalancesDue] = useState<number[]>([0, 0, 0]);
 
     const activeCart = carts[activeCartIndex] || defaultCartState;
+    const paidAmount = paidAmounts[activeCartIndex] || 0;
+    const previousBalanceDue = previousBalancesDue[activeCartIndex] || 0;
 
     const updateActiveCart = (updatedData: Partial<CartState>) => {
         setCarts(prevCarts => {
@@ -3050,6 +3273,14 @@ const App = () => {
             const currentCart = newCarts[activeCartIndex] || defaultCartState;
             newCarts[activeCartIndex] = { ...currentCart, ...updatedData };
             return newCarts;
+        });
+    };
+    
+    const setPaidAmount = (amount: number) => {
+        setPaidAmounts(prev => {
+            const newAmounts = [...prev];
+            newAmounts[activeCartIndex] = amount;
+            return newAmounts;
         });
     };
 
@@ -3309,7 +3540,7 @@ const App = () => {
             if (shopsFromDb.length > 0) {
                  const fullShopsDataPromises = shopsFromDb.map(async (shop: any) => {
                     const products = sqlResultToObjects(db.exec("SELECT * FROM products WHERE shop_id = ?", [shop.id]));
-                    const salesHistoryRaw = sqlResultToObjects(db.exec("SELECT * FROM sales_history WHERE shop_id = ?", [shop.id]));
+                    const salesHistoryRaw = sqlResultToObjects(db.exec("SELECT * FROM sales_history WHERE shop_id = ? ORDER BY date DESC", [shop.id]));
                     const salesHistoryPromises = salesHistoryRaw.map(async (sale) => {
                          const items = sqlResultToObjects(db.exec("SELECT *, CASE WHEN isReturn = 1 THEN 1 ELSE 0 END as isReturn FROM sale_items WHERE sale_id = ?", [sale.id]));
                          return {...sale, items: items.map(i => ({...i, isReturn: !!i.isReturn}))};
@@ -3589,20 +3820,63 @@ const App = () => {
         }
     };
 
+    // --- SALE CALCULATIONS & LOGIC ---
+
+    // Calculate previous balance whenever customer mobile changes
+    useEffect(() => {
+        const calculatePreviousBalance = () => {
+            const mobile = activeCart.customerMobile?.replace(/\s/g, ''); // Remove spaces for comparison
+            if (!mobile || mobile.length < 10) { // Basic validation
+                setPreviousBalancesDue(prev => {
+                    const newBalances = [...prev];
+                    newBalances[activeCartIndex] = 0;
+                    return newBalances;
+                });
+                return;
+            }
+    
+            let totalDue = 0;
+            shops.forEach(shop => {
+                shop.salesHistory.forEach(sale => {
+                    if (sale.customerMobile?.replace(/\s/g, '') === mobile && sale.balance_due > 0) {
+                        totalDue += sale.balance_due;
+                    }
+                });
+            });
+    
+            setPreviousBalancesDue(prev => {
+                const newBalances = [...prev];
+                newBalances[activeCartIndex] = totalDue;
+                return newBalances;
+            });
+        };
+    
+        calculatePreviousBalance();
+    }, [activeCart.customerMobile, activeCartIndex, shops]);
 
     const subtotal = activeCart.items.reduce((acc, item) => {
         const itemTotal = item.quantity * item.price;
         return item.isReturn ? acc - itemTotal : acc + itemTotal;
     }, 0);
     const taxAmount = (subtotal - activeCart.discount) * (activeCart.tax / 100);
-    const total = Math.round(subtotal - activeCart.discount + taxAmount);
+    const currentBillTotal = subtotal - activeCart.discount + taxAmount;
+    const total = Math.round(currentBillTotal) + previousBalanceDue;
+    
+    useEffect(() => {
+        setPaidAmount(total);
+    }, [total, activeCartIndex]);
+
     
     const resetSale = () => {
         updateActiveCart(defaultCartState);
+        setPaidAmount(0);
     };
 
     const handleFinalizeSale = async () => {
         if (!activeShop) return;
+        
+        const finalBalanceDue = total - paidAmount;
+        const carriedBalance = previousBalanceDue;
 
         const saleRecord: Omit<SaleRecord, 'items'> = {
             id: `sale-${Date.now()}`,
@@ -3611,12 +3885,22 @@ const App = () => {
             discount: activeCart.discount,
             tax: taxAmount,
             total,
+            paid_amount: paidAmount,
+            balance_due: finalBalanceDue,
             customerName: activeCart.customerName,
             customerMobile: activeCart.customerMobile,
         };
 
         try {
             db.exec("BEGIN TRANSACTION;");
+
+            // Clear previous balances if any were carried over
+            if (carriedBalance > 0 && activeCart.customerMobile) {
+                db.run(
+                    "UPDATE sales_history SET balance_due = 0 WHERE customerMobile = ? AND balance_due > 0",
+                    [activeCart.customerMobile]
+                );
+            }
 
             // Upsert customer if mobile and name are provided
             if (activeCart.customerMobile && activeCart.customerName) {
@@ -3626,9 +3910,16 @@ const App = () => {
                 );
             }
 
-            db.run("INSERT INTO sales_history (id, shop_id, date, subtotal, discount, tax, total, customerName, customerMobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [
-                saleRecord.id, activeShop.id, saleRecord.date, saleRecord.subtotal, saleRecord.discount, saleRecord.tax, saleRecord.total, saleRecord.customerName, saleRecord.customerMobile
+            db.run("INSERT INTO sales_history (id, shop_id, date, subtotal, discount, tax, total, paid_amount, balance_due, customerName, customerMobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+                saleRecord.id, activeShop.id, saleRecord.date, saleRecord.subtotal, saleRecord.discount, saleRecord.tax, saleRecord.total, saleRecord.paid_amount, saleRecord.balance_due, saleRecord.customerName, saleRecord.customerMobile
             ]);
+            
+            // Log the initial payment if any
+            if(paidAmount > 0) {
+                 db.run("INSERT INTO payment_history (sale_id, date, amount_paid, payment_method) VALUES (?, ?, ?, ?)", [
+                    saleRecord.id, saleRecord.date, paidAmount, 'Initial'
+                ]);
+            }
 
             const newProductsState = [...activeShop.products];
             activeCart.items.forEach(item => {
@@ -3644,11 +3935,27 @@ const App = () => {
             await saveDbToIndexedDB();
 
             const fullSaleRecord = { ...saleRecord, items: activeCart.items };
-            const updatedShops = shops.map(s => s.id === activeShop.id ? {
-                ...s,
-                products: newProductsState,
-                salesHistory: [...s.salesHistory, fullSaleRecord]
-            } : s);
+            
+            // Update local state to reflect the new sale and cleared balances
+            const updatedShops = shops.map(s => {
+                if (s.id === activeShop.id) {
+                    let newHistory = [fullSaleRecord, ...s.salesHistory];
+                    if (carriedBalance > 0 && activeCart.customerMobile) {
+                        newHistory = newHistory.map(sale => {
+                            if (sale.id !== fullSaleRecord.id && sale.customerMobile === activeCart.customerMobile && sale.balance_due > 0) {
+                                return { ...sale, balance_due: 0 };
+                            }
+                            return sale;
+                        });
+                    }
+                    return {
+                        ...s,
+                        products: newProductsState,
+                        salesHistory: newHistory
+                    };
+                }
+                return s;
+            });
             setShops(updatedShops);
             
             // Refetch customers to reflect any new additions from the sale
@@ -3661,6 +3968,49 @@ const App = () => {
             console.error("Failed to finalize sale:", e);
             db.exec("ROLLBACK;");
             alert("An error occurred while saving the sale. Please try again.");
+        }
+    };
+    
+    const handleAddPayment = async (saleId: string, amount: number, method: string) => {
+        if (!activeShop) return;
+        try {
+            db.exec("BEGIN TRANSACTION;");
+            // Add to payment history
+            db.run("INSERT INTO payment_history (sale_id, date, amount_paid, payment_method) VALUES (?, ?, ?, ?)", [
+                saleId, new Date().toISOString(), amount, method
+            ]);
+            // Update the sales_history record
+            db.run("UPDATE sales_history SET paid_amount = paid_amount + ?, balance_due = balance_due - ? WHERE id = ?", [
+                amount, amount, saleId
+            ]);
+            db.exec("COMMIT;");
+            await saveDbToIndexedDB();
+            
+            // Update local state
+            const updatedShops = shops.map(s => {
+                if (s.id === activeShop.id) {
+                    return {
+                        ...s,
+                        salesHistory: s.salesHistory.map(sale => {
+                            if (sale.id === saleId) {
+                                return {
+                                    ...sale,
+                                    paid_amount: sale.paid_amount + amount,
+                                    balance_due: sale.balance_due - amount,
+                                };
+                            }
+                            return sale;
+                        })
+                    };
+                }
+                return s;
+            });
+            setShops(updatedShops);
+
+        } catch(e) {
+            console.error("Failed to add payment:", e);
+            db.exec("ROLLBACK;");
+            alert("An error occurred while adding the payment.");
         }
     };
     
@@ -4137,6 +4487,9 @@ const App = () => {
                         updateActiveCart={updateActiveCart}
                         onPreview={() => setIsInvoiceModalOpen(true)}
                         total={total}
+                        paidAmount={paidAmount}
+                        setPaidAmount={setPaidAmount}
+                        previousBalanceDue={previousBalanceDue}
                         onShowHistory={() => setIsHistoryModalOpen(true)}
                         onSaveBackup={handleSaveBackup}
                         onRestoreBackup={handleRestoreBackup}
@@ -4164,6 +4517,15 @@ const App = () => {
                         aiUsage={{ plan: userPlan, count: aiUsage.count }}
                         onUpgrade={checkAndIncrementAiUsage}
                         currentUser={currentUser}
+                    />
+                }
+                 {activeShop && activeView === 'balance_due' &&
+                    <BalanceDueView
+                        salesHistory={activeShop.salesHistory}
+                        onAddPayment={(saleId, amount, method) => {
+                            handleAddPayment(saleId, amount, method);
+                        }}
+                        onPrint={setSaleToPrint}
                     />
                 }
                 {activeShop && activeView === 'customers' &&
@@ -4242,7 +4604,7 @@ const App = () => {
                 }
                 {isInvoiceModalOpen && 
                     <InvoicePreviewModal 
-                        sale={{ ...activeCart, total }}
+                        sale={{ ...activeCart, total, subtotal, tax: taxAmount, paid_amount: paidAmount, balance_due: total - paidAmount }}
                         customerName={activeCart.customerName}
                         customerMobile={activeCart.customerMobile}
                         onFinalize={handleFinalizeSale}
@@ -4250,6 +4612,7 @@ const App = () => {
                         onPrint={() => window.print()}
                         onWhatsApp={(number) => updateActiveCart({ customerMobile: number })}
                         language={activeCart.language}
+                        previousBalanceDue={previousBalanceDue}
                     />
                 }
                 {saleToPrint && 
@@ -4261,6 +4624,7 @@ const App = () => {
                         onPrint={() => window.print()}
                         onWhatsApp={() => {}} // No update needed for historical sales
                         language={'english'} // default to english for history
+                        previousBalanceDue={0} // Historical invoices don't carry forward balances
                     />
                 }
                 {isHistoryModalOpen && activeShop &&
@@ -4528,17 +4892,20 @@ const styles: { [key: string]: React.CSSProperties } = {
         marginTop: '1.5rem',
         paddingTop: '1.5rem',
         borderTop: '1px solid var(--border-color)',
+        flexWrap: 'wrap',
     },
     totalsInput: {
-        width: '100px',
+        width: '120px',
         padding: '0.5rem',
         borderRadius: '6px',
         border: '1px solid var(--border-color)',
+        textAlign: 'right'
     },
     grandTotal: {
         fontSize: '1.5rem',
         fontWeight: 'bold',
         color: 'var(--primary-color)',
+        textAlign: 'right',
     },
     priceModeSelector: {
         display: 'flex',
@@ -4820,6 +5187,14 @@ const styles: { [key: string]: React.CSSProperties } = {
         borderBottom: '3px solid var(--primary-color)',
         fontWeight: 'bold',
     },
+    dueTag: {
+        backgroundColor: 'var(--danger-color)',
+        color: 'white',
+        padding: '0.2rem 0.5rem',
+        borderRadius: '4px',
+        fontSize: '0.8rem',
+        fontWeight: 'bold',
+    },
     mobileSingleColumnLayout: {
         display: 'flex',
         flexDirection: 'column',
@@ -4942,22 +5317,26 @@ const styles: { [key: string]: React.CSSProperties } = {
         justifyContent: 'space-between',
         alignItems: 'center',
         padding: '0.75rem 0',
-        borderBottom: '1px solid var(--border-color)',
+        fontSize: '1rem',
     },
     mobilePaymentInput: {
-        width: '100px',
-        textAlign: 'right',
-        fontSize: '1rem',
         border: 'none',
-        padding: '0.25rem',
+        borderBottom: '1px solid var(--border-color)',
+        borderRadius: 0,
+        textAlign: 'right',
+        width: '100px',
+        fontSize: '1rem',
     },
     mobileGrandTotal: {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: '1rem 0',
+        padding: '0.75rem 0',
         fontSize: '1.2rem',
         fontWeight: 'bold',
+        color: 'var(--primary-color)',
+        borderTop: '2px solid var(--border-color)',
+        marginTop: '0.5rem',
     },
     mobileSettingsGroup: {
         display: 'flex',
@@ -4967,25 +5346,22 @@ const styles: { [key: string]: React.CSSProperties } = {
     },
     mobileSettingsLabel: {
         margin: 0,
-    }
+        fontWeight: 500,
+    },
 };
 
 const loginStyles: { [key: string]: React.CSSProperties } = {
     container: {
         display: 'flex',
-        justifyContent: 'center',
         alignItems: 'center',
+        justifyContent: 'center',
         minHeight: '100vh',
-        width: '100vw',
-        position: 'fixed',
-        top: 0,
-        left: 0,
         backgroundColor: 'var(--background-color)',
     },
     card: {
         width: '100%',
         maxWidth: '400px',
-        padding: '2.5rem',
+        padding: '2rem',
         backgroundColor: 'var(--surface-color)',
         borderRadius: '12px',
         boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
@@ -4994,43 +5370,48 @@ const loginStyles: { [key: string]: React.CSSProperties } = {
     title: {
         marginTop: 0,
         marginBottom: '0.5rem',
-        color: 'var(--primary-color)',
+        fontSize: '1.75rem',
+        color: 'var(--text-color)',
     },
     subtitle: {
-        marginBottom: '2rem',
+        marginBottom: '1.5rem',
         color: 'var(--secondary-color)',
     },
     input: {
         width: '100%',
-        padding: '0.8rem 1rem',
-        fontSize: '1rem',
-        border: '1px solid var(--border-color)',
+        padding: '0.75rem 1rem',
         borderRadius: '8px',
-        boxSizing: 'border-box',
+        border: '1px solid var(--border-color)',
+        fontSize: '1rem',
         marginBottom: '1rem',
+        boxSizing: 'border-box',
     },
     button: {
         width: '100%',
-        padding: '0.8rem 1rem',
-        fontSize: '1.1rem',
-        fontWeight: 'bold',
-        color: 'white',
-        backgroundColor: 'var(--primary-color)',
+        padding: '0.75rem 1.25rem',
         border: 'none',
         borderRadius: '8px',
+        backgroundColor: 'var(--primary-color)',
+        color: '#fff',
         cursor: 'pointer',
+        fontSize: '1rem',
+        fontWeight: 'bold',
         marginTop: '0.5rem',
     },
     error: {
-        color: 'white',
-        backgroundColor: 'var(--danger-color)',
+        color: 'var(--danger-color)',
+        backgroundColor: '#ffebee',
+        border: '1px solid var(--danger-color)',
+        borderRadius: '6px',
         padding: '0.75rem',
-        borderRadius: '8px',
         marginBottom: '1rem',
-    }
+        textAlign: 'center',
+    },
 };
 
-
+// --- DOM ROOT ---
 const container = document.getElementById('root');
-const root = createRoot(container!);
-root.render(<App />);
+if (container) {
+    const root = createRoot(container);
+    root.render(<App />);
+}
