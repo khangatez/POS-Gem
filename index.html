@@ -47,75 +47,72 @@
         }
         
         @media print {
-            .no-print {
+            /* 1. Hide non-essential parts of the app chrome */
+            nav, main, .no-print, .invoice-actions {
                 display: none !important;
             }
 
-            @page {
-                size: 4in;
-                margin: 0.1in;
-            }
-
-            body {
-                background-color: #fff;
-                padding: 0;
-                margin: 0;
-            }
-
-            /* Hide everything that is NOT the invoice modal */
-            nav,
-            main,
-            .invoice-actions {
-                display: none !important;
-            }
-
-            /* 
-             * Reset the layout of the main containers.
-             * This is the key fix: The div inside #root has a max-width and flex display
-             * that were constraining the invoice during printing.
-            */
-            #root, #root > div {
-                padding: 0 !important;
-                margin: 0 !important;
-                border: none !important;
-                box-shadow: none !important;
-                display: block !important;
-                width: auto !important;
-                max-width: none !important;
-                background: none !important;
-            }
-
-            /* Make the invoice backdrop and content the only things visible */
-            .invoice-preview-backdrop {
-                position: static !important;
-                background-color: transparent !important;
-                padding: 0 !important;
-                margin: 0 !important;
-                border: none !important;
-                box-shadow: none !important;
-                display: block !important;
-                justify-content: flex-start !important;
-                align-items: flex-start !important;
+            /* 2. Reset the body and root containers to be simple blocks */
+            html, body {
+                background: #fff !important;
             }
             
-            .invoice-preview-content-wrapper {
-                box-shadow: none !important;
-                border: none !important;
-                width: 100% !important;
-                max-width: 100% !important;
-                padding: 0 !important;
+            body, #root, #root > div {
+                position: static !important;
+                display: block !important;
+                width: auto !important;
+                height: auto !important;
                 margin: 0 !important;
-                font-size: 10pt;
-                max-height: none !important;
+                padding: 0 !important;
+                border: none !important;
+                box-shadow: none !important;
+                background: none !important;
                 overflow: visible !important;
             }
 
+            /* 3. Force the modal itself to be a simple container filling the page */
+            .invoice-preview-backdrop {
+                position: static !important;
+                display: block !important;
+                width: 100% !important;
+                height: auto !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: none !important;
+                box-shadow: none !important;
+                border: none !important;
+                overflow: visible !important;
+                /* Remove flex properties */
+                justify-content: initial !important;
+                align-items: initial !important;
+            }
+            
+            /* 4. Ensure the actual content is not constrained */
+            .invoice-preview-content-wrapper {
+                width: 100% !important;
+                max-width: 100% !important;
+                height: auto !important;
+                max-height: none !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                box-shadow: none !important;
+                border: none !important;
+                overflow: visible !important;
+                font-size: 10pt;
+            }
+            
             .invoice-preview-content-wrapper h2 {
                 font-size: 14pt;
             }
             
             .invoice-preview-content-wrapper th, .invoice-preview-content-wrapper td {
                 padding: 2px 4px;
+            }
+
+            /* 5. Set page properties */
+            @page {
+                size: 4in;
+                margin: 0.1in;
             }
         }
     </style>

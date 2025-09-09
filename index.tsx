@@ -1290,7 +1290,6 @@ Here is your invoice summary:
 ${purchasedItemsText}
 ${returnedItemsText}
 -----------------------------------
-Subtotal: ₹${sale.subtotal.toFixed(1)}
 ${returnTotal > 0 ? `Total Returns: -₹${returnTotal.toFixed(1)}` : ''}
 ${sale.discount > 0 ? `Discount: -₹${sale.discount.toFixed(1)}` : ''}
 ${sale.tax > 0 ? `Tax: ₹${sale.tax.toFixed(1)}` : ''}
@@ -1418,7 +1417,6 @@ Goods once sold cannot be taken back.
                     <div style={{textAlign: 'right', fontSize: '10pt'}}>
                         {showPaymentDetails && (
                             <>
-                                <p style={{margin: '2px 0'}}><b>Subtotal: </b><b>₹{sale.subtotal.toFixed(1)}</b></p>
                                 {sale.discount > 0 && <p style={{margin: '2px 0'}}><b>Discount: </b><b>-₹{sale.discount.toFixed(1)}</b></p>}
                                 {sale.tax > 0 && <p style={{margin: '2px 0'}}><b>Tax: </b><b>₹{sale.tax.toFixed(1)}</b></p>}
                                 {previousBalanceDue > 0 && <p style={{margin: '2px 0'}}><b>Previous Balance: </b><b>₹{previousBalanceDue.toFixed(2)}</b></p>}
@@ -4022,7 +4020,14 @@ const App = () => {
 
     const handlePreviewRequest = () => {
         if (activeCart.items.length === 0 && previousBalanceDue <= 0) return;
-        setIsSaleConfirmModalOpen(true);
+        
+        const shouldShowConfirmation = previousBalanceDue > 0 || finalBalance > 0;
+
+        if (shouldShowConfirmation) {
+            setIsSaleConfirmModalOpen(true);
+        } else {
+            setIsInvoiceModalOpen(true);
+        }
     };
 
     const handleConfirmAndPreview = () => {
