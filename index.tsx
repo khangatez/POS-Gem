@@ -1,6 +1,4 @@
 
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -508,6 +506,71 @@ const ConfirmationModal = ({ message, onConfirm, onCancel }: { message: string, 
     );
 };
 
+// --- SALE CONFIRMATION MODAL ---
+const SaleConfirmationModal = ({ details, onConfirm, onCancel }: {
+    details: {
+        previousBalance: number;
+        currentBill: number;
+        grandTotal: number;
+        amountPaid: number;
+        newBalance: number;
+    };
+    onConfirm: () => void;
+    onCancel: () => void;
+}) => {
+    const { previousBalance, currentBill, grandTotal, amountPaid, newBalance } = details;
+    const confirmBtnRef = useRef<HTMLButtonElement>(null);
+
+    useEffect(() => {
+        confirmBtnRef.current?.focus();
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                onConfirm();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                onCancel();
+            }
+        };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [onConfirm, onCancel]);
+
+    return (
+        <div style={styles.modalBackdrop} role="dialog" aria-modal="true" aria-labelledby="sale-confirmation-title">
+            <div style={{ ...styles.modalContent, maxWidth: '450px' }}>
+                <h3 id="sale-confirmation-title" style={{ marginTop: 0, color: 'var(--primary-color)' }}>Confirm Transaction</h3>
+                <div style={styles.confirmationDetails}>
+                    <div style={styles.confirmationRow}>
+                        <span>Previous Balance:</span>
+                        <span>₹{previousBalance.toFixed(2)}</span>
+                    </div>
+                    <div style={styles.confirmationRow}>
+                        <span>Current Bill Total:</span>
+                        <span>₹{currentBill.toFixed(2)}</span>
+                    </div>
+                    <div style={{...styles.confirmationRow, fontWeight: 'bold', borderTop: '1px solid var(--border-color)', paddingTop: '0.5rem', marginTop: '0.5rem'}}>
+                        <span>Grand Total Due:</span>
+                        <span>₹{grandTotal.toFixed(2)}</span>
+                    </div>
+                     <div style={{...styles.confirmationRow, fontWeight: 'bold' }}>
+                        <span>Amount Paid:</span>
+                        <span>₹{amountPaid.toFixed(2)}</span>
+                    </div>
+                     <div style={{...styles.confirmationRow, fontWeight: 'bold', color: newBalance > 0 ? 'var(--danger-color)' : 'var(--success-color)', borderTop: '1px solid var(--border-color)', paddingTop: '0.5rem', marginTop: '0.5rem'}}>
+                        <span>New Balance Remaining:</span>
+                        <span>₹{newBalance.toFixed(2)}</span>
+                    </div>
+                </div>
+                <div style={styles.modalActions}>
+                    <button onClick={onCancel} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Cancel</button>
+                    <button ref={confirmBtnRef} onClick={onConfirm} style={styles.button}>OK</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- BARCODE SCANNER MODAL ---
 const BarcodeScannerModal = ({ onScan, onClose }: { onScan: (barcode: string) => void, onClose: () => void }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -748,7 +811,6 @@ const BulkAddModal = ({ fileSrc, fileType, fileNames, initialProducts, onSave, o
                                 <div style={{textAlign: 'center'}}>
                                     <PdfIcon size={50} />
                                     <h4 style={{margin: '0 0 0.5rem 0'}}>B2C List</h4>
-                                    {/* FIX: Corrected typo from `c2c` to `b2c` to match the type definition for `fileNames`. */}
                                     <p style={{fontSize: '0.8rem', margin: 0, wordBreak: 'break-all'}}>{fileNames?.b2c}</p>
                                 </div>
                             </div>
@@ -1039,7 +1101,7 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddP
 };
 
 // --- INVOICE PREVIEW MODAL ---
-const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, onClose, onPrint, onWhatsApp, language, previousBalanceDue }: {
+const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, onClose, onPrint, onWhatsApp, language, previousBalanceDue, amountPaidEdited }: {
     sale: any;
     customerName?: string;
     customerMobile?: string;
@@ -1049,6 +1111,7 @@ const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, o
     onWhatsApp?: (number: string) => void;
     language: 'english' | 'tamil';
     previousBalanceDue: number;
+    amountPaidEdited?: boolean;
 }) => {
     const [phoneNumber, setPhoneNumber] = useState(customerMobile || '');
     const printAreaRef = useRef<HTMLDivElement>(null);
@@ -1067,15 +1130,14 @@ const InvoicePreviewModal = ({ sale, customerName, customerMobile, onFinalize, o
     const purchasedItems = sale.items.filter((item: SaleItem) => !item.isReturn);
     const returnedItems = sale.items.filter((item: SaleItem) => item.isReturn);
 
-    const grossTotal = purchasedItems.reduce((acc: number, item: SaleItem) => acc + item.quantity * item.price, 0);
     const returnTotal = returnedItems.reduce((acc: number, item: SaleItem) => acc + item.quantity * item.price, 0);
     
-    // Use the sale.total for the final amount, as it includes tax/discount and previous balance
     const roundedGrandTotal = Math.round(sale.total);
     const balanceDue = sale.balance_due;
-
-
     const saleDate = onFinalize ? new Date() : new Date(sale.date);
+
+    // Show detailed payment info if amount was edited, a balance exists, or it's a historical invoice
+    const showPaymentDetails = amountPaidEdited || balanceDue > 0;
 
     // Event handler to start dragging a guideline
     const handleMouseDown = (side: 'top' | 'right' | 'bottom' | 'left', e: React.MouseEvent) => {
@@ -1340,11 +1402,7 @@ Goods once sold cannot be taken back.
                     {customerName && <p style={{margin: '0.2rem 0'}}><b>Customer:</b> {customerName}</p>}
                     {customerMobile && <p style={{margin: '0.2rem 0'}}><b>Mobile:</b> {customerMobile}</p>}
 
-                    {purchasedItems.length > 0 && (
-                        <>
-                            {renderTable(purchasedItems, '')}
-                        </>
-                    )}
+                    {purchasedItems.length > 0 && renderTable(purchasedItems, '')}
                     
                     {returnedItems.length > 0 && (
                         <>
@@ -1358,20 +1416,26 @@ Goods once sold cannot be taken back.
                     <hr style={{border: '1px dashed #ccc', margin: '0.5rem 0'}}/>
 
                     <div style={{textAlign: 'right', fontSize: '10pt'}}>
-                        <p style={{margin: '2px 0'}}><b>Subtotal: </b><b>₹{sale.subtotal.toFixed(1)}</b></p>
-                        {sale.discount > 0 && <p style={{margin: '2px 0'}}><b>Discount: </b><b>-₹{sale.discount.toFixed(1)}</b></p>}
-                        {sale.tax > 0 && <p style={{margin: '2px 0'}}><b>Tax: </b><b>₹{sale.tax.toFixed(1)}</b></p>}
-                        {previousBalanceDue > 0 && <p style={{margin: '2px 0'}}><b>Previous Balance: </b><b>₹{previousBalanceDue.toFixed(2)}</b></p>}
+                        {showPaymentDetails && (
+                            <>
+                                <p style={{margin: '2px 0'}}><b>Subtotal: </b><b>₹{sale.subtotal.toFixed(1)}</b></p>
+                                {sale.discount > 0 && <p style={{margin: '2px 0'}}><b>Discount: </b><b>-₹{sale.discount.toFixed(1)}</b></p>}
+                                {sale.tax > 0 && <p style={{margin: '2px 0'}}><b>Tax: </b><b>₹{sale.tax.toFixed(1)}</b></p>}
+                                {previousBalanceDue > 0 && <p style={{margin: '2px 0'}}><b>Previous Balance: </b><b>₹{previousBalanceDue.toFixed(2)}</b></p>}
+                            </>
+                        )}
                         <p style={{margin: '2px 0', fontSize: '12pt'}}><b>Grand Total: </b><b>₹{roundedGrandTotal.toFixed(2)}</b></p>
                     </div>
                     
-                    <hr style={{border: '1px solid #ccc', margin: '0.5rem 0'}}/>
-
-                    <div style={{textAlign: 'right', fontSize: '10pt'}}>
-                        <p style={{margin: '2px 0'}}><b>Amount Paid: </b><b>₹{(sale.paid_amount).toFixed(2)}</b></p>
-                        {balanceDue > 0 && <p style={{margin: '2px 0', color: 'var(--danger-color)', fontSize: '12pt'}}><b>Balance Due: </b><b>₹{balanceDue.toFixed(2)}</b></p>}
-                    </div>
-
+                    {showPaymentDetails && (
+                         <>
+                            <hr style={{border: '1px solid #ccc', margin: '0.5rem 0'}}/>
+                            <div style={{textAlign: 'right', fontSize: '10pt'}}>
+                                <p style={{margin: '2px 0'}}><b>Amount Paid: </b><b>₹{(sale.paid_amount).toFixed(2)}</b></p>
+                                {balanceDue > 0 && <p style={{margin: '2px 0', color: 'var(--danger-color)', fontSize: '12pt'}}><b>Balance Due: </b><b>₹{balanceDue.toFixed(2)}</b></p>}
+                            </div>
+                        </>
+                    )}
 
                     <p style={{textAlign: 'center', fontSize: '9pt', marginTop: '1rem'}}>
                         Goods once sold cannot be taken back.
@@ -1927,6 +1991,7 @@ const SalesView = ({
     total,
     paidAmount,
     setPaidAmount,
+    onAmountPaidEdit,
     previousBalanceDue,
     onShowHistory,
     onSaveBackup,
@@ -2372,9 +2437,12 @@ const SalesView = ({
                     </div>
                      <div>
                         <label>Amount Paid (₹)</label>
-                        <input type="number" step="0.01" value={paidAmount} onChange={(e) => setPaidAmount(parseFloat(e.target.value) || 0)} style={styles.totalsInput}/>
+                        <input type="number" step="0.01" value={paidAmount} onChange={(e) => {
+                            setPaidAmount(parseFloat(e.target.value) || 0);
+                            onAmountPaidEdit();
+                        }} style={styles.totalsInput}/>
                     </div>
-                    <button onClick={onPreview} style={{...styles.button, backgroundColor: 'var(--success-color)'}} disabled={activeCart.items.length === 0}>Preview Invoice</button>
+                    <button onClick={onPreview} style={{...styles.button, backgroundColor: 'var(--success-color)'}} disabled={activeCart.items.length === 0 && previousBalanceDue <= 0}>Preview Invoice</button>
                     <div style={styles.grandTotal}>
                         <h3>Grand Total: ₹{total.toFixed(2)}</h3>
                         {finalBalance !== 0 && <h4 style={{color: finalBalance > 0 ? 'var(--danger-color)' : 'var(--success-color)', margin: 0}}>Balance: ₹{finalBalance.toFixed(2)}</h4>}
@@ -2510,7 +2578,10 @@ const SalesView = ({
                     </div>
                     <div style={{...styles.mobilePaymentRow, borderTop: '1px solid var(--border-color)'}}>
                         <span>Amount Paid</span>
-                        <input type="number" step="0.01" value={paidAmount} onChange={(e) => setPaidAmount(parseFloat(e.target.value) || 0)} style={{...styles.mobilePaymentInput, fontWeight: 'bold'}} />
+                        <input type="number" step="0.01" value={paidAmount} onChange={(e) => {
+                            setPaidAmount(parseFloat(e.target.value) || 0);
+                            onAmountPaidEdit();
+                        }} style={{...styles.mobilePaymentInput, fontWeight: 'bold'}} />
                     </div>
                      {finalBalance > 0 && 
                         <div style={{...styles.mobileGrandTotal, color: 'var(--danger-color)'}}>
@@ -2522,7 +2593,7 @@ const SalesView = ({
 
             </div>
             <div style={styles.mobileBottomActionBar}>
-                <button onClick={onPreview} style={styles.mobileFinalizeButton} disabled={activeCart.items.length === 0}>
+                <button onClick={onPreview} style={styles.mobileFinalizeButton} disabled={activeCart.items.length === 0 && previousBalanceDue <= 0}>
                     Preview & Finalize Sale
                 </button>
             </div>
@@ -2695,6 +2766,64 @@ const RestoreProgressModal = ({ percentage, eta, message }: { percentage: number
         </div>
     </div>
 );
+
+// --- LOGIN VIEW STYLES ---
+const loginStyles: { [key: string]: React.CSSProperties } = {
+    container: {
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: '100vh',
+        backgroundColor: 'var(--background-color)',
+    },
+    card: {
+        width: '100%',
+        maxWidth: '400px',
+        padding: '2rem',
+        backgroundColor: 'var(--surface-color)',
+        borderRadius: '12px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+    },
+    title: {
+        textAlign: 'center',
+        marginTop: 0,
+        color: 'var(--primary-color)',
+    },
+    subtitle: {
+        textAlign: 'center',
+        color: 'var(--secondary-color)',
+        marginBottom: '2rem',
+    },
+    input: {
+        width: '100%',
+        padding: '0.75rem 1rem',
+        borderRadius: '8px',
+        border: '1px solid var(--border-color)',
+        fontSize: '1rem',
+        marginBottom: '1rem',
+        boxSizing: 'border-box',
+    },
+    button: {
+        width: '100%',
+        padding: '0.75rem 1.25rem',
+        border: 'none',
+        borderRadius: '8px',
+        backgroundColor: 'var(--primary-color)',
+        color: '#fff',
+        cursor: 'pointer',
+        fontSize: '1rem',
+        fontWeight: 'bold',
+    },
+    error: {
+        color: 'var(--danger-color)',
+        backgroundColor: '#ffebee',
+        border: '1px solid var(--danger-color)',
+        borderRadius: '6px',
+        padding: '0.75rem',
+        marginBottom: '1rem',
+        textAlign: 'center',
+    },
+};
 
 // --- LOGIN VIEW COMPONENT ---
 const LoginView = ({ onLoginSuccess }: { onLoginSuccess: (user: User) => void }) => {
@@ -3261,10 +3390,12 @@ const App = () => {
     ]);
     const [activeCartIndex, setActiveCartIndex] = useState(0);
     const [paidAmounts, setPaidAmounts] = useState<number[]>([0, 0, 0]);
+    const [amountPaidEditedFlags, setAmountPaidEditedFlags] = useState<boolean[]>([false, false, false]);
     const [previousBalancesDue, setPreviousBalancesDue] = useState<number[]>([0, 0, 0]);
 
     const activeCart = carts[activeCartIndex] || defaultCartState;
     const paidAmount = paidAmounts[activeCartIndex] || 0;
+    const amountPaidEdited = amountPaidEditedFlags[activeCartIndex];
     const previousBalanceDue = previousBalancesDue[activeCartIndex] || 0;
 
     const updateActiveCart = (updatedData: Partial<CartState>) => {
@@ -3283,10 +3414,19 @@ const App = () => {
             return newAmounts;
         });
     };
+    
+    const handleAmountPaidEdit = () => {
+        setAmountPaidEditedFlags(prev => {
+            const newFlags = [...prev];
+            newFlags[activeCartIndex] = true;
+            return newFlags;
+        });
+    };
 
     const [isProductModalOpen, setIsProductModalOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
     const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
+    const [isSaleConfirmModalOpen, setIsSaleConfirmModalOpen] = useState(false);
     const [saleToPrint, setSaleToPrint] = useState<SaleRecord | null>(null);
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
 
@@ -3861,15 +4001,33 @@ const App = () => {
     const taxAmount = (subtotal - activeCart.discount) * (activeCart.tax / 100);
     const currentBillTotal = subtotal - activeCart.discount + taxAmount;
     const total = Math.round(currentBillTotal) + previousBalanceDue;
+    const finalBalance = total - paidAmount;
     
     useEffect(() => {
-        setPaidAmount(total);
-    }, [total, activeCartIndex]);
+        if (!amountPaidEdited) {
+            setPaidAmount(total);
+        }
+    }, [total, activeCartIndex, amountPaidEdited]);
 
     
     const resetSale = () => {
         updateActiveCart(defaultCartState);
         setPaidAmount(0);
+        setAmountPaidEditedFlags(prev => {
+            const newFlags = [...prev];
+            newFlags[activeCartIndex] = false;
+            return newFlags;
+        });
+    };
+
+    const handlePreviewRequest = () => {
+        if (activeCart.items.length === 0 && previousBalanceDue <= 0) return;
+        setIsSaleConfirmModalOpen(true);
+    };
+
+    const handleConfirmAndPreview = () => {
+        setIsSaleConfirmModalOpen(false);
+        setIsInvoiceModalOpen(true);
     };
 
     const handleFinalizeSale = async () => {
@@ -4485,10 +4643,11 @@ const App = () => {
                         products={activeShop.products}
                         activeCart={activeCart}
                         updateActiveCart={updateActiveCart}
-                        onPreview={() => setIsInvoiceModalOpen(true)}
+                        onPreview={handlePreviewRequest}
                         total={total}
                         paidAmount={paidAmount}
                         setPaidAmount={setPaidAmount}
+                        onAmountPaidEdit={handleAmountPaidEdit}
                         previousBalanceDue={previousBalanceDue}
                         onShowHistory={() => setIsHistoryModalOpen(true)}
                         onSaveBackup={handleSaveBackup}
@@ -4602,9 +4761,22 @@ const App = () => {
                         onCancel={() => setCustomerToDelete(null)}
                     />
                 }
+                {isSaleConfirmModalOpen && (
+                    <SaleConfirmationModal
+                        details={{
+                            previousBalance: previousBalanceDue,
+                            currentBill: currentBillTotal,
+                            grandTotal: total,
+                            amountPaid: paidAmount,
+                            newBalance: finalBalance,
+                        }}
+                        onConfirm={handleConfirmAndPreview}
+                        onCancel={() => setIsSaleConfirmModalOpen(false)}
+                    />
+                )}
                 {isInvoiceModalOpen && 
                     <InvoicePreviewModal 
-                        sale={{ ...activeCart, total, subtotal, tax: taxAmount, paid_amount: paidAmount, balance_due: total - paidAmount }}
+                        sale={{ ...activeCart, total, subtotal, tax: taxAmount, paid_amount: paidAmount, balance_due: finalBalance }}
                         customerName={activeCart.customerName}
                         customerMobile={activeCart.customerMobile}
                         onFinalize={handleFinalizeSale}
@@ -4613,6 +4785,7 @@ const App = () => {
                         onWhatsApp={(number) => updateActiveCart({ customerMobile: number })}
                         language={activeCart.language}
                         previousBalanceDue={previousBalanceDue}
+                        amountPaidEdited={amountPaidEdited}
                     />
                 }
                 {saleToPrint && 
@@ -4625,6 +4798,7 @@ const App = () => {
                         onWhatsApp={() => {}} // No update needed for historical sales
                         language={'english'} // default to english for history
                         previousBalanceDue={0} // Historical invoices don't carry forward balances
+                        amountPaidEdited={true} // Always show details for historical prints
                     />
                 }
                 {isHistoryModalOpen && activeShop &&
@@ -4820,6 +4994,17 @@ const styles: { [key: string]: React.CSSProperties } = {
         justifyContent: 'flex-end',
         marginTop: '1.5rem',
         gap: '1rem',
+    },
+    confirmationDetails: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.75rem',
+        fontSize: '1.1rem',
+        margin: '1.5rem 0',
+    },
+    confirmationRow: {
+        display: 'flex',
+        justifyContent: 'space-between',
     },
     customerSection: {
         display: 'flex',
@@ -5070,102 +5255,11 @@ const styles: { [key: string]: React.CSSProperties } = {
         width: '2px',
         cursor: 'ew-resize',
     },
-    shopListItem: {
-        padding: '1rem',
-        borderBottom: '1px solid var(--border-color)',
-        cursor: 'pointer',
-    },
-    shopListItemActive: {
-        backgroundColor: 'var(--primary-color)',
-        color: '#fff',
-    },
-    activeShopDisplay: {
-        display: 'flex',
-        alignItems: 'center',
-        padding: '0.5rem 1rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        fontSize: '0.9rem',
-        backgroundColor: '#f8f9fa'
-    },
-    dropdownContainer: {
-        position: 'relative',
-        display: 'inline-block',
-    },
-    dropdownButton: {
-        backgroundColor: 'var(--surface-color)',
-        color: 'var(--text-color)',
-        padding: '0.6rem 1rem',
-        fontSize: '1rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        width: '200px',
-    },
-    dropdownMenu: {
-        display: 'block',
-        position: 'absolute',
-        backgroundColor: 'var(--surface-color)',
-        minWidth: '200px',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-        zIndex: 1,
-        borderRadius: '8px',
-        border: '1px solid var(--border-color)',
-        marginTop: '0.5rem',
-        overflow: 'hidden',
-    },
-    dropdownMenuItem: {
-        color: 'var(--text-color)',
-        backgroundColor: 'transparent',
-        padding: '0.75rem 1rem',
-        textDecoration: 'none',
-        display: 'block',
-        width: '100%',
-        textAlign: 'left',
-        border: 'none',
-        cursor: 'pointer',
-    },
-    dropdownMenuItemActive: {
-        backgroundColor: 'var(--primary-color)',
-        color: 'white',
-    },
-    settingsCard: {
-        backgroundColor: '#f8f9fa',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        padding: '1.5rem',
-        marginBottom: '1.5rem',
-    },
-    proBadge: {
-        backgroundColor: '#ffc107',
-        color: 'black',
-        padding: '0.2rem 0.6rem',
-        borderRadius: '12px',
-        fontSize: '0.8rem',
-        fontWeight: 'bold',
-        position: 'absolute',
-        top: '-10px',
-        right: '-10px',
-        transform: 'rotate(15deg)',
-    },
-    proBadgeSmall: {
-        backgroundColor: '#6c757d',
-        color: 'white',
-        padding: '0.1rem 0.4rem',
-        borderRadius: '8px',
-        fontSize: '0.7rem',
-        position: 'absolute',
-        top: '-8px',
-        right: '0',
-    },
     featureListItem: {
         fontSize: '1.1rem',
         marginBottom: '1rem',
-        paddingLeft: '1.5rem',
-        position: 'relative',
+        display: 'flex',
+        alignItems: 'center',
     },
     reportTabs: {
         display: 'flex',
@@ -5175,94 +5269,178 @@ const styles: { [key: string]: React.CSSProperties } = {
     reportTabButton: {
         padding: '0.75rem 1.5rem',
         border: 'none',
-        cursor: 'pointer',
+        borderBottom: '3px solid transparent',
         backgroundColor: 'transparent',
+        cursor: 'pointer',
         fontSize: '1rem',
         color: 'var(--secondary-color)',
-        position: 'relative',
-        bottom: '-1px',
+        fontWeight: 500,
     },
     reportTabButtonActive: {
         color: 'var(--primary-color)',
-        borderBottom: '3px solid var(--primary-color)',
+        borderBottomColor: 'var(--primary-color)',
+    },
+    proBadge: {
+        position: 'absolute',
+        top: '-5px',
+        right: '0',
+        backgroundColor: 'var(--primary-color)',
+        color: 'white',
+        fontSize: '0.7rem',
         fontWeight: 'bold',
+        padding: '2px 6px',
+        borderRadius: '10px',
+    },
+    proBadgeSmall: {
+        position: 'absolute',
+        bottom: '-8px',
+        backgroundColor: 'var(--primary-color)',
+        color: 'white',
+        fontSize: '0.7rem',
+        fontWeight: 'bold',
+        padding: '2px 6px',
+        borderRadius: '10px',
+    },
+    settingsCard: {
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        padding: '1.5rem',
+        marginBottom: '1.5rem',
+        backgroundColor: '#f8f9fa',
+        position: 'relative'
+    },
+    shopListItem: {
+        padding: '1rem',
+        borderBottom: '1px solid var(--border-color)',
+        cursor: 'pointer',
+    },
+    shopListItemActive: {
+        backgroundColor: 'var(--primary-color)',
+        color: 'white',
+        fontWeight: 'bold',
+    },
+    dropdownContainer: {
+        position: 'relative',
+        display: 'inline-block',
+    },
+    dropdownButton: {
+        backgroundColor: '#f8f9fa',
+        border: '1px solid var(--border-color)',
+        padding: '0.6rem 1rem',
+        borderRadius: '8px',
+        cursor: 'pointer',
+        fontSize: '1rem',
+        fontWeight: 500,
+        color: 'var(--primary-color)',
+        display: 'flex',
+        alignItems: 'center',
+        minWidth: '200px',
+        justifyContent: 'space-between'
+    },
+    dropdownMenu: {
+        position: 'absolute',
+        top: '100%',
+        left: 0,
+        backgroundColor: 'white',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+        zIndex: 10,
+        width: '100%',
+        marginTop: '0.25rem'
+    },
+    dropdownMenuItem: {
+        display: 'block',
+        width: '100%',
+        padding: '0.75rem 1rem',
+        border: 'none',
+        backgroundColor: 'transparent',
+        textAlign: 'left',
+        cursor: 'pointer',
+        fontSize: '1rem'
+    },
+    dropdownMenuItemActive: {
+        backgroundColor: 'var(--primary-color)',
+        color: 'white',
     },
     dueTag: {
         backgroundColor: 'var(--danger-color)',
         color: 'white',
-        padding: '0.2rem 0.5rem',
-        borderRadius: '4px',
-        fontSize: '0.8rem',
+        fontSize: '0.7rem',
         fontWeight: 'bold',
+        padding: '2px 6px',
+        borderRadius: '10px',
     },
+    // --- NEW MOBILE VIEW STYLES ---
     mobileSingleColumnLayout: {
         display: 'flex',
         flexDirection: 'column',
-        height: 'calc(100vh - 4rem)',
-        width: '100%',
-        maxWidth: '500px',
-        margin: '0 auto',
+        height: 'calc(100vh - 120px)', // Adjust based on header/nav height
     },
     mobileScrollableContent: {
         flex: 1,
         overflowY: 'auto',
-        padding: '1rem',
-        paddingBottom: '80px', // Space for the bottom action bar
+        padding: '0.5rem',
     },
     mobileBottomActionBar: {
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
         padding: '1rem',
+        borderTop: '1px solid var(--border-color)',
         backgroundColor: 'var(--surface-color)',
-        boxShadow: '0 -2px 8px rgba(0,0,0,0.1)',
-        zIndex: 10,
-    },
-    mobileFinalizeButton: {
-        width: '100%',
-        padding: '1rem',
-        fontSize: '1.2rem',
-        fontWeight: 'bold',
-        backgroundColor: 'var(--success-color)',
-        color: 'white',
-        border: 'none',
-        borderRadius: '8px',
     },
     mobileSection: {
-        marginBottom: '1.5rem',
+        backgroundColor: '#f8f9fa',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        padding: '1rem',
+        marginBottom: '1rem',
     },
     mobileSectionTitle: {
         marginTop: 0,
-        marginBottom: '1rem',
-        borderBottom: '1px solid var(--border-color)',
-        paddingBottom: '0.5rem',
+        fontSize: '1.1rem',
+        color: 'var(--primary-color)',
+    },
+    mobileSettingsGroup: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '0.5rem',
+    },
+    mobileSettingsLabel: {
+        margin: 0,
+        fontWeight: 500,
     },
     mobileInput: {
         width: '100%',
-        padding: '0.8rem 1rem',
-        fontSize: '1rem',
-        border: '1px solid var(--border-color)',
+        padding: '0.75rem',
         borderRadius: '8px',
+        border: '1px solid var(--border-color)',
+        fontSize: '1rem',
         boxSizing: 'border-box',
+        marginBottom: '0.5rem',
     },
     mobileButton: {
-         width: '100%',
-        padding: '0.8rem 1rem',
-        fontSize: '1rem',
+        width: '100%',
+        padding: '0.75rem',
         border: 'none',
         borderRadius: '8px',
-        boxSizing: 'border-box',
+        backgroundColor: 'var(--primary-color)',
+        color: 'white',
+        fontSize: '1rem',
+        fontWeight: 'bold',
+        cursor: 'pointer',
     },
     mobileInputIconButton: {
         position: 'absolute',
-        right: '5px',
-        top: '50%',
-        transform: 'translateY(-50%)',
+        right: '0px',
+        top: '0px',
+        height: '100%',
+        width: '50px',
         background: 'none',
         border: 'none',
         cursor: 'pointer',
-        padding: '0.5rem',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     mobileInlineSearchResults: {
         listStyle: 'none',
@@ -5272,24 +5450,26 @@ const styles: { [key: string]: React.CSSProperties } = {
         borderRadius: '8px',
         maxHeight: '200px',
         overflowY: 'auto',
+        backgroundColor: 'white'
     },
     mobileInlineSearchResultItem: {
         padding: '0.75rem',
         borderBottom: '1px solid var(--border-color)',
+        cursor: 'pointer',
     },
     mobileBillItemCard: {
+        backgroundColor: 'white',
         border: '1px solid var(--border-color)',
         borderRadius: '8px',
-        padding: '1rem',
-        marginBottom: '1rem',
-        backgroundColor: 'var(--surface-color)',
+        padding: '0.75rem',
+        marginBottom: '0.75rem',
     },
-     mobileBillItemCardReturn: {
-        backgroundColor: '#ffebee',
+    mobileBillItemCardReturn: {
         borderColor: 'var(--danger-color)',
+        backgroundColor: '#ffebee'
     },
     mobileBillItemInfo: {
-        marginBottom: '0.75rem',
+        marginBottom: '0.75rem'
     },
     mobileBillItemControls: {
         display: 'flex',
@@ -5317,101 +5497,39 @@ const styles: { [key: string]: React.CSSProperties } = {
         justifyContent: 'space-between',
         alignItems: 'center',
         padding: '0.75rem 0',
-        fontSize: '1rem',
     },
     mobilePaymentInput: {
-        border: 'none',
-        borderBottom: '1px solid var(--border-color)',
-        borderRadius: 0,
+        width: '120px',
+        padding: '0.5rem',
+        borderRadius: '6px',
+        border: '1px solid var(--border-color)',
         textAlign: 'right',
-        width: '100px',
-        fontSize: '1rem',
+        fontSize: '1rem'
     },
     mobileGrandTotal: {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
         padding: '0.75rem 0',
-        fontSize: '1.2rem',
         fontWeight: 'bold',
+        fontSize: '1.2rem',
         color: 'var(--primary-color)',
-        borderTop: '2px solid var(--border-color)',
-        marginTop: '0.5rem',
     },
-    mobileSettingsGroup: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '0.5rem',
-    },
-    mobileSettingsLabel: {
-        margin: 0,
-        fontWeight: 500,
-    },
-};
-
-const loginStyles: { [key: string]: React.CSSProperties } = {
-    container: {
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        backgroundColor: 'var(--background-color)',
-    },
-    card: {
+    mobileFinalizeButton: {
         width: '100%',
-        maxWidth: '400px',
-        padding: '2rem',
-        backgroundColor: 'var(--surface-color)',
-        borderRadius: '12px',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-        textAlign: 'center',
-    },
-    title: {
-        marginTop: 0,
-        marginBottom: '0.5rem',
-        fontSize: '1.75rem',
-        color: 'var(--text-color)',
-    },
-    subtitle: {
-        marginBottom: '1.5rem',
-        color: 'var(--secondary-color)',
-    },
-    input: {
-        width: '100%',
-        padding: '0.75rem 1rem',
-        borderRadius: '8px',
-        border: '1px solid var(--border-color)',
-        fontSize: '1rem',
-        marginBottom: '1rem',
-        boxSizing: 'border-box',
-    },
-    button: {
-        width: '100%',
-        padding: '0.75rem 1.25rem',
+        padding: '1rem',
         border: 'none',
         borderRadius: '8px',
-        backgroundColor: 'var(--primary-color)',
-        color: '#fff',
-        cursor: 'pointer',
-        fontSize: '1rem',
+        backgroundColor: 'var(--success-color)',
+        color: 'white',
+        fontSize: '1.1rem',
         fontWeight: 'bold',
-        marginTop: '0.5rem',
+        cursor: 'pointer',
     },
-    error: {
-        color: 'var(--danger-color)',
-        backgroundColor: '#ffebee',
-        border: '1px solid var(--danger-color)',
-        borderRadius: '6px',
-        padding: '0.75rem',
-        marginBottom: '1rem',
-        textAlign: 'center',
-    },
+
 };
 
-// --- DOM ROOT ---
+// --- RENDER APP ---
 const container = document.getElementById('root');
-if (container) {
-    const root = createRoot(container);
-    root.render(<App />);
-}
+const root = createRoot(container!);
+root.render(<App />);
