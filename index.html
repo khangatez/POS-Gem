@@ -47,48 +47,52 @@
         }
         
         @media print {
-            /* 1. Hide non-essential parts of the app chrome */
-            nav, main, .no-print, .invoice-actions {
+            /* Page size definitions */
+            @page {
+                margin: 0.2in;
+            }
+            @page a4-page {
+                size: A4;
+                margin: 0.5in;
+            }
+            @page a5-page {
+                size: A5;
+                margin: 0.4in;
+            }
+            @page three-inch-page {
+                size: 3in;
+                margin: 0.1in;
+            }
+             @page four-inch-page {
+                size: 4in;
+                margin: 0.15in;
+            }
+
+            /* General print setup */
+            body, #root {
+                background: #fff !important;
+                padding: 0;
+                margin: 0;
+            }
+
+            /* Hide everything except the printable area */
+            body > *:not(.printable-area) {
                 display: none !important;
             }
 
-            /* 2. Reset the body and root containers to be simple blocks */
-            html, body {
-                background: #fff !important;
-            }
-            
-            body, #root, #root > div {
-                position: static !important;
+            .printable-area {
                 display: block !important;
-                width: auto !important;
-                height: auto !important;
-                margin: 0 !important;
-                padding: 0 !important;
-                border: none !important;
-                box-shadow: none !important;
-                background: none !important;
-                overflow: visible !important;
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
             }
 
-            /* 3. Force the modal itself to be a simple container filling the page */
-            .invoice-preview-backdrop {
+            /* Remove modal-like styling */
+            .invoice-preview-backdrop,
+            .invoice-preview-content-wrapper {
                 position: static !important;
                 display: block !important;
-                width: 100% !important;
-                height: auto !important;
-                margin: 0 !important;
-                padding: 0 !important;
-                background: none !important;
-                box-shadow: none !important;
-                border: none !important;
-                overflow: visible !important;
-                /* Remove flex properties */
-                justify-content: initial !important;
-                align-items: initial !important;
-            }
-            
-            /* 4. Ensure the actual content is not constrained */
-            .invoice-preview-content-wrapper {
                 width: 100% !important;
                 max-width: 100% !important;
                 height: auto !important;
@@ -97,24 +101,21 @@
                 padding: 0 !important;
                 box-shadow: none !important;
                 border: none !important;
+                background: none !important;
                 overflow: visible !important;
-                font-size: 10pt;
             }
             
-            .invoice-preview-content-wrapper h2 {
-                font-size: 14pt;
-            }
-            
-            .invoice-preview-content-wrapper th, .invoice-preview-content-wrapper td {
-                padding: 2px 4px;
+            .no-print {
+                display: none !important;
             }
 
-            /* 5. Set page properties */
-            @page {
-                size: 4in;
-                margin: 0.1in;
-            }
+            /* Apply page sizes based on class */
+            .invoice-size-a4 { page: a4-page; }
+            .invoice-size-a5 { page: a5-page; }
+            .invoice-size-3-inch { page: three-inch-page; font-size: 8pt; }
+            .invoice-size-4-inch { page: four-inch-page; font-size: 10pt; }
         }
+
     </style>
 <script type="importmap">
 {
