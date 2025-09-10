@@ -3371,6 +3371,90 @@ const BalanceDueView = ({ salesHistory, onAddPayment, onPrint }) => {
     );
 };
 
+// --- SESSION DROPDOWN COMPONENT ---
+const SessionDropdown = ({ currentUser, activeShop, syncStatus, isCloudSyncEnabled, userPlan, onShopManagerClick, onLogout }: {
+    currentUser: User;
+    activeShop: Shop | null;
+    syncStatus: 'idle' | 'syncing' | 'synced' | 'error';
+    isCloudSyncEnabled: boolean;
+    userPlan: UserPlan;
+    onShopManagerClick: () => void;
+    onLogout: () => void;
+}) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, []);
+
+    const getSyncStatusStyle = (status: typeof syncStatus) => {
+        switch (status) {
+            case 'syncing': return { color: '#007bff' };
+            case 'synced': return { color: 'var(--success-color)' };
+            case 'error': return { color: 'var(--danger-color)' };
+            default: return { color: 'var(--secondary-color)' };
+        }
+    };
+
+    const getSyncStatusText = (status: typeof syncStatus) => {
+        switch (status) {
+            case 'syncing': return 'Syncing...';
+            case 'synced': return 'Data Synced';
+            case 'error': return 'Sync Error';
+            default: return 'Sync Enabled';
+        }
+    };
+    
+    return (
+        <div ref={dropdownRef} style={styles.sessionDropdownContainer}>
+            <button onClick={() => setIsOpen(!isOpen)} style={styles.sessionDropdownButton}>
+                <UserIcon size={20} />
+                <span style={{ marginLeft: '0.5rem', fontWeight: 500 }}>{currentUser.username}</span>
+                <span style={{ marginLeft: 'auto', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', display: 'inline-block' }}>▼</span>
+            </button>
+            {isOpen && (
+                <div style={styles.sessionDropdownMenu}>
+                    <div style={styles.sessionDropdownHeader}>
+                        <strong style={{display: 'block'}}>{currentUser.username}</strong>
+                        <span style={{fontSize: '0.9rem', color: 'var(--secondary-color)'}}>{currentUser.role.replace('_', ' ')}</span>
+                    </div>
+                    <div style={styles.sessionDropdownInfoItem}>
+                        <strong>Shop:</strong>
+                        <span>{activeShop?.name || 'N/A'}</span>
+                    </div>
+                    {userPlan === 'pro' && (
+                        <div style={{...styles.sessionDropdownInfoItem, ...(isCloudSyncEnabled ? getSyncStatusStyle(syncStatus) : { color: 'var(--secondary-color)' })}}>
+                             <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                                <CloudIcon size={18} />
+                                <strong>Sync Status:</strong>
+                            </div>
+                            <span>{isCloudSyncEnabled ? getSyncStatusText(syncStatus) : 'Disabled'}</span>
+                        </div>
+                    )}
+                    <hr style={styles.sessionDropdownSeparator} />
+                    {currentUser.role === 'super_admin' && (
+                        <button onClick={() => { onShopManagerClick(); setIsOpen(false); }} style={styles.sessionDropdownMenuItem}>
+                            Shop Manager
+                        </button>
+                    )}
+                    <button onClick={() => { onLogout(); setIsOpen(false); }} style={{...styles.sessionDropdownMenuItem, color: 'var(--danger-color)'}}>
+                        Logout
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+};
+
 
 // --- MAIN APP COMPONENT ---
 const App = () => {
@@ -4602,32 +4686,6 @@ const App = () => {
     const deletionMessage = productIdsToDelete.length === 1 && activeShop
         ? `the product "${activeShop.products.find(p => p.id === productIdsToDelete[0])?.description}"`
         : `${productIdsToDelete.length} products`;
-
-    const getSyncStatusStyle = (status: typeof syncStatus) => {
-        switch (status) {
-            case 'syncing':
-                return { color: '#007bff', borderColor: '#007bff' };
-            case 'synced':
-                return { color: 'var(--success-color)', borderColor: 'var(--success-color)' };
-            case 'error':
-                return { color: 'var(--danger-color)', borderColor: 'var(--danger-color)' };
-            default:
-                return {};
-        }
-    };
-
-    const getSyncStatusText = (status: typeof syncStatus) => {
-        switch (status) {
-            case 'syncing':
-                return 'Syncing...';
-            case 'synced':
-                return 'Data Synced';
-            case 'error':
-                return 'Sync Error';
-            default:
-                return 'Sync Enabled';
-        }
-    };
     
     // Sample sale for bill settings preview
     const sampleSaleForPreview: SaleRecord = {
@@ -4688,29 +4746,15 @@ const App = () => {
                     )}
                 </div>
                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    {isCloudSyncEnabled && userPlan === 'pro' && (
-                        <div style={{...styles.activeShopDisplay, ...getSyncStatusStyle(syncStatus)}}>
-                            <CloudIcon size={18} />
-                            <span style={{marginLeft: '0.5rem'}}>{getSyncStatusText(syncStatus)}</span>
-                        </div>
-                    )}
-                    {activeShop && (
-                        <div style={styles.activeShopDisplay}>
-                            <strong>Shop:</strong> {activeShop.name}
-                        </div>
-                    )}
-                     <div style={styles.activeShopDisplay}>
-                        <UserIcon size={18} />
-                        <strong style={{marginLeft: '0.5rem'}}>User:</strong> {currentUser.username} ({currentUser.role.replace('_', ' ')})
-                    </div>
-                    {currentUser.role === 'super_admin' && (
-                        <button onClick={() => setIsShopManagerOpen(true)} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>
-                            Shop Manager
-                        </button>
-                    )}
-                    <button onClick={handleLogout} style={{...styles.button, backgroundColor: 'var(--danger-color)'}}>
-                        Logout
-                    </button>
+                    <SessionDropdown
+                        currentUser={currentUser}
+                        activeShop={activeShop}
+                        syncStatus={syncStatus}
+                        isCloudSyncEnabled={isCloudSyncEnabled}
+                        userPlan={userPlan}
+                        onShopManagerClick={() => setIsShopManagerOpen(true)}
+                        onLogout={handleLogout}
+                    />
                 </div>
             </nav>
             <main style={styles.mainContent}>
@@ -5006,18 +5050,26 @@ const styles: { [key: string]: React.CSSProperties } = {
         boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
     },
     mainContent: {
-        paddingTop: '0.5rem',
+        paddingTop: '1rem',
     },
     viewContainer: {
-        padding: '1rem',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '1.5rem',
     },
     viewHeader: {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: '1.5rem',
         flexWrap: 'wrap',
         gap: '1rem'
+    },
+    input: {
+        padding: '0.75rem 1rem',
+        borderRadius: '8px',
+        border: '1px solid var(--border-color)',
+        fontSize: '1rem',
+        backgroundColor: 'var(--surface-color)',
     },
     button: {
         padding: '0.75rem 1.25rem',
@@ -5029,39 +5081,27 @@ const styles: { [key: string]: React.CSSProperties } = {
         fontSize: '1rem',
         fontWeight: 'bold',
     },
-    input: {
-        width: '100%',
-        padding: '0.75rem 1rem',
-        borderRadius: '8px',
-        border: '1px solid var(--border-color)',
-        fontSize: '1rem',
-        boxSizing: 'border-box',
-    },
     table: {
         width: '100%',
         borderCollapse: 'collapse',
     },
     th: {
+        backgroundColor: 'var(--background-color)',
         padding: '0.75rem 1rem',
         textAlign: 'left',
         borderBottom: '2px solid var(--border-color)',
-        backgroundColor: '#f8f9fa',
-        fontWeight: 600,
-        fontSize: '0.9rem',
     },
     td: {
         padding: '0.75rem 1rem',
         borderBottom: '1px solid var(--border-color)',
-        verticalAlign: 'middle',
     },
     actionButton: {
         padding: '0.4rem 0.8rem',
-        marginRight: '0.5rem',
         border: 'none',
         borderRadius: '6px',
         color: '#fff',
         cursor: 'pointer',
-        fontSize: '0.8rem',
+        marginRight: '0.5rem',
     },
     modalBackdrop: {
         position: 'fixed',
@@ -5076,14 +5116,18 @@ const styles: { [key: string]: React.CSSProperties } = {
         zIndex: 1000,
     },
     modalContent: {
-        backgroundColor: '#fff',
+        backgroundColor: 'var(--surface-color)',
         padding: '2rem',
         borderRadius: '12px',
-        boxShadow: '0 4px 20px rgba(0,0,0,0.2)',
+        boxShadow: '0 5px 15px rgba(0,0,0,0.3)',
         width: '90%',
-        maxWidth: '700px',
-        maxHeight: '90vh',
-        overflowY: 'auto',
+        maxWidth: '600px',
+    },
+    modalActions: {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: '1rem',
+        marginTop: '1.5rem',
     },
     productForm: {
         display: 'flex',
@@ -5094,46 +5138,35 @@ const styles: { [key: string]: React.CSSProperties } = {
         fontWeight: 'bold',
         marginBottom: '-0.5rem',
     },
-    modalActions: {
-        display: 'flex',
-        justifyContent: 'flex-end',
-        marginTop: '1.5rem',
-        gap: '1rem',
-    },
-    confirmationDetails: {
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '0.75rem',
-        fontSize: '1.1rem',
-        margin: '1.5rem 0',
-    },
-    confirmationRow: {
-        display: 'flex',
-        justifyContent: 'space-between',
+    emptyMessage: {
+        textAlign: 'center',
+        padding: '2rem',
+        color: 'var(--secondary-color)',
     },
     customerSection: {
         display: 'flex',
         gap: '1rem',
-        marginBottom: '1.5rem',
+        marginBottom: '1rem',
     },
     customerInput: {
         flex: 2,
-        padding: '0.75rem',
+        padding: '0.75rem 1rem',
         borderRadius: '8px',
         border: '1px solid var(--border-color)',
         fontSize: '1rem',
     },
     countryCodeInput: {
         flex: '0 0 70px',
-        padding: '0.75rem',
+        padding: '0.75rem 1rem',
         borderRadius: '8px 0 0 8px',
         border: '1px solid var(--border-color)',
         borderRight: 'none',
         fontSize: '1rem',
+        textAlign: 'center',
     },
     mobileNumberInput: {
         flex: 1,
-        padding: '0.75rem',
+        padding: '0.75rem 1rem',
         borderRadius: '0 8px 8px 0',
         border: '1px solid var(--border-color)',
         fontSize: '1rem',
@@ -5143,36 +5176,39 @@ const styles: { [key: string]: React.CSSProperties } = {
         top: '100%',
         left: 0,
         right: 0,
-        backgroundColor: '#fff',
+        backgroundColor: 'var(--surface-color)',
         border: '1px solid var(--border-color)',
-        borderRadius: '0 0 8px 8px',
-        boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+        borderRadius: '8px',
+        boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
         listStyle: 'none',
         padding: 0,
-        margin: 0,
-        zIndex: 100,
+        margin: '0.5rem 0 0',
         maxHeight: '300px',
         overflowY: 'auto',
+        zIndex: 100,
     },
     searchResultItem: {
         padding: '0.75rem 1rem',
         cursor: 'pointer',
     },
     highlighted: {
-        backgroundColor: 'var(--primary-color)',
-        color: '#fff',
+        backgroundColor: 'var(--background-color)',
     },
     gridInput: {
-        width: '100px',
+        width: '80px',
         padding: '0.5rem',
         borderRadius: '6px',
         border: '1px solid var(--border-color)',
+        fontSize: '1rem',
     },
     wideGridInput: {
         width: '95%',
         padding: '0.5rem',
         borderRadius: '6px',
         border: '1px solid var(--border-color)',
+        fontSize: '1rem',
+        backgroundColor: '#fff',
+        color: '#333'
     },
     totalsSection: {
         display: 'flex',
@@ -5180,191 +5216,131 @@ const styles: { [key: string]: React.CSSProperties } = {
         alignItems: 'center',
         gap: '1.5rem',
         marginTop: '1.5rem',
-        paddingTop: '1.5rem',
+        paddingTop: '1rem',
         borderTop: '1px solid var(--border-color)',
-        flexWrap: 'wrap',
     },
     totalsInput: {
-        width: '120px',
+        width: '100px',
         padding: '0.5rem',
         borderRadius: '6px',
         border: '1px solid var(--border-color)',
-        textAlign: 'right'
+        fontSize: '1rem',
     },
     grandTotal: {
-        fontSize: '1.5rem',
-        fontWeight: 'bold',
-        color: 'var(--primary-color)',
         textAlign: 'right',
+        marginLeft: '1rem',
+        minWidth: '200px',
     },
     priceModeSelector: {
         display: 'flex',
-        border: '1px solid var(--border-color)',
+        backgroundColor: 'var(--background-color)',
         borderRadius: '8px',
-        overflow: 'hidden',
+        padding: '0.25rem',
     },
     priceModeLabel: {
         padding: '0.5rem 1rem',
+        borderRadius: '6px',
         cursor: 'pointer',
-        backgroundColor: '#f8f9fa',
+        fontWeight: 500,
         color: 'var(--secondary-color)',
-        transition: 'background-color 0.2s, color 0.2s',
     },
     priceModeLabel_input: {
-        position: 'absolute',
-        opacity: 0,
-        width: 0,
-        height: 0,
+        display: 'none',
     },
     priceModeLabelChecked: {
-        backgroundColor: 'var(--primary-color)',
-        color: 'white',
-        fontWeight: 'bold'
-    },
-    backupSection: {
-        marginTop: '2rem',
-        padding: '1.5rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        backgroundColor: '#f8f9fa',
-    },
-    backupTitle: {
-        marginTop: 0,
-    },
-    backupDescription: {
-        color: 'var(--secondary-color)',
-    },
-    backupActions: {
-        display: 'flex',
-        gap: '1rem',
-        marginTop: '1rem',
+        backgroundColor: 'var(--surface-color)',
+        color: 'var(--primary-color)',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
     },
     voiceSearchButton: {
         position: 'absolute',
         right: '10px',
         top: '50%',
         transform: 'translateY(-50%)',
-        background: 'none',
         border: 'none',
+        background: 'transparent',
         cursor: 'pointer',
         padding: '0.5rem',
-        display: 'flex',
-        alignItems: 'center',
     },
     barcodeScanButton: {
         position: 'absolute',
         right: '50px',
         top: '50%',
         transform: 'translateY(-50%)',
-        background: 'none',
         border: 'none',
+        background: 'transparent',
         cursor: 'pointer',
         padding: '0.5rem',
-        display: 'flex',
-        alignItems: 'center',
     },
-    emptyMessage: {
-        textAlign: 'center',
-        padding: '2rem',
+    shopListItem: {
+        padding: '1rem',
+        cursor: 'pointer',
+        borderBottom: '1px solid var(--border-color)',
+    },
+    shopListItemActive: {
+        backgroundColor: 'var(--primary-color)',
+        color: '#fff',
+        fontWeight: 'bold',
+    },
+    backupSection: {
+        marginTop: '2rem',
+        padding: '1.5rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        backgroundColor: 'var(--background-color)',
+    },
+    backupTitle: {
+        marginTop: 0,
+    },
+    backupDescription: {
         color: 'var(--secondary-color)',
-        fontSize: '1.1rem',
+        maxWidth: '600px',
     },
-    reportFilters: {
+    backupActions: {
         display: 'flex',
         gap: '1rem',
-        alignItems: 'center',
+        marginTop: '1rem',
     },
-    dateRangePicker: {
-        display: 'flex',
-        gap: '0.5rem',
-        alignItems: 'center',
-    },
-    reportSummary: {
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '1.5rem',
-        marginBottom: '2rem',
-    },
-    summaryCard: {
-        backgroundColor: '#f8f9fa',
+    settingsCard: {
         padding: '1.5rem',
-        borderRadius: '8px',
-        border: '1px solid var(--border-color)',
-        textAlign: 'center',
-    },
-    summaryCard_h3: {
-        margin: '0 0 0.5rem 0',
-        color: 'var(--secondary-color)',
-        fontSize: '1rem',
-    },
-    summaryCard_p: {
-        margin: 0,
-        fontSize: '2rem',
-        fontWeight: 'bold',
-        color: 'var(--primary-color)',
-    },
-    customerViewLayout: {
-        display: 'grid',
-        gridTemplateColumns: '300px 1fr',
-        gap: '1.5rem',
-        height: '70vh',
-    },
-    customerListPanel: {
         border: '1px solid var(--border-color)',
         borderRadius: '8px',
-        display: 'flex',
-        flexDirection: 'column',
-    },
-    customerListItem: {
-        padding: '1rem',
-        borderBottom: '1px solid var(--border-color)',
-        cursor: 'pointer',
-    },
-    customerListItemActive: {
-        backgroundColor: 'var(--primary-color)',
-        color: 'white',
-    },
-    customerDetailPanel: {
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        padding: '1.5rem',
-    },
-    customerDetailHeader: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderBottom: '1px solid var(--border-color)',
-        paddingBottom: '1rem',
-        marginBottom: '1rem',
-    },
-    purchaseHistoryItem: {
-        padding: '1rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        marginBottom: '1rem',
-    },
-    marginGuide: {
-        position: 'absolute',
-        backgroundColor: 'rgba(0, 123, 255, 0.5)',
-        zIndex: 10,
-    },
-    marginGuideHorizontal: {
-        left: 0,
-        right: 0,
-        height: '2px',
-        cursor: 'ns-resize',
-    },
-    marginGuideVertical: {
-        top: 0,
-        bottom: 0,
-        width: '2px',
-        cursor: 'ew-resize',
+        marginBottom: '1.5rem',
     },
     featureListItem: {
         fontSize: '1.1rem',
-        marginBottom: '1rem',
+        padding: '0.5rem 0',
+    },
+    proBadge: {
+        position: 'absolute',
+        top: '0',
+        right: '0',
+        transform: 'translate(50%, -50%)',
+        backgroundColor: '#ffc107',
+        color: 'black',
+        padding: '0.2rem 0.5rem',
+        borderRadius: '6px',
+        fontSize: '0.8rem',
+        fontWeight: 'bold',
+    },
+    proBadgeSmall: {
+        backgroundColor: '#ffc107',
+        color: 'black',
+        padding: '0.1rem 0.4rem',
+        borderRadius: '4px',
+        fontSize: '0.7rem',
+        fontWeight: 'bold',
+        marginTop: '0.25rem'
+    },
+    reportFilters: {
         display: 'flex',
         alignItems: 'center',
+        gap: '1rem',
+    },
+    dateRangePicker: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.5rem',
     },
     reportTabs: {
         display: 'flex',
@@ -5372,190 +5348,271 @@ const styles: { [key: string]: React.CSSProperties } = {
         marginBottom: '1rem',
     },
     reportTabButton: {
-        padding: '0.75rem 1.5rem',
+        padding: '0.75rem 1.25rem',
         border: 'none',
-        borderBottom: '3px solid transparent',
-        backgroundColor: 'transparent',
+        background: 'none',
         cursor: 'pointer',
         fontSize: '1rem',
         color: 'var(--secondary-color)',
-        fontWeight: 500,
+        borderBottom: '3px solid transparent',
     },
     reportTabButtonActive: {
         color: 'var(--primary-color)',
-        borderBottomColor: 'var(--primary-color)',
+        borderBottom: '3px solid var(--primary-color)',
     },
-    proBadge: {
-        position: 'absolute',
-        top: '-5px',
-        right: '0',
-        backgroundColor: 'var(--primary-color)',
-        color: 'white',
-        fontSize: '0.7rem',
-        fontWeight: 'bold',
-        padding: '2px 6px',
-        borderRadius: '10px',
+    reportSummary: {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        gap: '1rem',
+        marginBottom: '1.5rem',
     },
-    proBadgeSmall: {
-        position: 'absolute',
-        bottom: '-8px',
-        backgroundColor: 'var(--primary-color)',
-        color: 'white',
-        fontSize: '0.7rem',
-        fontWeight: 'bold',
-        padding: '2px 6px',
-        borderRadius: '10px',
-    },
-    settingsCard: {
+    summaryCard: {
+        padding: '1.5rem',
         border: '1px solid var(--border-color)',
         borderRadius: '8px',
-        padding: '1.5rem',
-        marginBottom: '1.5rem',
-        backgroundColor: '#f8f9fa',
-        position: 'relative'
+        textAlign: 'center',
     },
-    shopListItem: {
+    confirmationDetails: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.5rem',
+        margin: '1rem 0',
+    },
+    confirmationRow: {
+        display: 'flex',
+        justifyContent: 'space-between',
+    },
+    customerViewLayout: {
+        display: 'grid',
+        gridTemplateColumns: '300px 1fr',
+        gap: '1.5rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        minHeight: '70vh',
+    },
+    customerListPanel: {
+        borderRight: '1px solid var(--border-color)',
+    },
+    customerListItem: {
         padding: '1rem',
-        borderBottom: '1px solid var(--border-color)',
         cursor: 'pointer',
+        borderBottom: '1px solid var(--border-color)',
     },
-    shopListItemActive: {
-        backgroundColor: 'var(--primary-color)',
-        color: 'white',
+    customerListItemActive: {
+        backgroundColor: 'var(--background-color)',
         fontWeight: 'bold',
+    },
+    customerDetailPanel: {
+        padding: '1.5rem',
+    },
+    customerDetailHeader: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        borderBottom: '1px solid var(--border-color)',
+        paddingBottom: '1rem',
+        marginBottom: '1rem',
+    },
+    purchaseHistoryItem: {
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        padding: '1rem',
+        marginBottom: '1rem',
+    },
+    dueTag: {
+        backgroundColor: 'var(--danger-color)',
+        color: '#fff',
+        padding: '0.2rem 0.5rem',
+        borderRadius: '12px',
+        fontSize: '0.8rem',
+        fontWeight: 'bold',
+    },
+    settingsGrid: {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+        gap: '1rem',
+        marginBottom: '1rem',
+    },
+    checkboxControl: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.5rem',
     },
     dropdownContainer: {
         position: 'relative',
         display: 'inline-block',
     },
     dropdownButton: {
-        backgroundColor: '#f8f9fa',
-        border: '1px solid var(--border-color)',
+        backgroundColor: 'var(--background-color)',
+        color: 'var(--text-color)',
         padding: '0.6rem 1rem',
+        fontSize: '1rem',
+        fontWeight: '500',
+        border: '1px solid var(--border-color)',
         borderRadius: '8px',
         cursor: 'pointer',
-        fontSize: '1rem',
-        fontWeight: 500,
-        color: 'var(--primary-color)',
         display: 'flex',
         alignItems: 'center',
-        minWidth: '200px',
-        justifyContent: 'space-between'
+        minWidth: '180px',
+        justifyContent: 'space-between',
     },
     dropdownMenu: {
+        display: 'block',
         position: 'absolute',
-        top: '100%',
-        left: 0,
-        backgroundColor: 'white',
-        border: '1px solid var(--border-color)',
+        backgroundColor: 'var(--surface-color)',
+        minWidth: '200px',
+        boxShadow: '0 8px 16px 0 rgba(0,0,0,0.2)',
+        zIndex: 1,
         borderRadius: '8px',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-        zIndex: 10,
-        width: '100%',
-        marginTop: '0.25rem'
+        overflow: 'hidden',
+        border: '1px solid var(--border-color)',
     },
     dropdownMenuItem: {
+        color: 'var(--text-color)',
+        padding: '12px 16px',
+        textDecoration: 'none',
         display: 'block',
         width: '100%',
-        padding: '0.75rem 1rem',
-        border: 'none',
-        backgroundColor: 'transparent',
         textAlign: 'left',
+        border: 'none',
+        background: 'none',
         cursor: 'pointer',
-        fontSize: '1rem'
+        fontSize: '1rem',
     },
     dropdownMenuItemActive: {
         backgroundColor: 'var(--primary-color)',
-        color: 'white',
+        color: '#fff',
     },
-    dueTag: {
-        backgroundColor: 'var(--danger-color)',
-        color: 'white',
-        fontSize: '0.7rem',
-        fontWeight: 'bold',
-        padding: '2px 6px',
-        borderRadius: '10px',
+    sessionDropdownContainer: {
+        position: 'relative',
     },
-    // --- NEW MOBILE VIEW STYLES ---
+    sessionDropdownButton: {
+        backgroundColor: 'transparent',
+        border: 'none',
+        cursor: 'pointer',
+        padding: '0.5rem',
+        borderRadius: '8px',
+        display: 'flex',
+        alignItems: 'center',
+    },
+    sessionDropdownMenu: {
+        position: 'absolute',
+        right: 0,
+        top: '120%',
+        backgroundColor: 'var(--surface-color)',
+        borderRadius: '8px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+        width: '250px',
+        zIndex: 100,
+        border: '1px solid var(--border-color)',
+        overflow: 'hidden',
+    },
+    sessionDropdownHeader: {
+        padding: '1rem',
+        borderBottom: '1px solid var(--border-color)',
+        backgroundColor: 'var(--background-color)',
+    },
+    sessionDropdownInfoItem: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '0.75rem 1rem',
+        fontSize: '0.9rem',
+    },
+    sessionDropdownSeparator: {
+        border: 'none',
+        borderTop: '1px solid var(--border-color)',
+        margin: 0,
+    },
+    sessionDropdownMenuItem: {
+        width: '100%',
+        padding: '0.75rem 1rem',
+        border: 'none',
+        background: 'none',
+        textAlign: 'left',
+        cursor: 'pointer',
+        fontSize: '1rem',
+    },
     mobileSingleColumnLayout: {
         display: 'flex',
         flexDirection: 'column',
-        height: 'calc(100vh - 120px)', // Adjust based on header/nav height
+        height: 'calc(100vh - 4rem)',
     },
     mobileScrollableContent: {
         flex: 1,
         overflowY: 'auto',
-        padding: '0.5rem',
+        padding: '1rem',
+        paddingBottom: '80px', // Space for bottom action bar
     },
     mobileBottomActionBar: {
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
         padding: '1rem',
-        borderTop: '1px solid var(--border-color)',
         backgroundColor: 'var(--surface-color)',
+        borderTop: '1px solid var(--border-color)',
+        boxShadow: '0 -2px 8px rgba(0,0,0,0.1)',
+        zIndex: 100,
+    },
+    mobileFinalizeButton: {
+        width: '100%',
+        padding: '1rem',
+        fontSize: '1.2rem',
+        fontWeight: 'bold',
+        backgroundColor: 'var(--success-color)',
+        color: '#fff',
+        border: 'none',
+        borderRadius: '8px',
     },
     mobileSection: {
-        backgroundColor: '#f8f9fa',
+        marginBottom: '1.5rem',
         border: '1px solid var(--border-color)',
         borderRadius: '8px',
         padding: '1rem',
-        marginBottom: '1rem',
     },
     mobileSectionTitle: {
         marginTop: 0,
-        fontSize: '1.1rem',
-        color: 'var(--primary-color)',
-    },
-    mobileSettingsGroup: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '0.5rem',
-    },
-    mobileSettingsLabel: {
-        margin: 0,
-        fontWeight: 500,
+        borderBottom: '1px solid var(--border-color)',
+        paddingBottom: '0.5rem',
+        marginBottom: '1rem',
     },
     mobileInput: {
         width: '100%',
-        padding: '0.75rem',
+        padding: '0.8rem 1rem',
+        fontSize: '1rem',
         borderRadius: '8px',
         border: '1px solid var(--border-color)',
-        fontSize: '1rem',
         boxSizing: 'border-box',
         marginBottom: '0.5rem',
     },
     mobileButton: {
         width: '100%',
-        padding: '0.75rem',
-        border: 'none',
-        borderRadius: '8px',
-        backgroundColor: 'var(--primary-color)',
-        color: 'white',
+        padding: '0.8rem 1rem',
         fontSize: '1rem',
-        fontWeight: 'bold',
-        cursor: 'pointer',
+        borderRadius: '8px',
+        border: 'none',
+        backgroundColor: 'var(--primary-color)',
+        color: '#fff',
     },
     mobileInputIconButton: {
         position: 'absolute',
-        right: '0px',
-        top: '0px',
-        height: '100%',
-        width: '50px',
-        background: 'none',
+        right: '5px',
+        top: '5px',
+        bottom: '10px',
         border: 'none',
+        background: 'transparent',
         cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
+        padding: '0.5rem',
     },
     mobileInlineSearchResults: {
         listStyle: 'none',
         padding: 0,
-        margin: '0.5rem 0 0 0',
+        margin: '0.5rem 0 0',
         border: '1px solid var(--border-color)',
         borderRadius: '8px',
         maxHeight: '200px',
         overflowY: 'auto',
-        backgroundColor: 'white'
     },
     mobileInlineSearchResultItem: {
         padding: '0.75rem',
@@ -5563,18 +5620,17 @@ const styles: { [key: string]: React.CSSProperties } = {
         cursor: 'pointer',
     },
     mobileBillItemCard: {
-        backgroundColor: 'white',
         border: '1px solid var(--border-color)',
         borderRadius: '8px',
-        padding: '0.75rem',
+        padding: '1rem',
         marginBottom: '0.75rem',
     },
     mobileBillItemCardReturn: {
+        backgroundColor: '#ffebee',
         borderColor: 'var(--danger-color)',
-        backgroundColor: '#ffebee'
     },
     mobileBillItemInfo: {
-        marginBottom: '0.75rem'
+        marginBottom: '0.75rem',
     },
     mobileBillItemControls: {
         display: 'flex',
@@ -5587,29 +5643,38 @@ const styles: { [key: string]: React.CSSProperties } = {
         gap: '1rem',
     },
     mobileRoundButton: {
-        width: '32px',
-        height: '32px',
+        width: '36px',
+        height: '36px',
         borderRadius: '50%',
         border: '1px solid var(--border-color)',
-        backgroundColor: 'white',
+        backgroundColor: 'var(--surface-color)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         cursor: 'pointer',
     },
+    mobileSettingsGroup: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '0.5rem',
+    },
+    mobileSettingsLabel: {
+        fontWeight: 500,
+    },
     mobilePaymentRow: {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: '0.75rem 0',
+        padding: '0.5rem 0',
     },
     mobilePaymentInput: {
-        width: '120px',
-        padding: '0.5rem',
-        borderRadius: '6px',
-        border: '1px solid var(--border-color)',
+        border: 'none',
+        borderBottom: '1px solid var(--border-color)',
+        borderRadius: 0,
         textAlign: 'right',
-        fontSize: '1rem'
+        width: '100px',
+        fontSize: '1rem',
     },
     mobileGrandTotal: {
         display: 'flex',
@@ -5618,37 +5683,10 @@ const styles: { [key: string]: React.CSSProperties } = {
         padding: '0.75rem 0',
         fontWeight: 'bold',
         fontSize: '1.2rem',
-        color: 'var(--primary-color)',
-    },
-    mobileFinalizeButton: {
-        width: '100%',
-        padding: '1rem',
-        border: 'none',
-        borderRadius: '8px',
-        backgroundColor: 'var(--success-color)',
-        color: 'white',
-        fontSize: '1.1rem',
-        fontWeight: 'bold',
-        cursor: 'pointer',
-    },
-    settingsGrid: {
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '1rem',
-        marginBottom: '1.5rem',
-        padding: '1rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        backgroundColor: 'var(--surface-color)',
-    },
-    checkboxControl: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem',
+        borderTop: '1px solid var(--border-color)',
+        marginTop: '0.5rem',
     },
 };
 
-// --- RENDER APP ---
-const container = document.getElementById('root');
-const root = createRoot(container!);
+const root = createRoot(document.getElementById('root')!);
 root.render(<App />);
