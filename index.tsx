@@ -1254,13 +1254,61 @@ const InvoicePreviewModal = ({
     
     const handleSaveAsPdf = () => {
         if (printAreaRef.current) {
-            const opt = {
-                margin:       [0.2, 0.2],
-                filename:     `invoice-${sale.id || 'preview'}.pdf`,
-                image:        { type: 'jpeg', quality: 0.98 },
-                html2canvas:  { scale: 2, useCORS: true },
-                jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+            const getPdfOptions = (settings: BillSettings) => {
+                const options: any = {
+                    margin: [0.2, 0.2, 0.2, 0.2], // top, left, bottom, right
+                    filename: `invoice-${sale.id || 'preview'}.pdf`,
+                    image: { type: 'jpeg', quality: 0.98 },
+                    html2canvas: { scale: 2, useCORS: true, logging: false },
+                    jsPDF: { unit: 'in', orientation: 'portrait' }
+                };
+    
+                switch (settings.size) {
+                    case 'A4':
+                        options.jsPDF.format = 'a4';
+                        options.margin = [0.5, 0.5, 0.5, 0.5];
+                        break;
+                    case 'A5':
+                        options.jsPDF.format = 'a5';
+                        options.margin = [0.4, 0.4, 0.4, 0.4];
+                        break;
+                    case '3-inch':
+                        // html2pdf calculates height from content. Width is 3 inches.
+                        options.jsPDF.format = [3, 11]; // Width: 3in, Height: arbitrary large
+                        options.margin = [0.1, 0.1, 0.1, 0.1];
+                        break;
+                    case '4-inch':
+                        options.jsPDF.format = [4, 11]; // Width: 4in
+                        options.margin = [0.15, 0.15, 0.15, 0.15];
+                        break;
+                    case 'custom':
+                        const widthStr = settings.customWidth || '80mm';
+                        const widthValue = parseFloat(widthStr);
+                        let widthInInches = 3.15; // Default to 80mm
+    
+                        if (!isNaN(widthValue)) {
+                            if (widthStr.includes('mm')) {
+                                widthInInches = widthValue / 25.4;
+                            } else if (widthStr.includes('cm')) {
+                                widthInInches = widthValue / 2.54;
+                            } else if (widthStr.includes('in')) {
+                                widthInInches = widthValue;
+                            } else {
+                                // assume mm if no unit is provided
+                                widthInInches = widthValue / 25.4;
+                            }
+                        }
+                        options.jsPDF.format = [widthInInches, 11];
+                        options.margin = [0.1, 0.1, 0.1, 0.1];
+                        break;
+                    default:
+                        options.jsPDF.format = 'letter';
+                        break;
+                }
+                return options;
             };
+
+            const opt = getPdfOptions(billSettings);
             html2pdf().from(printAreaRef.current).set(opt).save();
         }
     };
@@ -3500,7 +3548,6 @@ const SessionDropdown = ({ currentUser, activeShop, syncStatus, isCloudSyncEnabl
     );
 };
 
-// --- Fix: Added the missing 'styles' object definition ---
 // --- STYLES OBJECT ---
 const styles: { [key: string]: React.CSSProperties } = {
     // Modals
@@ -5264,11 +5311,21 @@ const App = () => {
 
     const handlePrint = (sale: SaleRecord) => {
         setSaleToPrint(sale);
-        setTimeout(() => {
-            window.print();
-            setSaleToPrint(null);
-        }, 300); // Allow time for modal to render before printing
     };
+
+    useEffect(() => {
+        if (saleToPrint) {
+            // This effect runs after the component tree is updated.
+            // The timeout ensures the browser has painted the new DOM before the print dialog freezes interaction.
+            const timer = setTimeout(() => {
+                window.print();
+                // Reset after the print dialog is closed or cancelled by the user.
+                setSaleToPrint(null);
+            }, 100); 
+
+            return () => clearTimeout(timer); // Cleanup timer if component unmounts or saleToPrint changes again
+        }
+    }, [saleToPrint]);
 
 
     useEffect(() => {
@@ -5375,7 +5432,7 @@ const App = () => {
             case 'users':
                 return <UsersView 
                             currentUser={currentUser!} 
-                            users={users} 
+                            users={users}
                             shops={shops}
                             onUserAdd={handleUserAdd}
                             onUserUpdate={handleUserUpdate}
@@ -5383,21 +5440,22 @@ const App = () => {
                         />;
             case 'balance_due':
                 return <BalanceDueView 
-                            salesHistory={activeShop.salesHistory} 
+                            salesHistory={activeShop.salesHistory}
                             onAddPayment={(saleId, amount, method) => {
                                 handleAddPayment(saleId, amount, method);
+                                // This view has its own payment modal, no need to close here
                             }}
                             onPrint={handlePrint}
                         />;
             default:
-                return <div>View not found</div>;
+                return null;
         }
     };
-    
+
     if (dbLoading) {
-        return <div style={{padding: '2rem'}}>Loading Database...</div>;
+        return <div>Loading Database...</div>;
     }
-    
+
     if (!currentUser) {
         return <LoginView onLoginSuccess={handleLoginSuccess} />;
     }
@@ -5406,25 +5464,31 @@ const App = () => {
         return <InitialSetupModal onCreate={handleCreateShop} />;
     }
 
-    // Main app view after login
     return (
-        <div style={{...styles.appContainer, width: viewMode === 'mobile' && activeView === 'sales' ? '414px' : '100%', maxWidth: '1400px', margin: '0 auto', backgroundColor: 'var(--surface-color)', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}}>
+        <div style={styles.appContainer}>
             <nav style={styles.nav}>
-                <DropdownNav activeView={activeView} onSelectView={setActiveView} disabled={!activeShop} currentUser={currentUser} />
-                {activeView === 'sales' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+                    <h1 style={{ margin: 0, fontSize: '1.5rem' }}>POS</h1>
                     <div style={styles.billSelector}>
                         {[0, 1, 2].map(index => (
                             <button
                                 key={index}
                                 onClick={() => setActiveCartIndex(index)}
-                                style={activeCartIndex === index ? {...styles.billButton, ...styles.billButtonActive} : styles.billButton}
+                                style={index === activeCartIndex ? { ...styles.billButton, ...styles.billButtonActive } : styles.billButton}
+                                disabled={!activeShop}
                             >
                                 Bill {index + 1}
                             </button>
                         ))}
                     </div>
-                )}
-                <SessionDropdown 
+                </div>
+                <DropdownNav 
+                    activeView={activeView} 
+                    onSelectView={setActiveView} 
+                    disabled={!activeShop}
+                    currentUser={currentUser}
+                />
+                <SessionDropdown
                     currentUser={currentUser}
                     activeShop={activeShop}
                     syncStatus={syncStatus}
@@ -5434,33 +5498,44 @@ const App = () => {
                     onLogout={handleLogout}
                 />
             </nav>
+
             <main style={styles.mainContent}>
                 {renderActiveView()}
             </main>
 
-            {isProductModalOpen && <ProductFormModal product={editingProduct} onSave={handleSaveProduct} onUpdate={handleUpdateProduct} onClose={() => setIsProductModalOpen(false)} />}
-            {isCustomerModalOpen && <CustomerFormModal customer={editingCustomer} onSave={handleSaveCustomer} onClose={() => setIsCustomerModalOpen(false)} />}
-            {isConfirmModalOpen && <ConfirmationModal message={`Are you sure you want to delete ${productIdsToDelete.length} product(s)? This action cannot be undone.`} onConfirm={confirmDelete} onCancel={() => setIsConfirmModalOpen(false)} />}
-            {customerToDelete && <ConfirmationModal message={`Are you sure you want to delete customer "${customerToDelete.name}"? All their history will remain, but the customer record will be removed.`} onConfirm={confirmDeleteCustomer} onCancel={() => setCustomerToDelete(null)} />}
-            
-            {isInvoiceModalOpen && (
-                <InvoicePreviewModal 
-                    sale={{ ...activeCart, total, paid_amount: paidAmount, balance_due: total - paidAmount }} 
-                    billSettings={billSettings}
-                    customerName={activeCart.customerName}
-                    customerMobile={activeCart.customerMobile}
-                    onFinalize={handleFinalizeSale} 
-                    onClose={() => setIsInvoiceModalOpen(false)}
-                    onPrint={() => handlePrint({ ...activeCart, id: 'preview', date: new Date().toISOString(), total, subtotal, discount: activeCart.discount, tax: taxAmount, paid_amount: paidAmount, balance_due: total - paidAmount })}
-                    onWhatsApp={() => {}}
-                    language={activeCart.language}
-                    previousBalanceDue={previousBalanceDue}
-                    amountPaidEdited={amountPaidEdited}
+            {isProductModalOpen && (
+                <ProductFormModal 
+                    product={editingProduct} 
+                    onSave={handleSaveProduct} 
+                    onUpdate={handleUpdateProduct} 
+                    onClose={() => { setIsProductModalOpen(false); setEditingProduct(null); }} 
                 />
             )}
             
+            {isInvoiceModalOpen && (
+                <InvoicePreviewModal 
+                    sale={{
+                        items: activeCart.items,
+                        subtotal: subtotal,
+                        discount: activeCart.discount,
+                        tax: taxAmount,
+                        total: total,
+                        paid_amount: paidAmount,
+                        balance_due: total - paidAmount,
+                    }}
+                    billSettings={billSettings}
+                    customerName={activeCart.customerName}
+                    customerMobile={activeCart.customerMobile}
+                    language={activeCart.language}
+                    previousBalanceDue={previousBalanceDue}
+                    amountPaidEdited={amountPaidEdited}
+                    onFinalize={handleFinalizeSale}
+                    onClose={() => setIsInvoiceModalOpen(false)} 
+                />
+            )}
+
             {isSaleConfirmModalOpen && (
-                <SaleConfirmationModal 
+                <SaleConfirmationModal
                     details={{
                         previousBalance: previousBalanceDue,
                         currentBill: total - previousBalanceDue,
@@ -5472,57 +5547,122 @@ const App = () => {
                     onCancel={() => setIsSaleConfirmModalOpen(false)}
                 />
             )}
+
+            {saleToPrint && (
+                 <div className="printable-area">
+                    <InvoicePreviewModal 
+                        sale={saleToPrint}
+                        billSettings={billSettings}
+                        customerName={saleToPrint.customerName}
+                        customerMobile={saleToPrint.customerMobile}
+                        language={'english'} // default language for printing history
+                        previousBalanceDue={0} // Historical invoice doesn't show this
+                    />
+                </div>
+            )}
             
+            {isHistoryModalOpen && activeShop && (
+                <HistoryModal 
+                    salesHistory={activeShop.salesHistory} 
+                    customerMobile={activeCart.customerMobile} 
+                    onClose={() => setIsHistoryModalOpen(false)}
+                />
+            )}
+
+            {isConfirmModalOpen && (
+                <ConfirmationModal 
+                    message={`Are you sure you want to delete ${productIdsToDelete.length} product(s)? This action cannot be undone.`}
+                    onConfirm={confirmDelete}
+                    onCancel={() => { setIsConfirmModalOpen(false); setProductIdsToDelete([]); }}
+                />
+            )}
+
+            {isGoProModalOpen && (
+                <GoProModal
+                    onClose={() => setIsGoProModalOpen(false)}
+                    onUpgrade={handleUpgrade}
+                />
+            )}
+            {isBulkAddModalOpen && (
+                <BulkAddModal 
+                    fileSrc={bulkAddFileSrc}
+                    fileType={bulkAddFileType}
+                    fileNames={bulkAddFileNames}
+                    initialProducts={bulkAddProducts}
+                    onSave={handleBulkAddProducts}
+                    onClose={() => setIsBulkAddModalOpen(false)}
+                    loading={isBulkAddLoading}
+                    error={bulkAddError}
+                />
+            )}
+             {isPdfUploadModalOpen && (
+                <PdfUploadModal
+                    onProcess={handleBulkAddFromPdfs}
+                    onClose={() => setIsPdfUploadModalOpen(false)}
+                />
+            )}
+
+            {isShopManagerOpen && currentUser.role === 'super_admin' && (
+                <ShopManagerModal
+                    shops={shops}
+                    activeShopId={activeShopId}
+                    onSelect={handleSelectShop}
+                    onCreate={handleCreateShop}
+                    onClose={() => setIsShopManagerOpen(false)}
+                    userPlan={userPlan}
+                    onUpgrade={handleUpgradeRequest}
+                />
+            )}
+
+             {isCustomerModalOpen && (
+                <CustomerFormModal
+                    customer={editingCustomer}
+                    onSave={handleSaveCustomer}
+                    onClose={() => { setIsCustomerModalOpen(false); setEditingCustomer(null); }}
+                />
+            )}
+            
+             {customerToDelete && (
+                <ConfirmationModal
+                    message={`Are you sure you want to delete customer "${customerToDelete.name}"? This action cannot be undone.`}
+                    onConfirm={confirmDeleteCustomer}
+                    onCancel={() => setCustomerToDelete(null)}
+                />
+            )}
+
             {isBillSettingsPreviewOpen && (
-                <InvoicePreviewModal
+                 <InvoicePreviewModal
+                    isPreviewMode={true}
                     sale={{
                         id: 'PREVIEW-123',
                         date: new Date().toISOString(),
                         items: [
-                            { id: 1, productId: 101, description: 'Sample Product 1', quantity: 2, price: 150.0, isReturn: false, hsnCode: '1234' },
-                            { id: 2, productId: 102, description: 'Another Item (Long Name)', quantity: 1, price: 450.50, isReturn: false, hsnCode: '5678' },
-                            { id: 3, productId: 103, description: 'Returned Item', quantity: 1, price: 99.0, isReturn: true, hsnCode: '9101' },
+                            {id: 1, productId: 101, description: 'Sample Product A', quantity: 2, price: 15.50, isReturn: false, hsnCode: '1234'},
+                            {id: 2, productId: 102, description: 'Sample Product B', quantity: 1, price: 50.00, isReturn: false, hsnCode: '5678'},
                         ],
-                        subtotal: 802,
-                        discount: 50,
-                        tax: 75.2,
-                        total: 827.2,
-                        paid_amount: 827.2,
+                        subtotal: 81.00,
+                        discount: 5.00,
+                        tax: 8.10,
+                        total: 84.10,
+                        paid_amount: 85.00,
                         balance_due: 0,
                     }}
                     billSettings={billSettings}
                     customerName="John Doe"
                     customerMobile="9876543210"
-                    onClose={() => setIsBillSettingsPreviewOpen(false)}
                     language="english"
-                    previousBalanceDue={150.00}
-                    isPreviewMode={true}
+                    previousBalanceDue={10.00}
+                    onClose={() => setIsBillSettingsPreviewOpen(false)}
                 />
             )}
-
-            {saleToPrint && (
-                 <div className="printable-area">
-                    <InvoicePreviewModal 
-                        sale={saleToPrint} 
-                        billSettings={billSettings}
-                        customerName={saleToPrint.customerName}
-                        customerMobile={saleToPrint.customerMobile}
-                        language={activeCart.language}
-                        previousBalanceDue={0} // Note: This might not be accurate for historical prints, but complex to recalculate.
-                    />
-                </div>
-            )}
-            {isHistoryModalOpen && <HistoryModal salesHistory={activeShop.salesHistory} customerMobile={activeCart.customerMobile} onClose={() => setIsHistoryModalOpen(false)} />}
-            {isBulkAddModalOpen && <BulkAddModal fileSrc={bulkAddFileSrc} fileType={bulkAddFileType} fileNames={bulkAddFileNames} initialProducts={bulkAddProducts} onSave={handleBulkAddProducts} onClose={() => setIsBulkAddModalOpen(false)} loading={isBulkAddLoading} error={bulkAddError} />}
-            {isPdfUploadModalOpen && <PdfUploadModal onProcess={handleBulkAddFromPdfs} onClose={() => setIsPdfUploadModalOpen(false)} />}
-            {isGoProModalOpen && <GoProModal onClose={() => setIsGoProModalOpen(false)} onUpgrade={handleUpgrade} />}
-            {isShopManagerOpen && <ShopManagerModal shops={shops} activeShopId={activeShopId} onSelect={handleSelectShop} onCreate={handleCreateShop} onClose={() => setIsShopManagerOpen(false)} userPlan={userPlan} onUpgrade={handleUpgradeRequest} />}
-            {restoreProgress.visible && <RestoreProgressModal percentage={restoreProgress.percentage} eta={restoreProgress.eta} message={restoreProgress.message} />}
-
+            
+            {restoreProgress.visible && <RestoreProgressModal {...restoreProgress} />}
         </div>
     );
 };
 
-const container = document.getElementById('root');
-const root = createRoot(container!);
-root.render(<App />);
+const rootElement = document.getElementById('root');
+if (rootElement) {
+    const root = createRoot(rootElement);
+    root.render(<App />);
+}
