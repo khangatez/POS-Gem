@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -959,6 +960,49 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddP
             );
         });
         
+    const handleExport = () => {
+        if (filteredProducts.length === 0) {
+            alert("No products in the current view to export.");
+            return;
+        }
+
+        const escapeCsvCell = (cellData: any) => {
+            const stringData = String(cellData === null || cellData === undefined ? '' : cellData);
+            if (stringData.includes(',') || stringData.includes('"') || stringData.includes('\n')) {
+                return `"${stringData.replace(/"/g, '""')}"`;
+            }
+            return stringData;
+        };
+
+        const headers = ['ID', 'Description', 'Description (Tamil)', 'Category', 'HSN/SAC', 'Barcode', 'B2B Price', 'B2C Price', 'Stock'];
+        const csvRows = [
+            headers.join(','),
+            ...filteredProducts.map(p => [
+                p.id,
+                escapeCsvCell(p.description),
+                escapeCsvCell(p.descriptionTamil),
+                escapeCsvCell(p.category),
+                escapeCsvCell(p.hsnCode),
+                escapeCsvCell(p.barcode),
+                p.b2bPrice.toFixed(2),
+                p.b2cPrice.toFixed(2),
+                p.stock
+            ].join(','))
+        ];
+
+        const csvContent = csvRows.join('\n');
+        // Add BOM for Excel to recognize UTF-8 characters correctly (like Tamil script)
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        const date = new Date().toISOString().slice(0, 10);
+        link.setAttribute('download', `product_list_${date}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     const handleBulkAddClick = (isPdf: boolean) => {
         const canUseAi = onUpgrade();
         if (canUseAi) {
@@ -1007,7 +1051,7 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddP
         <div style={styles.viewContainer}>
             <div style={styles.viewHeader}>
                 <h2>Product Inventory</h2>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
                      <div style={{ position: 'relative' }}>
                         <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', display: 'flex', alignItems: 'center', pointerEvents: 'none' }}>
                             <SearchIcon color="var(--secondary-color)" />
@@ -1049,6 +1093,7 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddP
                                 {aiUsage.plan === 'free' && <span style={styles.proBadgeSmall}>Uses left: {Math.max(0, AI_FREE_LIMIT - aiUsage.count)}</span>}
                             </div>
                             <button onClick={onAdd} style={styles.button}>Add New Product</button>
+                            <button onClick={handleExport} style={{...styles.button, backgroundColor: 'var(--success-color)'}}>Export Product List As Excel File</button>
                         </>
                     )}
                 </div>
@@ -2993,7 +3038,7 @@ const BillSettingsModule = ({ settings, onUpdate, onPreview }: {
                 </div>
                 <div>
                     <label style={styles.label}>Shop Name</label>
-                    <input style={styles.input} value={settings.shopName} onChange={(e) => onUpdate({ shopName: e.target.value })} />
+                    <input style={styles.input} value={settings.shopName} onChange={(e) => onUpdate({ shopName: e.target.value, shopNameEdited: true })} />
                 </div>
             </div>
              <div>
@@ -3455,6 +3500,711 @@ const SessionDropdown = ({ currentUser, activeShop, syncStatus, isCloudSyncEnabl
     );
 };
 
+// --- Fix: Added the missing 'styles' object definition ---
+// --- STYLES OBJECT ---
+const styles: { [key: string]: React.CSSProperties } = {
+    // Modals
+    modalBackdrop: {
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 1000,
+    },
+    modalContent: {
+        backgroundColor: 'var(--surface-color)',
+        padding: '2rem',
+        borderRadius: '12px',
+        boxShadow: '0 5px 15px rgba(0,0,0,0.3)',
+        width: '90%',
+        maxWidth: '600px',
+        maxHeight: '90vh',
+        overflowY: 'auto',
+        display: 'flex',
+        flexDirection: 'column',
+    },
+    modalActions: {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: '1rem',
+        marginTop: '1.5rem',
+        paddingTop: '1rem',
+        borderTop: '1px solid var(--border-color)',
+    },
+
+    // Forms
+    productForm: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '1rem',
+    },
+    label: {
+        fontWeight: 'bold',
+        fontSize: '0.9rem',
+        color: 'var(--secondary-color)',
+        marginBottom: '-0.5rem'
+    },
+    input: {
+        width: '100%',
+        padding: '0.75rem 1rem',
+        borderRadius: '8px',
+        border: '1px solid var(--border-color)',
+        fontSize: '1rem',
+        boxSizing: 'border-box',
+    },
+
+    // Buttons
+    button: {
+        padding: '0.75rem 1.25rem',
+        border: 'none',
+        borderRadius: '8px',
+        backgroundColor: 'var(--primary-color)',
+        color: '#fff',
+        cursor: 'pointer',
+        fontSize: '1rem',
+        fontWeight: 'bold',
+        transition: 'background-color 0.2s ease',
+    },
+    actionButton: {
+        padding: '0.4rem 0.8rem',
+        border: 'none',
+        borderRadius: '6px',
+        color: '#fff',
+        cursor: 'pointer',
+        fontSize: '0.9rem',
+        marginRight: '0.5rem',
+    },
+
+    // Confirmation Modal specific
+    confirmationDetails: {
+        margin: '1rem 0',
+        padding: '1rem',
+        backgroundColor: '#f8f9fa',
+        borderRadius: '8px',
+        border: '1px solid var(--border-color)',
+    },
+    confirmationRow: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        padding: '0.25rem 0',
+    },
+    
+    // Tables
+    table: {
+        width: '100%',
+        borderCollapse: 'collapse',
+        backgroundColor: 'var(--surface-color)',
+    },
+    th: {
+        backgroundColor: '#f8f9fa',
+        padding: '0.75rem 1rem',
+        textAlign: 'left',
+        borderBottom: '2px solid var(--border-color)',
+        fontWeight: 600,
+        color: 'var(--secondary-color)',
+        fontSize: '0.9rem',
+    },
+    td: {
+        padding: '0.75rem 1rem',
+        borderBottom: '1px solid var(--border-color)',
+        verticalAlign: 'middle',
+    },
+    gridInput: {
+        width: '100%',
+        padding: '0.5rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '4px',
+        boxSizing: 'border-box',
+    },
+    wideGridInput: {
+        width: '100%',
+        padding: '0.5rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '4px',
+        boxSizing: 'border-box',
+    },
+    
+    // Layouts & Views
+    viewContainer: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '1.5rem',
+    },
+    viewHeader: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: '1rem',
+    },
+    emptyMessage: {
+        textAlign: 'center',
+        color: 'var(--secondary-color)',
+        padding: '2rem',
+    },
+    
+    // Badges
+    proBadge: {
+        position: 'absolute',
+        top: '-10px',
+        right: '-10px',
+        background: 'linear-gradient(45deg, #ffc107, #ff9800)',
+        color: 'black',
+        padding: '0.2rem 0.6rem',
+        borderRadius: '12px',
+        fontSize: '0.8rem',
+        fontWeight: 'bold',
+        border: '2px solid white',
+    },
+    proBadgeSmall: {
+        position: 'absolute',
+        bottom: '-8px',
+        right: '-8px',
+        backgroundColor: 'var(--primary-color)',
+        color: 'white',
+        padding: '0.1rem 0.4rem',
+        borderRadius: '8px',
+        fontSize: '0.7rem',
+        fontWeight: 'bold',
+    },
+    dueTag: {
+        backgroundColor: 'var(--danger-color)',
+        color: 'white',
+        padding: '0.2rem 0.5rem',
+        borderRadius: '12px',
+        fontSize: '0.8rem',
+        fontWeight: 'bold',
+    },
+    
+    // Reports View
+    reportFilters: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '1rem',
+    },
+    dateRangePicker: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.5rem',
+    },
+    reportTabs: {
+        display: 'flex',
+        borderBottom: '1px solid var(--border-color)',
+    },
+    reportTabButton: {
+        padding: '0.75rem 1.5rem',
+        border: 'none',
+        background: 'none',
+        cursor: 'pointer',
+        fontSize: '1rem',
+        color: 'var(--secondary-color)',
+        position: 'relative',
+    },
+    reportTabButtonActive: {
+        color: 'var(--primary-color)',
+        fontWeight: 'bold',
+        borderBottom: '3px solid var(--primary-color)',
+    },
+    reportSummary: {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+        gap: '1rem',
+    },
+    summaryCard: {
+        backgroundColor: 'var(--surface-color)',
+        padding: '1.5rem',
+        borderRadius: '8px',
+        border: '1px solid var(--border-color)',
+        textAlign: 'center',
+    },
+
+    // Customer View
+    customerViewLayout: {
+        display: 'flex',
+        gap: '1.5rem',
+        height: '70vh',
+    },
+    customerListPanel: {
+        flex: 1,
+        backgroundColor: 'var(--surface-color)',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        display: 'flex',
+        flexDirection: 'column',
+    },
+    customerDetailPanel: {
+        flex: 2,
+        backgroundColor: 'var(--surface-color)',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        padding: '1.5rem',
+    },
+    customerListItem: {
+        padding: '1rem 1.5rem',
+        borderBottom: '1px solid var(--border-color)',
+        cursor: 'pointer',
+    },
+    customerListItemActive: {
+        backgroundColor: 'var(--primary-color-light)',
+        borderLeft: '4px solid var(--primary-color)',
+        paddingLeft: 'calc(1.5rem - 4px)',
+    },
+    customerDetailHeader: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        paddingBottom: '1rem',
+        borderBottom: '1px solid var(--border-color)',
+        marginBottom: '1rem',
+    },
+    purchaseHistoryItem: {
+        padding: '1rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        marginBottom: '1rem',
+    },
+    
+    // Sales View
+    priceModeSelector: {
+        display: 'flex',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        overflow: 'hidden',
+    },
+    priceModeLabel: {
+        padding: '0.5rem 1rem',
+        cursor: 'pointer',
+        backgroundColor: 'var(--surface-color)',
+        color: 'var(--secondary-color)',
+    },
+    priceModeLabelChecked: {
+        backgroundColor: 'var(--primary-color)',
+        color: 'white',
+    },
+    priceModeLabel_input: {
+        display: 'none',
+    },
+    customerSection: {
+        display: 'flex',
+        gap: '1rem',
+        marginBottom: '1rem',
+    },
+    customerInput: {
+        flex: 2,
+        width: '100%',
+        padding: '0.75rem 1rem',
+        borderRadius: '8px',
+        border: '1px solid var(--border-color)',
+        fontSize: '1rem',
+        boxSizing: 'border-box',
+    },
+    countryCodeInput: {
+        flex: '0 0 70px',
+        width: '100%',
+        padding: '0.75rem 1rem',
+        border: '1px solid var(--border-color)',
+        fontSize: '1rem',
+        boxSizing: 'border-box',
+        borderRight: 'none',
+        borderTopLeftRadius: '8px',
+        borderBottomLeftRadius: '8px',
+    },
+    mobileNumberInput: {
+        flex: 1,
+        width: '100%',
+        padding: '0.75rem 1rem',
+        border: '1px solid var(--border-color)',
+        fontSize: '1rem',
+        boxSizing: 'border-box',
+        borderTopRightRadius: '8px',
+        borderBottomRightRadius: '8px',
+    },
+    barcodeScanButton: {
+        position: 'absolute',
+        right: '50px',
+        top: '50%',
+        transform: 'translateY(-50%)',
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: '0.5rem',
+    },
+    voiceSearchButton: {
+        position: 'absolute',
+        right: '10px',
+        top: '50%',
+        transform: 'translateY(-50%)',
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: '0.5rem',
+    },
+    searchResults: {
+        position: 'absolute',
+        top: '100%',
+        left: 0,
+        right: 0,
+        backgroundColor: 'var(--surface-color)',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+        listStyle: 'none',
+        padding: '0.5rem 0',
+        margin: '0.25rem 0 0 0',
+        zIndex: 100,
+        maxHeight: '300px',
+        overflowY: 'auto',
+    },
+    searchResultItem: {
+        padding: '0.75rem 1rem',
+        cursor: 'pointer',
+    },
+    highlighted: {
+        backgroundColor: 'var(--primary-color-light)',
+    },
+    totalsSection: {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        alignItems: 'center',
+        gap: '1.5rem',
+        marginTop: '1rem',
+        paddingTop: '1rem',
+        borderTop: '1px solid var(--border-color)',
+    },
+    totalsInput: {
+        padding: '0.5rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '4px',
+        width: '100px',
+    },
+    grandTotal: {
+        textAlign: 'right',
+        marginLeft: '2rem',
+    },
+    backupSection: {
+        marginTop: '2rem',
+        padding: '1.5rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        backgroundColor: '#f8f9fa',
+    },
+    backupTitle: { marginTop: 0 },
+    backupDescription: { color: 'var(--secondary-color)' },
+    backupActions: { display: 'flex', gap: '1rem', marginTop: '1rem' },
+
+    // Mobile Sales View
+    mobileSingleColumnLayout: {
+        height: 'calc(100vh - 120px)',
+        display: 'flex',
+        flexDirection: 'column',
+    },
+    mobileScrollableContent: {
+        flex: 1,
+        overflowY: 'auto',
+        padding: '1rem',
+    },
+    mobileSection: {
+        marginBottom: '1.5rem',
+    },
+    mobileSectionTitle: {
+        margin: '0 0 1rem 0',
+        fontSize: '1.1rem',
+        borderBottom: '1px solid var(--border-color)',
+        paddingBottom: '0.5rem',
+    },
+    mobileSettingsGroup: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '0.5rem',
+    },
+    mobileSettingsLabel: {
+        margin: 0,
+        color: 'var(--secondary-color)',
+    },
+    mobileInput: {
+        width: '100%',
+        padding: '0.75rem 1rem',
+        borderRadius: '8px',
+        border: '1px solid var(--border-color)',
+        fontSize: '1rem',
+        boxSizing: 'border-box',
+    },
+    mobileButton: {
+        width: '100%',
+        padding: '0.75rem 1.25rem',
+        border: 'none',
+        borderRadius: '8px',
+        backgroundColor: 'var(--primary-color)',
+        color: '#fff',
+        cursor: 'pointer',
+        fontSize: '1rem',
+        fontWeight: 'bold',
+    },
+    mobileInputIconButton: {
+        position: 'absolute',
+        right: '5px',
+        top: '50%',
+        transform: 'translateY(-50%)',
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: '0.5rem',
+    },
+    mobileInlineSearchResults: {
+        listStyle: 'none',
+        padding: 0,
+        margin: '0.5rem 0 0 0',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        maxHeight: '200px',
+        overflowY: 'auto',
+    },
+    mobileInlineSearchResultItem: {
+        padding: '0.75rem',
+        borderBottom: '1px solid var(--border-color)',
+    },
+    mobileBillItemCard: {
+        backgroundColor: 'var(--surface-color)',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        padding: '1rem',
+        marginBottom: '0.75rem',
+    },
+    mobileBillItemCardReturn: {
+        borderColor: 'var(--danger-color)',
+        backgroundColor: '#ffebee',
+    },
+    mobileBillItemInfo: {
+        marginBottom: '0.75rem',
+    },
+    mobileBillItemControls: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    mobileQuantityControls: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '1rem',
+    },
+    mobileRoundButton: {
+        width: '32px',
+        height: '32px',
+        borderRadius: '50%',
+        border: '1px solid var(--border-color)',
+        backgroundColor: 'white',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        cursor: 'pointer',
+    },
+    mobilePaymentRow: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '0.75rem 0',
+    },
+    mobilePaymentInput: {
+        width: '120px',
+        padding: '0.5rem',
+        textAlign: 'right',
+        border: '1px solid var(--border-color)',
+        borderRadius: '4px',
+    },
+    mobileGrandTotal: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '1rem 0',
+        fontWeight: 'bold',
+        fontSize: '1.2rem',
+        borderTop: '1px solid var(--border-color)',
+        marginTop: '0.5rem',
+    },
+    mobileBottomActionBar: {
+        padding: '1rem',
+        backgroundColor: 'var(--surface-color)',
+        borderTop: '1px solid var(--border-color)',
+    },
+    mobileFinalizeButton: {
+        width: '100%',
+        padding: '1rem',
+        border: 'none',
+        borderRadius: '8px',
+        backgroundColor: 'var(--success-color)',
+        color: '#fff',
+        cursor: 'pointer',
+        fontSize: '1.1rem',
+        fontWeight: 'bold',
+    },
+
+    // Shop Manager
+    shopListItem: {
+        padding: '1rem 1.5rem',
+        borderBottom: '1px solid var(--border-color)',
+        cursor: 'pointer',
+    },
+    shopListItemActive: {
+        backgroundColor: 'var(--primary-color-light)',
+        fontWeight: 'bold',
+        color: 'var(--primary-color)',
+    },
+    
+    // Dropdowns
+    dropdownContainer: {
+        position: 'relative',
+    },
+    dropdownButton: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.5rem',
+        padding: '0.5rem 1rem',
+        backgroundColor: 'var(--surface-color)',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        cursor: 'pointer',
+        minWidth: '180px',
+        justifyContent: 'space-between',
+    },
+    dropdownMenu: {
+        position: 'absolute',
+        top: 'calc(100% + 5px)',
+        left: 0,
+        backgroundColor: 'var(--surface-color)',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+        zIndex: 10,
+        width: '100%',
+        padding: '0.5rem 0',
+    },
+    dropdownMenuItem: {
+        display: 'block',
+        width: '100%',
+        padding: '0.75rem 1rem',
+        border: 'none',
+        background: 'none',
+        textAlign: 'left',
+        cursor: 'pointer',
+    },
+    dropdownMenuItemActive: {
+        backgroundColor: 'var(--primary-color-light)',
+    },
+    
+    // Settings
+    settingsGrid: {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        gap: '1rem',
+        marginBottom: '1rem'
+    },
+    checkboxControl: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.5rem'
+    },
+    settingsCard: {
+        backgroundColor: 'var(--surface-color)',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        padding: '1.5rem',
+        marginBottom: '1.5rem',
+    },
+    featureListItem: {
+        padding: '0.75rem 0',
+        fontSize: '1.1rem',
+    },
+    
+    // Session Dropdown
+    sessionDropdownContainer: { position: 'relative' },
+    sessionDropdownButton: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.5rem',
+        padding: '0.5rem 1rem',
+        backgroundColor: 'var(--surface-color)',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        cursor: 'pointer',
+        minWidth: '150px',
+    },
+    sessionDropdownMenu: {
+        position: 'absolute',
+        top: 'calc(100% + 5px)',
+        right: 0,
+        backgroundColor: 'var(--surface-color)',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+        zIndex: 10,
+        width: '250px',
+        padding: '0.5rem 0',
+    },
+    sessionDropdownHeader: {
+        padding: '0.75rem 1rem',
+        borderBottom: '1px solid var(--border-color)',
+    },
+    sessionDropdownInfoItem: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        padding: '0.75rem 1rem',
+        fontSize: '0.9rem',
+    },
+    sessionDropdownSeparator: {
+        border: 'none',
+        borderTop: '1px solid var(--border-color)',
+        margin: '0.5rem 0',
+    },
+    
+    // Nav
+    billSelector: {
+        display: 'flex',
+        backgroundColor: '#e9ecef',
+        borderRadius: '8px',
+        padding: '0.25rem',
+    },
+    billButton: {
+        padding: '0.5rem 1rem',
+        border: 'none',
+        background: 'none',
+        borderRadius: '6px',
+        cursor: 'pointer',
+        fontWeight: 'bold',
+    },
+    billButtonActive: {
+        backgroundColor: 'var(--surface-color)',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+    },
+    // General & Layout
+    appContainer: {
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100vh',
+        fontFamily: "'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif",
+        color: 'var(--text-color)',
+        backgroundColor: 'var(--background-color)',
+    },
+    nav: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '0.75rem 1.5rem',
+        backgroundColor: 'var(--surface-color)',
+        borderBottom: '1px solid var(--border-color)',
+        flexShrink: 0,
+    },
+    mainContent: {
+        flex: 1,
+        overflowY: 'auto',
+        padding: '1.5rem',
+    },
+};
 
 // --- MAIN APP COMPONENT ---
 const App = () => {
@@ -3605,7 +4355,14 @@ const App = () => {
         if (savedPlan) setUserPlan(savedPlan);
 
         const savedUsage = localStorage.getItem('aiUsage');
-        if (savedUsage) { /* ... */ }
+        if (savedUsage) { 
+            try {
+                const parsedUsage = JSON.parse(savedUsage);
+                setAiUsage(parsedUsage);
+            } catch(e) {
+                console.error("Failed to parse AI usage from localStorage", e);
+            }
+        }
         
         const savedSync = localStorage.getItem('cloudSyncEnabled');
         if (savedSync === 'true') setIsCloudSyncEnabled(true);
@@ -3942,503 +4699,368 @@ const App = () => {
         } : s);
         setShops(updatedShops);
     };
-    
-    const handleUpdateProductDetails = async (productId: number, field: 'description' | 'descriptionTamil', value: string) => {
+
+    const handleUpdateProductDetails = async (productId: number, field: keyof Product, value: string) => {
         if (!activeShop) return;
+
         db.run(`UPDATE products SET ${field} = ? WHERE id = ? AND shop_id = ?`, [value, productId, activeShop.id]);
         await saveDbToIndexedDB();
-    
-        const updatedShops = shops.map(s => s.id === activeShop.id ? {
-            ...s,
-            products: s.products.map(p => p.id === productId ? { ...p, [field]: value } : p)
-        } : s);
+        
+        const updatedShops = shops.map(s => {
+            if (s.id !== activeShop.id) return s;
+            return {
+                ...s,
+                products: s.products.map(p => p.id === productId ? {...p, [field]: value} : p)
+            };
+        });
         setShops(updatedShops);
     };
 
-    const handleSingleDeleteRequest = (id: number) => {
-        setProductIdsToDelete([id]);
-        setIsConfirmModalOpen(true);
-    };
-
-    const handleBulkDeleteRequest = () => {
-        setProductIdsToDelete(selectedProductIds);
-        setIsConfirmModalOpen(true);
-    };
-    
-    const handleConfirmDelete = async () => {
-        if (productIdsToDelete.length === 0 || !activeShop) return;
-        const placeholders = productIdsToDelete.map(() => '?').join(',');
-        db.run(`DELETE FROM products WHERE id IN (${placeholders}) AND shop_id = ?`, [...productIdsToDelete, activeShop.id]);
+    const handleDeleteProduct = async (productIds: number[]) => {
+        if (!activeShop) return;
+        
+        const placeholders = productIds.map(() => '?').join(',');
+        db.run(`DELETE FROM products WHERE id IN (${placeholders}) AND shop_id = ?`, [...productIds, activeShop.id]);
         await saveDbToIndexedDB();
-
+        
         const updatedShops = shops.map(s => s.id === activeShop.id ? {
             ...s,
-            products: s.products.filter(p => !productIdsToDelete.includes(p.id))
+            products: s.products.filter(p => !productIds.includes(p.id))
         } : s);
         setShops(updatedShops);
-        setProductIdsToDelete([]);
-        setSelectedProductIds([]);
+    };
+
+    const handleDeleteSelectedProducts = () => {
+        if (selectedProductIds.length > 0) {
+            setProductIdsToDelete(selectedProductIds);
+            setIsConfirmModalOpen(true);
+        }
+    };
+
+    const confirmDelete = () => {
+        handleDeleteProduct(productIdsToDelete);
         setIsConfirmModalOpen(false);
-    };
-
-    const handleCancelDelete = () => {
         setProductIdsToDelete([]);
-        setIsConfirmModalOpen(false);
+        setSelectedProductIds([]); // Clear selection after deletion
     };
 
-    const handleOpenProductModal = (product: Product | null = null) => {
-        setEditingProduct(product);
-        setIsProductModalOpen(true);
-    };
-    
-    // --- CUSTOMER CRUD ---
-    const handleOpenCustomerModal = (customer: Customer | null = null) => {
-        setEditingCustomer(customer);
-        setIsCustomerModalOpen(true);
-    };
-    
-    const handleSaveOrUpdateCustomer = async (customerData: Omit<Customer, 'id'>) => {
-        try {
-            if (editingCustomer) { // Update
-                const originalMobile = editingCustomer.mobile;
-                const updatedCustomer = { ...editingCustomer, ...customerData };
-
-                db.exec("BEGIN TRANSACTION;");
-                db.run("UPDATE customers SET name = ?, mobile = ? WHERE id = ?", [updatedCustomer.name, updatedCustomer.mobile, updatedCustomer.id]);
-                if (originalMobile !== updatedCustomer.mobile) {
-                    db.run("UPDATE sales_history SET customerMobile = ? WHERE customerMobile = ?", [updatedCustomer.mobile, originalMobile]);
-                }
-                db.exec("COMMIT;");
-                
-                const updatedShops = shops.map(shop => ({
-                    ...shop,
-                    salesHistory: shop.salesHistory.map(sale => sale.customerMobile === originalMobile ? {...sale, customerMobile: updatedCustomer.mobile} : sale)
-                }));
-                setShops(updatedShops);
-
-            } else { // Create
-                db.run("INSERT INTO customers (name, mobile) VALUES (?, ?)", [customerData.name, customerData.mobile]);
-            }
-            await saveDbToIndexedDB();
-            const customersFromDb = sqlResultToObjects(db.exec("SELECT * FROM customers ORDER BY name"));
-            setCustomers(customersFromDb);
-            setIsCustomerModalOpen(false);
-            setEditingCustomer(null);
-        } catch(e: any) {
-             db.exec("ROLLBACK;");
-             alert(`Failed to save customer. Error: ${e.message}. The mobile number might already exist.`);
-        }
-    };
-    
-    const handleConfirmDeleteCustomer = async () => {
-        if (!customerToDelete) return;
-        try {
-            db.run("DELETE FROM customers WHERE id = ?", [customerToDelete.id]);
-            await saveDbToIndexedDB();
-            setCustomers(prev => prev.filter(c => c.id !== customerToDelete.id));
-            setCustomerToDelete(null);
-        } catch(e) {
-            alert("Failed to delete customer.");
-        }
-    };
-
-    // --- USER CRUD ---
-    const refreshUsers = () => {
-        if (!db || !currentUser) return;
-        let usersFromDb = [];
-        if (currentUser.role === 'super_admin') {
-            usersFromDb = sqlResultToObjects(db.exec("SELECT id, username, role, shop_id FROM users"));
-        } else if (currentUser.role === 'shop_admin') {
-            usersFromDb = sqlResultToObjects(db.exec("SELECT id, username, role, shop_id FROM users WHERE shop_id = ?", [currentUser.shop_id]));
-        }
-        setUsers(usersFromDb);
-    };
-
-    const handleUserAdd = async (userData: any) => {
-        if (!currentUser) return;
-        try {
-            const hashedPassword = await hashPassword(userData.password);
-            const shopId = currentUser.role === 'super_admin' ? userData.shop_id : currentUser.shop_id;
-            db.run("INSERT INTO users (username, password_hash, role, shop_id) VALUES (?, ?, ?, ?)",
-                [userData.username.toLowerCase(), hashedPassword, userData.role, shopId]);
-            await saveDbToIndexedDB();
-            refreshUsers();
-        } catch (e: any) {
-            alert(`Error adding user: ${e.message}`);
-        }
-    };
-
-    const handleUserUpdate = async (userData: any) => {
-        try {
-            if (userData.password) {
-                const hashedPassword = await hashPassword(userData.password);
-                db.run("UPDATE users SET username = ?, password_hash = ?, role = ?, shop_id = ? WHERE id = ?",
-                    [userData.username.toLowerCase(), hashedPassword, userData.role, userData.shop_id, userData.id]);
-            } else {
-                db.run("UPDATE users SET username = ?, role = ?, shop_id = ? WHERE id = ?",
-                    [userData.username.toLowerCase(), userData.role, userData.shop_id, userData.id]);
-            }
-            await saveDbToIndexedDB();
-            refreshUsers();
-        } catch (e: any) {
-            alert(`Error updating user: ${e.message}`);
-        }
-    };
-    
-    const handleUserDelete = async (userId: number) => {
-        try {
-            db.run("DELETE FROM users WHERE id = ?", [userId]);
-            await saveDbToIndexedDB();
-            refreshUsers();
-        } catch (e: any) {
-             alert(`Error deleting user: ${e.message}`);
-        }
-    };
-
-    // --- SALE CALCULATIONS & LOGIC ---
-
-    // Calculate previous balance whenever customer mobile changes
-    useEffect(() => {
-        const calculatePreviousBalance = () => {
-            const mobile = activeCart.customerMobile?.replace(/\s/g, ''); // Remove spaces for comparison
-            if (!mobile || mobile.length < 10) { // Basic validation
-                setPreviousBalancesDue(prev => {
-                    const newBalances = [...prev];
-                    newBalances[activeCartIndex] = 0;
-                    return newBalances;
-                });
-                return;
-            }
-    
-            let totalDue = 0;
-            shops.forEach(shop => {
-                shop.salesHistory.forEach(sale => {
-                    if (sale.customerMobile?.replace(/\s/g, '') === mobile && sale.balance_due > 0) {
-                        totalDue += sale.balance_due;
-                    }
-                });
-            });
-    
-            setPreviousBalancesDue(prev => {
-                const newBalances = [...prev];
-                newBalances[activeCartIndex] = totalDue;
-                return newBalances;
-            });
-        };
-    
-        calculatePreviousBalance();
-    }, [activeCart.customerMobile, activeCartIndex, shops]);
-
-    const subtotal = activeCart.items.reduce((acc, item) => {
+    const subtotal = activeCart.items.reduce((sum, item) => {
         const itemTotal = item.quantity * item.price;
-        return item.isReturn ? acc - itemTotal : acc + itemTotal;
+        return item.isReturn ? sum - itemTotal : sum + itemTotal;
     }, 0);
-    const taxAmount = (subtotal - activeCart.discount) * (activeCart.tax / 100);
-    const currentBillTotal = subtotal - activeCart.discount + taxAmount;
-    const total = Math.round(currentBillTotal) + previousBalanceDue;
-    const finalBalance = total - paidAmount;
-    
-    useEffect(() => {
-        if (!amountPaidEdited) {
-            setPaidAmount(total);
-        }
-    }, [total, activeCartIndex, amountPaidEdited]);
 
-    
-    const resetSale = () => {
-        updateActiveCart(defaultCartState);
+    const taxAmount = subtotal * (activeCart.tax / 100);
+    const total = subtotal - activeCart.discount + taxAmount + previousBalanceDue;
+
+    const resetCart = () => {
+        setCarts(prev => {
+            const newCarts = [...prev];
+            newCarts[activeCartIndex] = {...defaultCartState};
+            return newCarts;
+        });
         setPaidAmount(0);
+        handleAmountPaidEdit(); // To reset the flag
         setAmountPaidEditedFlags(prev => {
             const newFlags = [...prev];
             newFlags[activeCartIndex] = false;
             return newFlags;
         });
+        setPreviousBalancesDue(prev => {
+            const newBalances = [...prev];
+            newBalances[activeCartIndex] = 0;
+            return newBalances;
+        });
     };
-
-    const handlePreviewRequest = () => {
-        if (activeCart.items.length === 0 && previousBalanceDue <= 0) return;
+    
+    const handleFinalizeSale = () => {
+        const grandTotal = parseFloat(total.toFixed(2)); // Use calculated total
+        const amountPaidNum = parseFloat(paidAmount.toString()); // Ensure it's a number
         
-        const shouldShowConfirmation = previousBalanceDue > 0 || finalBalance > 0;
-
-        if (shouldShowConfirmation) {
-            setIsSaleConfirmModalOpen(true);
-        } else {
-            setIsInvoiceModalOpen(true);
+        if (activeCart.items.length === 0 && previousBalanceDue <= 0) {
+            alert("Cannot finalize an empty sale with no previous balance.");
+            return;
         }
-    };
 
-    const handleConfirmAndPreview = () => {
-        setIsSaleConfirmModalOpen(false);
-        setIsInvoiceModalOpen(true);
-    };
+        const newBalance = grandTotal - amountPaidNum;
 
-    const handleFinalizeSale = async () => {
+        // Show confirmation modal
+        setIsSaleConfirmModalOpen(true);
+    };
+    
+    const handleSaleConfirmation = async () => {
         if (!activeShop) return;
-        
-        const finalBalanceDue = total - paidAmount;
-        const carriedBalance = previousBalanceDue;
 
-        const saleRecord: Omit<SaleRecord, 'items'> = {
-            id: `sale-${Date.now()}`,
+        const grandTotal = parseFloat(total.toFixed(2));
+        const amountPaidNum = parseFloat(String(paidAmount));
+        const newBalance = grandTotal - amountPaidNum;
+
+        const newSale: SaleRecord = {
+            id: `sale-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
             date: new Date().toISOString(),
-            subtotal,
+            items: activeCart.items,
+            subtotal: subtotal,
             discount: activeCart.discount,
             tax: taxAmount,
-            total,
-            paid_amount: paidAmount,
-            balance_due: finalBalanceDue,
+            total: grandTotal,
+            paid_amount: amountPaidNum,
+            balance_due: newBalance > 0 ? newBalance : 0,
             customerName: activeCart.customerName,
-            customerMobile: activeCart.customerMobile,
+            customerMobile: activeCart.customerMobile
         };
+        
+        // --- DB OPERATIONS ---
+        db.run("INSERT INTO sales_history (id, shop_id, date, subtotal, discount, tax, total, paid_amount, balance_due, customerName, customerMobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+            [newSale.id, activeShop.id, newSale.date, newSale.subtotal, newSale.discount, newSale.tax, newSale.total, newSale.paid_amount, newSale.balance_due, newSale.customerName, newSale.customerMobile]
+        );
+        
+        const itemStmt = db.prepare("INSERT INTO sale_items (sale_id, productId, shop_id, description, descriptionTamil, quantity, price, isReturn, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        const stockUpdateStmts: { [key: number]: number } = {};
 
-        try {
-            db.exec("BEGIN TRANSACTION;");
+        newSale.items.forEach(item => {
+            itemStmt.run([newSale.id, item.productId, activeShop.id, item.description, item.descriptionTamil, item.quantity, item.price, item.isReturn ? 1 : 0, item.hsnCode]);
+            const stockChange = item.isReturn ? item.quantity : -item.quantity;
+            stockUpdateStmts[item.productId] = (stockUpdateStmts[item.productId] || 0) + stockChange;
+        });
+        itemStmt.free();
 
-            // Clear previous balances if any were carried over
-            if (carriedBalance > 0 && activeCart.customerMobile) {
-                db.run(
-                    "UPDATE sales_history SET balance_due = 0 WHERE customerMobile = ? AND balance_due > 0",
-                    [activeCart.customerMobile]
-                );
-            }
+        const stockStmt = db.prepare("UPDATE products SET stock = stock + ? WHERE id = ? AND shop_id = ?");
+        Object.entries(stockUpdateStmts).forEach(([productId, change]) => {
+            stockStmt.run([change, parseInt(productId), activeShop.id]);
+        });
+        stockStmt.free();
+        
+        await saveDbToIndexedDB();
 
-            // Upsert customer if mobile and name are provided
-            if (activeCart.customerMobile && activeCart.customerName) {
-                db.run(
-                    "INSERT INTO customers (name, mobile) VALUES (?, ?) ON CONFLICT(mobile) DO UPDATE SET name=excluded.name",
-                    [activeCart.customerName, activeCart.customerMobile]
-                );
-            }
-
-            db.run("INSERT INTO sales_history (id, shop_id, date, subtotal, discount, tax, total, paid_amount, balance_due, customerName, customerMobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
-                saleRecord.id, activeShop.id, saleRecord.date, saleRecord.subtotal, saleRecord.discount, saleRecord.tax, saleRecord.total, saleRecord.paid_amount, saleRecord.balance_due, saleRecord.customerName, saleRecord.customerMobile
-            ]);
-            
-            // Log the initial payment if any
-            if(paidAmount > 0) {
-                 db.run("INSERT INTO payment_history (sale_id, date, amount_paid, payment_method) VALUES (?, ?, ?, ?)", [
-                    saleRecord.id, saleRecord.date, paidAmount, 'Initial'
-                ]);
-            }
-
-            const newProductsState = [...activeShop.products];
-            activeCart.items.forEach(item => {
-                db.run("INSERT INTO sale_items (sale_id, productId, shop_id, description, descriptionTamil, quantity, price, isReturn, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [
-                    saleRecord.id, item.productId, activeShop.id, item.description, item.descriptionTamil, item.quantity, item.price, item.isReturn ? 1 : 0, item.hsnCode
-                ]);
-                const stockChange = item.isReturn ? item.quantity : -item.quantity;
-                db.run("UPDATE products SET stock = stock + ? WHERE id = ? AND shop_id = ?", [stockChange, item.productId, activeShop.id]);
-                const productIndex = newProductsState.findIndex(p => p.id === item.productId);
-                if (productIndex > -1) newProductsState[productIndex].stock += stockChange;
-            });
-            db.exec("COMMIT;");
-            await saveDbToIndexedDB();
-
-            const fullSaleRecord = { ...saleRecord, items: activeCart.items };
-            
-            // Update local state to reflect the new sale and cleared balances
-            const updatedShops = shops.map(s => {
-                if (s.id === activeShop.id) {
-                    let newHistory = [fullSaleRecord, ...s.salesHistory];
-                    if (carriedBalance > 0 && activeCart.customerMobile) {
-                        newHistory = newHistory.map(sale => {
-                            if (sale.id !== fullSaleRecord.id && sale.customerMobile === activeCart.customerMobile && sale.balance_due > 0) {
-                                return { ...sale, balance_due: 0 };
-                            }
-                            return sale;
-                        });
+        // --- UPDATE STATE ---
+        const updatedShops = shops.map(s => {
+            if (s.id !== activeShop.id) return s;
+            return {
+                ...s,
+                salesHistory: [newSale, ...s.salesHistory],
+                products: s.products.map(p => {
+                    if (stockUpdateStmts[p.id]) {
+                        return { ...p, stock: p.stock + stockUpdateStmts[p.id] };
                     }
-                    return {
-                        ...s,
-                        products: newProductsState,
-                        salesHistory: newHistory
-                    };
-                }
-                return s;
-            });
-            setShops(updatedShops);
-            
-            // Refetch customers to reflect any new additions from the sale
-            const customersFromDb = sqlResultToObjects(db.exec("SELECT * FROM customers ORDER BY name"));
-            setCustomers(customersFromDb);
-            
-            resetSale();
-            setIsInvoiceModalOpen(false);
-        } catch(e) {
-            console.error("Failed to finalize sale:", e);
-            db.exec("ROLLBACK;");
-            alert("An error occurred while saving the sale. Please try again.");
-        }
+                    return p;
+                })
+            };
+        });
+        setShops(updatedShops);
+        
+        setIsSaleConfirmModalOpen(false); // Close confirmation modal
+        setIsInvoiceModalOpen(false); // Close preview modal
+        resetCart(); // Reset the current cart for a new sale
     };
     
-    const handleAddPayment = async (saleId: string, amount: number, method: string) => {
+    // --- CUSTOMER MANAGEMENT ---
+    const handleSaveCustomer = async (customerData: Omit<Customer, 'id'>) => {
+        if (editingCustomer) {
+            // Update
+            db.run(`UPDATE customers SET name = ?, mobile = ? WHERE id = ?`, [customerData.name, customerData.mobile, editingCustomer.id]);
+            await saveDbToIndexedDB();
+            setCustomers(customers.map(c => c.id === editingCustomer.id ? { ...c, ...customerData } : c));
+        } else {
+            // Create
+            try {
+                db.run(`INSERT INTO customers (name, mobile) VALUES (?, ?)`, [customerData.name, customerData.mobile]);
+                const newId = db.exec("select last_insert_rowid();")[0].values[0][0];
+                await saveDbToIndexedDB();
+                setCustomers([...customers, { id: newId, ...customerData }]);
+            } catch (e: any) {
+                if (e.message.includes('UNIQUE constraint failed')) {
+                    alert('A customer with this mobile number already exists.');
+                } else {
+                    alert('An error occurred. Please try again.');
+                    console.error(e);
+                }
+            }
+        }
+        setIsCustomerModalOpen(false);
+        setEditingCustomer(null);
+    };
+
+    const handleDeleteCustomer = (customer: Customer) => {
+        setCustomerToDelete(customer);
+    };
+
+    const confirmDeleteCustomer = async () => {
+        if (!customerToDelete) return;
+        db.run(`DELETE FROM customers WHERE id = ?`, [customerToDelete.id]);
+        await saveDbToIndexedDB();
+        setCustomers(customers.filter(c => c.id !== customerToDelete.id));
+        setCustomerToDelete(null);
+    };
+
+    // --- BULK ADD LOGIC ---
+    // Fix: Defined 'handleBulkAddProducts' to save products from the bulk add modal.
+    const handleBulkAddProducts = async (productsToSave: EditableProduct[]) => {
         if (!activeShop) return;
+        
+        let nextId = activeShop.nextProductId;
+        const newProducts: Product[] = [];
+
+        // Using transactions for performance and atomicity
+        db.exec("BEGIN TRANSACTION;");
         try {
-            db.exec("BEGIN TRANSACTION;");
-            // Add to payment history
-            db.run("INSERT INTO payment_history (sale_id, date, amount_paid, payment_method) VALUES (?, ?, ?, ?)", [
-                saleId, new Date().toISOString(), amount, method
-            ]);
-            // Update the sales_history record
-            db.run("UPDATE sales_history SET paid_amount = paid_amount + ?, balance_due = balance_due - ? WHERE id = ?", [
-                amount, amount, saleId
-            ]);
+            const productStmt = db.prepare("INSERT INTO products (id, shop_id, description, descriptionTamil, barcode, b2bPrice, b2cPrice, stock, category, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            
+            for (const productData of productsToSave) {
+                const newProduct = { ...productData, id: nextId };
+                productStmt.run([
+                    newProduct.id,
+                    activeShop.id,
+                    newProduct.description,
+                    productData.descriptionTamil || '',
+                    productData.barcode || '',
+                    productData.b2bPrice,
+                    productData.b2cPrice,
+                    productData.stock,
+                    productData.category || '',
+                    productData.hsnCode || ''
+                ]);
+                newProducts.push(newProduct);
+                nextId++;
+            }
+            productStmt.free();
+            
+            db.run("UPDATE shops SET nextProductId = ? WHERE id = ?", [nextId, activeShop.id]);
+            
             db.exec("COMMIT;");
             await saveDbToIndexedDB();
-            
-            // Update local state
-            const updatedShops = shops.map(s => {
-                if (s.id === activeShop.id) {
-                    return {
-                        ...s,
-                        salesHistory: s.salesHistory.map(sale => {
-                            if (sale.id === saleId) {
-                                return {
-                                    ...sale,
-                                    paid_amount: sale.paid_amount + amount,
-                                    balance_due: sale.balance_due - amount,
-                                };
-                            }
-                            return sale;
-                        })
-                    };
-                }
-                return s;
-            });
+
+            // Update state
+            const updatedShops = shops.map(s => s.id === activeShop.id ? {
+                ...s,
+                products: [...s.products, ...newProducts],
+                nextProductId: nextId,
+            } : s);
             setShops(updatedShops);
+            
+            // Close modal and reset state
+            setIsBulkAddModalOpen(false);
+            setBulkAddProducts([]);
+            setBulkAddFileSrc(null);
+            setBulkAddFileType(null);
+            setBulkAddFileNames(null);
+            setBulkAddError(null);
 
-        } catch(e) {
-            console.error("Failed to add payment:", e);
+        } catch (err: any) {
             db.exec("ROLLBACK;");
-            alert("An error occurred while adding the payment.");
-        }
-    };
-    
-    const handleSaveBackup = () => {
-        if (!db) return alert("Database is not initialized.");
-        try {
-            const dbFile = db.export();
-            const blob = new Blob([dbFile], { type: 'application/x-sqlite3' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            const date = new Date().toISOString().slice(0, 10);
-            const shopName = activeShop ? activeShop.name.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'all_shops';
-            a.href = url;
-            a.download = `pos_backup_${shopName}_${date}.sqlite`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        } catch (error) {
-            console.error("Failed to create backup:", error);
-            alert("Error: Could not create backup file.");
+            console.error("Failed to bulk add products:", err);
+            setBulkAddError("An error occurred while saving products to the database. Please check the data and try again: " + err.message);
+            // Don't close modal on error
         }
     };
 
-    const handleRestoreBackup = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
+    const handleBulkAddFromFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!checkAndIncrementAiUsage()) {
+            e.target.value = ''; // Reset file input
+            return;
+        }
+        const file = e.target.files?.[0];
         if (!file) return;
 
         const reader = new FileReader();
-        let startTime = 0;
+        reader.onload = async (event) => {
+            const base64Image = (event.target?.result as string).split(',')[1];
+            setBulkAddFileSrc(event.target?.result as string);
+            setBulkAddFileType('image');
+            setIsBulkAddModalOpen(true);
+            setIsBulkAddLoading(true);
+            setBulkAddError(null);
 
-        const formatEta = (seconds: number): string => {
-            if (seconds < 1) return '< 1s';
-            if (seconds < 60) return `${Math.round(seconds)}s`;
-            const minutes = Math.floor(seconds / 60);
-            const remainingSeconds = Math.round(seconds % 60);
-            return `${minutes}m ${remainingSeconds}s`;
-        };
-
-        reader.onloadstart = () => {
-            startTime = Date.now();
-            setRestoreProgress({ visible: true, percentage: 0, eta: 'Calculating...', message: 'Reading File...' });
-        };
-
-        reader.onprogress = (e) => {
-            if (e.lengthComputable && e.total > 0) {
-                const percentage = (e.loaded / e.total) * 100;
-                const elapsedTime = (Date.now() - startTime) / 1000; // in seconds
-                
-                const speed = elapsedTime > 0 ? e.loaded / elapsedTime : 0;
-                const remainingBytes = e.total - e.loaded;
-                const remainingTime = speed > 0 ? remainingBytes / speed : Infinity;
-                
-                setRestoreProgress(prev => ({
-                    ...prev,
-                    percentage,
-                    eta: isFinite(remainingTime) ? formatEta(remainingTime) : 'Calculating...'
-                }));
-            }
-        };
-
-        reader.onload = async (e) => {
             try {
-                // Step 1: File read complete, now processing
-                setRestoreProgress(prev => ({ ...prev, percentage: 100, eta: '0s', message: 'Processing Database...' }));
-                await new Promise(resolve => setTimeout(resolve, 50)); // Allow UI to update before blocking
-
-                const arrayBuffer = e.target?.result as ArrayBuffer;
-                const dbFile = new Uint8Array(arrayBuffer);
+                const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
                 
-                // This is the blocking part
-                const SQL = await initSqlJs({
-                    locateFile: (file: string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}`
+                const response = await ai.models.generateContent({
+                    model: "gemini-2.5-flash",
+                    contents: {
+                        parts: [
+                            { inlineData: { mimeType: file.type, data: base64Image } },
+                            { text: `
+                                From the provided image of a product price list, extract the following details for each item:
+                                - description: The name or description of the product.
+                                - descriptionTamil: The name of the product in Tamil, if available.
+                                - category: A suitable category for the product (e.g., 'Groceries', 'Snacks').
+                                - b2bPrice: The business-to-business or wholesale price. If not available, set to 0.
+                                - b2cPrice: The business-to-customer or retail price. If not available, set to 0.
+                                - stock: The initial stock quantity. Default to 0 if not mentioned.
+                                - barcode: The product's barcode or SKU. Leave empty if not available.
+                            ` },
+                        ],
+                    },
+                    config: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    description: { type: Type.STRING },
+                                    descriptionTamil: { type: Type.STRING },
+                                    category: { type: Type.STRING },
+                                    b2bPrice: { type: Type.NUMBER },
+                                    b2cPrice: { type: Type.NUMBER },
+                                    stock: { type: Type.NUMBER },
+                                    barcode: { type: Type.STRING },
+                                },
+                            },
+                        },
+                    },
                 });
-                db = new SQL.Database(dbFile);
 
-                // Step 2: Processing complete, now saving
-                setRestoreProgress(prev => ({ ...prev, message: 'Saving to Browser...' }));
-                await new Promise(resolve => setTimeout(resolve, 50)); // Allow UI to update
+                const parsedProducts = extractAndParseJson(response.text);
+                setBulkAddProducts(parsedProducts);
                 
-                await saveDbToIndexedDB();
-
-                // Step 3: All done
-                setRestoreProgress(prev => ({ ...prev, message: 'Restore Complete!' }));
-                await new Promise(resolve => setTimeout(resolve, 1000)); // Let user see the success message
-                
-                alert("Backup restored successfully! The app will now reload.");
-                window.location.reload();
-
             } catch (error: any) {
-                console.error("Failed to restore backup:", error);
-                setRestoreProgress({ visible: false, percentage: 0, eta: '...', message: '' });
-                alert(`Error: Could not restore backup. The file may be corrupt or not a valid SQLite database. Details: ${error.message}`);
+                console.error("Error with Gemini API:", error);
+                setBulkAddError(error.message || "An unknown error occurred while processing the image.");
             } finally {
-                if (event.target) event.target.value = '';
+                setIsBulkAddLoading(false);
             }
         };
-        
-        reader.onerror = () => {
-             setRestoreProgress({ visible: false, percentage: 0, eta: '...', message: '' });
-             alert("Error reading the file.");
-             if (event.target) event.target.value = '';
-        };
-
-        reader.readAsArrayBuffer(file);
+        reader.readAsDataURL(file);
+        e.target.value = ''; // Reset file input
     };
     
-    // --- BULK ADD LOGIC ---
-    const processImageForProducts = async (base64ImageData: string, mimeType: string) => {
+    const handleBulkAddFromPdfs = async (b2bFile: File, b2cFile: File) => {
+        if (!checkAndIncrementAiUsage()) return;
+
+        setIsPdfUploadModalOpen(false);
+        setIsBulkAddModalOpen(true);
         setIsBulkAddLoading(true);
         setBulkAddError(null);
-        setBulkAddProducts([]);
+        setBulkAddFileType('dual-pdf');
+        setBulkAddFileNames({ b2b: b2bFile.name, b2c: b2cFile.name });
 
         try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            const imagePart = {
-                inlineData: {
-                    mimeType: mimeType,
-                    data: base64ImageData,
-                },
-            };
-            const textPart = {
-                text: "Analyze the products in this image. Extract the product description in both English and Tamil (if available), and a suitable category for each item. Do not invent prices, stock levels, or barcodes. Return the data as a JSON array.",
-            };
+            const toBase64 = (file: File): Promise<string> => new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve((reader.result as string).split(',')[1]);
+                reader.onerror = error => reject(error);
+            });
 
+            const [b2bBase64, b2cBase64] = await Promise.all([toBase64(b2bFile), toBase64(b2cFile)]);
+
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            
             const response = await ai.models.generateContent({
                 model: "gemini-2.5-flash",
-                contents: { parts: [imagePart, textPart] },
+                contents: {
+                    parts: [
+                        { text: "Here are two PDF files containing B2B and B2C product price lists. Please act as an expert data entry operator." },
+                        { inlineData: { mimeType: 'application/pdf', data: b2bBase64 } },
+                        { inlineData: { mimeType: 'application/pdf', data: b2cBase64 } },
+                        { text: `
+                            Your task is to:
+                            1.  Carefully analyze both PDF files. The first is the B2B price list, and the second is the B2C price list.
+                            2.  Match the products between the two lists based on their names or descriptions.
+                            3.  Extract the description, b2bPrice (from the first PDF), and b2cPrice (from the second PDF) for each product.
+                            4.  Also extract descriptionTamil, category, and barcode if available. If not, leave them as empty strings. Default stock to 0.
+                        `},
+                    ],
+                },
                 config: {
                     responseMimeType: "application/json",
                     responseSchema: {
@@ -4446,1247 +5068,461 @@ const App = () => {
                         items: {
                             type: Type.OBJECT,
                             properties: {
-                                description: {
-                                    type: Type.STRING,
-                                    description: 'The name or description of the product.',
-                                },
-                                descriptionTamil: {
-                                    type: Type.STRING,
-                                    description: 'The Tamil name or description of the product.',
-                                },
-                                category: {
-                                    type: Type.STRING,
-                                    description: 'A suitable category for the product (e.g., Fruits, Bakery, Dairy).',
-                                },
+                                description: { type: Type.STRING },
+                                descriptionTamil: { type: Type.STRING },
+                                category: { type: Type.STRING },
+                                b2bPrice: { type: Type.NUMBER },
+                                b2cPrice: { type: Type.NUMBER },
+                                stock: { type: Type.NUMBER },
+                                barcode: { type: Type.STRING },
                             },
-                            required: ["description", "category"],
                         },
                     },
                 },
             });
             
             const parsedProducts = extractAndParseJson(response.text);
-
-            if (Array.isArray(parsedProducts)) {
-                 const editableProducts: EditableProduct[] = parsedProducts.map(p => ({
-                    description: p.description || '',
-                    descriptionTamil: p.descriptionTamil || '',
-                    category: p.category || '',
-                    barcode: '',
-                    b2bPrice: 0,
-                    b2cPrice: 0,
-                    stock: 0,
-                }));
-                setBulkAddProducts(editableProducts);
-            } else {
-                throw new Error("AI did not return a valid list of products.");
-            }
+            setBulkAddProducts(parsedProducts);
 
         } catch (error: any) {
-            console.error("Error processing image with Gemini:", error);
-            setBulkAddError(error.message || "An unknown error occurred while analyzing the image.");
+            console.error("Error with Gemini API:", error);
+            setBulkAddError(error.message || "An unknown error occurred while processing the PDFs.");
         } finally {
             setIsBulkAddLoading(false);
         }
     };
     
-    const processPdfsForProducts = async (b2bPdfData: string, b2cPdfData: string) => {
-        setIsBulkAddLoading(true);
-        setBulkAddError(null);
-        setBulkAddProducts([]);
-
-        try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            
-            const systemInstruction = "You are an expert data extraction assistant specializing in retail product lists. Your task is to analyze PDF documents and accurately extract product information. You must differentiate between English and Tamil text for product descriptions and format the output as a JSON array based on the provided schema.";
-            
-            const userPrompt = {
-                text: "From this PDF, extract the product list. For each item, identify the English description, the separate Tamil description, and the price from the 'Sal.Rate' column. If a Tamil description is not present for an item, leave that field as an empty string.",
-            };
-            
-            const config = {
-                 systemInstruction,
-                 responseMimeType: "application/json",
-                 responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            description: { 
-                                type: Type.STRING, 
-                                description: 'The full English name or description of the product. This should not contain any Tamil characters.' 
-                            },
-                            descriptionTamil: { 
-                                type: Type.STRING, 
-                                description: 'The Tamil name or description of the product. This should only contain Tamil characters if found. If not found, this must be an empty string.' 
-                            },
-                            price: { 
-                                type: Type.NUMBER, 
-                                description: 'The price of the product, extracted from the "Sal.Rate" column.' 
-                            },
-                        },
-                        required: ["description", "price"],
-                    },
-                },
-            };
-
-            const b2bRequest = ai.models.generateContent({
-                model: "gemini-2.5-flash",
-                contents: { parts: [{ inlineData: { mimeType: 'application/pdf', data: b2bPdfData } }, userPrompt] },
-                config: config,
-            });
-
-            const b2cRequest = ai.models.generateContent({
-                model: "gemini-2.5-flash",
-                contents: { parts: [{ inlineData: { mimeType: 'application/pdf', data: b2cPdfData } }, userPrompt] },
-                config: config,
-            });
-
-            const [b2bResponse, b2cResponse] = await Promise.all([b2bRequest, b2cRequest]);
-
-            const b2bResults = extractAndParseJson(b2bResponse.text);
-            const b2cResults = extractAndParseJson(b2cResponse.text);
-            
-            if (!Array.isArray(b2bResults) || !Array.isArray(b2cResults)) {
-                throw new Error("AI did not return a valid list of products from one or both documents.");
-            }
-
-            const mergedProductsMap = new Map<string, EditableProduct>();
-
-            b2bResults.forEach(item => {
-                const key = (item.description || '').trim().toLowerCase();
-                if(key) {
-                    mergedProductsMap.set(key, {
-                        description: item.description,
-                        descriptionTamil: item.descriptionTamil || '',
-                        category: '',
-                        barcode: '',
-                        b2bPrice: item.price || 0,
-                        b2cPrice: 0,
-                        stock: 0,
-                    });
-                }
-            });
-
-            b2cResults.forEach(item => {
-                const key = (item.description || '').trim().toLowerCase();
-                if (key) {
-                    const existing = mergedProductsMap.get(key);
-                    if (existing) {
-                        existing.b2cPrice = item.price || 0;
-                         if (!existing.descriptionTamil && item.descriptionTamil) {
-                            existing.descriptionTamil = item.descriptionTamil;
-                        }
-                    } else {
-                        mergedProductsMap.set(key, {
-                            description: item.description,
-                            descriptionTamil: item.descriptionTamil || '',
-                            category: '',
-                            barcode: '',
-                            b2bPrice: 0,
-                            b2cPrice: item.price || 0,
-                            stock: 0
-                        });
-                    }
-                }
-            });
-            
-            setBulkAddProducts(Array.from(mergedProductsMap.values()));
-
-        } catch (error: any) {
-            console.error("Error processing PDFs with Gemini:", error);
-            setBulkAddError(error.message || "An unknown error occurred while analyzing the PDFs.");
-        } finally {
-            setIsBulkAddLoading(false);
-        }
+    // --- BACKUP & RESTORE ---
+    const handleSaveBackup = async () => {
+        if (!db) return;
+        const data = db.export();
+        const blob = new Blob([data]);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        const date = new Date().toISOString().slice(0, 10);
+        link.download = `pos_backup_${date}.sqlite`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     };
-
-
-    const handleFileSelectForBulkAdd = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
+    
+    const handleRestoreBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
         if (!file) return;
 
         const reader = new FileReader();
-        reader.onload = (e) => {
-            const result = e.target?.result as string;
-            setBulkAddFileSrc(result);
-            setBulkAddFileType('image');
-            setIsBulkAddModalOpen(true);
-            const base64String = result.split(',')[1];
-            processImageForProducts(base64String, file.type);
-        };
-        reader.readAsDataURL(file);
-        event.target.value = ''; // Reset input to allow re-selection of the same file
-    };
-
-    const handleProcessPdfs = (b2bFile: File, b2cFile: File) => {
-        setIsPdfUploadModalOpen(false);
-        setBulkAddFileNames({ b2b: b2bFile.name, b2c: b2cFile.name });
-        setIsBulkAddModalOpen(true);
-        setBulkAddFileType('dual-pdf');
-
-        const readerB2b = new FileReader();
-        const readerB2c = new FileReader();
-        let b2bData: string, b2cData: string;
-
-        readerB2b.onload = (e) => {
-            b2bData = (e.target?.result as string).split(',')[1];
-            if (b2cData) processPdfsForProducts(b2bData, b2cData);
-        };
-        readerB2c.onload = (e) => {
-            b2cData = (e.target?.result as string).split(',')[1];
-            if (b2cData) processPdfsForProducts(b2bData, b2cData);
-        };
-
-        readerB2b.readAsDataURL(b2bFile);
-        readerB2c.readAsDataURL(b2cFile);
-    };
-
-    const handleCloseBulkAddModal = () => {
-        setIsBulkAddModalOpen(false);
-        setBulkAddFileSrc(null);
-        setBulkAddFileNames(null);
-        setBulkAddFileType(null);
-        setBulkAddProducts([]);
-        setBulkAddError(null);
-    };
-
-    const handleSaveBulkProducts = async (newProducts: EditableProduct[]) => {
-        if (!activeShop) return;
+        const startTime = Date.now();
         
-        db.exec("BEGIN TRANSACTION;");
-        let currentId = activeShop.nextProductId;
-        const productsToAdd: Product[] = [];
+        reader.onprogress = (event) => {
+            if (event.lengthComputable) {
+                const percentage = (event.loaded / event.total) * 100;
+                const elapsedTime = (Date.now() - startTime) / 1000; // in seconds
+                const bps = event.loaded / elapsedTime;
+                const remainingBytes = event.total - event.loaded;
+                const etaSeconds = Math.round(remainingBytes / bps);
+                const eta = etaSeconds > 60 ? `${Math.floor(etaSeconds / 60)}m ${etaSeconds % 60}s` : `${etaSeconds}s`;
+                
+                setRestoreProgress({ visible: true, percentage, eta, message: 'Loading file...' });
+            }
+        };
+        
+        reader.onload = async () => {
+            try {
+                const arrayBuffer = reader.result as ArrayBuffer;
+                const uInt8Array = new Uint8Array(arrayBuffer);
+                
+                setRestoreProgress({ visible: true, percentage: 100, eta: '0s', message: 'Restoring database...' });
+                
+                const SQL = await initSqlJs({ locateFile: (file: string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}` });
+                db = new SQL.Database(uInt8Array);
+                
+                await saveDbToIndexedDB();
+                
+                // Show a final success message briefly before reload
+                setRestoreProgress(prev => ({ ...prev, message: 'Restore successful! Reloading...' }));
+                
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1500);
+                
+            } catch (err: any) {
+                console.error("Failed to restore database:", err);
+                alert(`Error restoring database: ${err.message}`);
+                setRestoreProgress({ visible: false, percentage: 0, eta: '', message: '' });
+            }
+        };
+        
+        reader.onerror = () => {
+             alert('Failed to read the backup file.');
+             setRestoreProgress({ visible: false, percentage: 0, eta: '', message: '' });
+        }
+
+        reader.readAsArrayBuffer(file);
+        e.target.value = ''; // Reset file input
+    };
+
+    // --- USER MANAGEMENT ---
+    const handleUserAdd = async (userData: any) => {
+        if (!activeShop && currentUser.role === 'shop_admin') {
+            alert("No active shop found to assign user.");
+            return;
+        }
+
         try {
-            newProducts.forEach(p => {
-                const newProduct = { ...p, id: currentId++ };
-                productsToAdd.push(newProduct);
-                db.run("INSERT INTO products (id, shop_id, description, descriptionTamil, barcode, b2bPrice, b2cPrice, stock, category, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    [newProduct.id, activeShop.id, newProduct.description, newProduct.descriptionTamil, newProduct.barcode, newProduct.b2bPrice, newProduct.b2cPrice, newProduct.stock, newProduct.category, newProduct.hsnCode]
-                );
-            });
-            db.run("UPDATE shops SET nextProductId = ? WHERE id = ?", [currentId, activeShop.id]);
-            db.exec("COMMIT;");
+            const password_hash = await hashPassword(userData.password);
+            const shop_id = currentUser.role === 'super_admin' ? userData.shop_id : activeShop?.id;
+            
+            db.run(
+                "INSERT INTO users (username, password_hash, role, shop_id) VALUES (?, ?, ?, ?)",
+                [userData.username.toLowerCase(), password_hash, userData.role, shop_id]
+            );
+            const newId = db.exec("select last_insert_rowid();")[0].values[0][0];
             await saveDbToIndexedDB();
 
-            const updatedShops = shops.map(s => s.id === activeShop.id ? {
-                ...s,
-                products: [...s.products, ...productsToAdd],
-                nextProductId: currentId,
-            } : s);
-            setShops(updatedShops);
-            handleCloseBulkAddModal();
-        } catch(e) {
-            console.error("Bulk save failed", e);
-            db.exec("ROLLBACK;");
-            alert("An error occurred during bulk save. Please try again.");
+            const newUser: User = { id: newId, username: userData.username, role: userData.role, shop_id };
+            setUsers(prev => [...prev, newUser]);
+        } catch (e: any) {
+             if (e.message.includes('UNIQUE constraint failed')) {
+                alert('A user with this username already exists.');
+            } else {
+                alert('An error occurred while creating the user.');
+                console.error(e);
+            }
         }
     };
 
-    const deletionMessage = productIdsToDelete.length === 1 && activeShop
-        ? `the product "${activeShop.products.find(p => p.id === productIdsToDelete[0])?.description}"`
-        : `${productIdsToDelete.length} products`;
+    const handleUserUpdate = async (userData: any) => {
+        try {
+            let query = "UPDATE users SET username = ?, role = ?, shop_id = ?";
+            const params: any[] = [userData.username.toLowerCase(), userData.role, userData.shop_id];
+
+            if (userData.password) {
+                const password_hash = await hashPassword(userData.password);
+                query += ", password_hash = ?";
+                params.push(password_hash);
+            }
+            query += " WHERE id = ?";
+            params.push(userData.id);
+            
+            db.run(query, params);
+            await saveDbToIndexedDB();
+
+            setUsers(prev => prev.map(u => u.id === userData.id ? { ...u, ...userData } : u));
+        } catch (e: any) {
+            alert('An error occurred while updating the user.');
+            console.error(e);
+        }
+    };
     
-    // Sample sale for bill settings preview
-    const sampleSaleForPreview: SaleRecord = {
-        id: 'sample-123',
-        date: new Date().toISOString(),
-        items: [
-            { id: 1, productId: 101, description: 'Sample Product A', quantity: 2, price: 150.0, isReturn: false, hsnCode: '1234' },
-            { id: 2, productId: 102, description: 'Sample Product B (with a longer name)', quantity: 1, price: 399.50, isReturn: false, hsnCode: '5678' },
-        ],
-        subtotal: 699.50,
-        discount: 50,
-        tax: 64.95,
-        total: 714.45,
-        paid_amount: 715,
-        balance_due: -0.55,
-        customerName: 'John Doe',
-        customerMobile: '9876543210'
+    const handleUserDelete = async (userId: number) => {
+        try {
+            db.run("DELETE FROM users WHERE id = ?", [userId]);
+            await saveDbToIndexedDB();
+            setUsers(prev => prev.filter(u => u.id !== userId));
+        } catch (e: any) {
+            alert('An error occurred while deleting the user.');
+            console.error(e);
+        }
+    };
+
+    // --- PAYMENT HANDLING ---
+    const handleAddPayment = async (saleId: string, amount: number, method: string) => {
+        if (!activeShop) return;
+        
+        const sale = activeShop.salesHistory.find(s => s.id === saleId);
+        if (!sale) return;
+
+        const newPaidAmount = sale.paid_amount + amount;
+        const newBalanceDue = sale.total - newPaidAmount;
+
+        db.run(
+            `UPDATE sales_history SET paid_amount = ?, balance_due = ? WHERE id = ?`,
+            [newPaidAmount, newBalanceDue, saleId]
+        );
+        db.run(
+            `INSERT INTO payment_history (sale_id, date, amount_paid, payment_method) VALUES (?, ?, ?, ?)`,
+            [saleId, new Date().toISOString(), amount, method]
+        );
+        await saveDbToIndexedDB();
+        
+        // Update state
+        const updatedShops = shops.map(s => {
+            if (s.id !== activeShop.id) return s;
+            return {
+                ...s,
+                salesHistory: s.salesHistory.map(sh => sh.id === saleId ? {
+                    ...sh,
+                    paid_amount: newPaidAmount,
+                    balance_due: newBalanceDue
+                } : sh)
+            };
+        });
+        setShops(updatedShops);
+    };
+
+    const handlePrint = (sale: SaleRecord) => {
+        setSaleToPrint(sale);
+        setTimeout(() => {
+            window.print();
+            setSaleToPrint(null);
+        }, 300); // Allow time for modal to render before printing
     };
 
 
-    if (dbLoading) {
-        return (
-            <div style={{...styles.appContainer, justifyContent: 'center', alignItems: 'center', minHeight: '400px'}}>
-                <h2>Initializing Database...</h2>
-                <p>Please wait. This may take a moment on the first run.</p>
-            </div>
-        );
-    }
+    useEffect(() => {
+        if (activeCart.customerMobile && activeCart.customerMobile.length > 5) {
+            const history = activeShop?.salesHistory || [];
+            const customerSales = history.filter(s => s.customerMobile === activeCart.customerMobile && s.balance_due > 0);
+            const balance = customerSales.reduce((acc, sale) => acc + sale.balance_due, 0);
+            
+            setPreviousBalancesDue(prev => {
+                const newBalances = [...prev];
+                newBalances[activeCartIndex] = balance;
+                return newBalances;
+            });
+        } else {
+             setPreviousBalancesDue(prev => {
+                const newBalances = [...prev];
+                newBalances[activeCartIndex] = 0;
+                return newBalances;
+            });
+        }
+    }, [activeCart.customerMobile, activeShop?.salesHistory, activeCartIndex]);
 
+
+    const renderActiveView = () => {
+        if (!activeShop) {
+            return (
+                <div style={{textAlign: 'center', padding: '2rem'}}>
+                    <h2>No Shop Selected</h2>
+                    {currentUser?.role === 'super_admin' && 
+                        <p>Please select a shop from the user menu or create a new one in the Shop Manager.</p>
+                    }
+                </div>
+            );
+        }
+        
+        switch (activeView) {
+            case 'sales':
+                return <SalesView 
+                            products={activeShop.products}
+                            activeCart={activeCart}
+                            updateActiveCart={updateActiveCart}
+                            onPreview={() => setIsInvoiceModalOpen(true)}
+                            total={total}
+                            paidAmount={paidAmount}
+                            setPaidAmount={setPaidAmount}
+                            onAmountPaidEdit={handleAmountPaidEdit}
+                            previousBalanceDue={previousBalanceDue}
+                            onShowHistory={() => setIsHistoryModalOpen(true)}
+                            onSaveBackup={handleSaveBackup}
+                            onRestoreBackup={handleRestoreBackup}
+                            onUpdateProductPrice={handleUpdateProductPrice}
+                            onUpdateProductDetails={handleUpdateProductDetails}
+                            onAddNewProduct={handleAddNewProductFromSale}
+                            isOnline={isOnline}
+                            viewMode={viewMode}
+                            setViewMode={setViewMode}
+                            currentUser={currentUser}
+                        />;
+            case 'products':
+                return <ProductsView 
+                            products={activeShop.products}
+                            onEdit={(p) => { setEditingProduct(p); setIsProductModalOpen(true); }}
+                            onDelete={(id) => { setProductIdsToDelete([id]); setIsConfirmModalOpen(true); }}
+                            onAdd={() => { setEditingProduct(null); setIsProductModalOpen(true); }}
+                            onBulkAdd={handleBulkAddFromFile}
+                            onBulkAddPdfs={() => setIsPdfUploadModalOpen(true)}
+                            selectedProductIds={selectedProductIds}
+                            setSelectedProductIds={setSelectedProductIds}
+                            onDeleteSelected={handleDeleteSelectedProducts}
+                            isOnline={isOnline}
+                            aiUsage={{plan: userPlan, count: aiUsage.count}}
+                            onUpgrade={checkAndIncrementAiUsage}
+                            currentUser={currentUser}
+                        />;
+            case 'reports':
+                return <ReportsView 
+                            salesHistory={activeShop.salesHistory} 
+                            onPrint={handlePrint}
+                            userPlan={userPlan}
+                            onUpgrade={handleUpgradeRequest}
+                            isOnline={isOnline}
+                        />;
+            case 'customers':
+                return <CustomersView 
+                            customers={customers} 
+                            salesHistory={activeShop.salesHistory}
+                            onAdd={() => { setEditingCustomer(null); setIsCustomerModalOpen(true); }}
+                            onEdit={(c) => { setEditingCustomer(c); setIsCustomerModalOpen(true); }}
+                            onDelete={handleDeleteCustomer}
+                            currentUser={currentUser}
+                        />;
+            case 'settings':
+                 return <SettingsView 
+                            userPlan={userPlan}
+                            onRequestUpgrade={handleUpgradeRequest}
+                            onDowngrade={handleDowngrade}
+                            isCloudSyncEnabled={isCloudSyncEnabled}
+                            onToggleCloudSync={toggleCloudSync}
+                            onManageUsers={() => setActiveView('users')}
+                            billSettings={billSettings}
+                            onUpdateBillSettings={handleUpdateBillSettings}
+                            onPreviewBill={() => setIsBillSettingsPreviewOpen(true)}
+                        />;
+            case 'users':
+                return <UsersView 
+                            currentUser={currentUser!} 
+                            users={users} 
+                            shops={shops}
+                            onUserAdd={handleUserAdd}
+                            onUserUpdate={handleUserUpdate}
+                            onUserDelete={handleUserDelete}
+                        />;
+            case 'balance_due':
+                return <BalanceDueView 
+                            salesHistory={activeShop.salesHistory} 
+                            onAddPayment={(saleId, amount, method) => {
+                                handleAddPayment(saleId, amount, method);
+                            }}
+                            onPrint={handlePrint}
+                        />;
+            default:
+                return <div>View not found</div>;
+        }
+    };
+    
+    if (dbLoading) {
+        return <div style={{padding: '2rem'}}>Loading Database...</div>;
+    }
+    
     if (!currentUser) {
         return <LoginView onLoginSuccess={handleLoginSuccess} />;
     }
+    
+    if (isInitialSetup) {
+        return <InitialSetupModal onCreate={handleCreateShop} />;
+    }
 
+    // Main app view after login
     return (
-        <div style={styles.appContainer}>
+        <div style={{...styles.appContainer, width: viewMode === 'mobile' && activeView === 'sales' ? '414px' : '100%', maxWidth: '1400px', margin: '0 auto', backgroundColor: 'var(--surface-color)', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}}>
             <nav style={styles.nav}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <DropdownNav 
-                        activeView={activeView} 
-                        onSelectView={setActiveView} 
-                        disabled={!activeShop} 
-                        currentUser={currentUser}
-                    />
-                    {activeView === 'sales' && activeShop && (
-                        <div style={styles.billSelector}>
-                            {[1, 2, 3].map((billNumber, index) => (
-                                <button
-                                    key={billNumber}
-                                    onClick={() => setActiveCartIndex(index)}
-                                    style={activeCartIndex === index ? {...styles.billButton, ...styles.billButtonActive} : styles.billButton}
-                                    aria-label={`Switch to bill ${billNumber}`}
-                                    aria-current={activeCartIndex === index}
-                                >
-                                    {billNumber}
-                                </button>
-                            ))}
-                        </div>
-                    )}
-                </div>
-                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <SessionDropdown
-                        currentUser={currentUser}
-                        activeShop={activeShop}
-                        syncStatus={syncStatus}
-                        isCloudSyncEnabled={isCloudSyncEnabled}
-                        userPlan={userPlan}
-                        onShopManagerClick={() => setIsShopManagerOpen(true)}
-                        onLogout={handleLogout}
-                    />
-                </div>
+                <DropdownNav activeView={activeView} onSelectView={setActiveView} disabled={!activeShop} currentUser={currentUser} />
+                {activeView === 'sales' && (
+                    <div style={styles.billSelector}>
+                        {[0, 1, 2].map(index => (
+                            <button
+                                key={index}
+                                onClick={() => setActiveCartIndex(index)}
+                                style={activeCartIndex === index ? {...styles.billButton, ...styles.billButtonActive} : styles.billButton}
+                            >
+                                Bill {index + 1}
+                            </button>
+                        ))}
+                    </div>
+                )}
+                <SessionDropdown 
+                    currentUser={currentUser}
+                    activeShop={activeShop}
+                    syncStatus={syncStatus}
+                    isCloudSyncEnabled={isCloudSyncEnabled}
+                    userPlan={userPlan}
+                    onShopManagerClick={() => setIsShopManagerOpen(true)}
+                    onLogout={handleLogout}
+                />
             </nav>
             <main style={styles.mainContent}>
-                {!activeShop && !isInitialSetup && <p style={styles.emptyMessage}>No shop selected. Please create or select a shop from the Shop Manager.</p>}
-                {activeShop && activeView === 'sales' && 
-                    <SalesView 
-                        products={activeShop.products}
-                        activeCart={activeCart}
-                        updateActiveCart={updateActiveCart}
-                        onPreview={handlePreviewRequest}
-                        total={total}
-                        paidAmount={paidAmount}
-                        setPaidAmount={setPaidAmount}
-                        onAmountPaidEdit={handleAmountPaidEdit}
-                        previousBalanceDue={previousBalanceDue}
-                        onShowHistory={() => setIsHistoryModalOpen(true)}
-                        onSaveBackup={handleSaveBackup}
-                        onRestoreBackup={handleRestoreBackup}
-                        onUpdateProductPrice={handleUpdateProductPrice}
-                        onUpdateProductDetails={handleUpdateProductDetails}
-                        onAddNewProduct={handleAddNewProductFromSale}
-                        isOnline={isOnline}
-                        viewMode={viewMode}
-                        setViewMode={setViewMode}
-                        currentUser={currentUser}
-                    />
-                }
-                {activeShop && activeView === 'products' && 
-                    <ProductsView 
-                        products={activeShop.products}
-                        onAdd={() => handleOpenProductModal()}
-                        onEdit={handleOpenProductModal}
-                        onDelete={handleSingleDeleteRequest}
-                        onBulkAdd={handleFileSelectForBulkAdd}
-                        onBulkAddPdfs={() => setIsPdfUploadModalOpen(true)}
-                        selectedProductIds={selectedProductIds}
-                        setSelectedProductIds={setSelectedProductIds}
-                        onDeleteSelected={handleBulkDeleteRequest}
-                        isOnline={isOnline}
-                        aiUsage={{ plan: userPlan, count: aiUsage.count }}
-                        onUpgrade={checkAndIncrementAiUsage}
-                        currentUser={currentUser}
-                    />
-                }
-                 {activeShop && activeView === 'balance_due' &&
-                    <BalanceDueView
-                        salesHistory={activeShop.salesHistory}
-                        onAddPayment={(saleId, amount, method) => {
-                            handleAddPayment(saleId, amount, method);
-                        }}
-                        onPrint={setSaleToPrint}
-                    />
-                }
-                {activeShop && activeView === 'customers' &&
-                    <CustomersView
-                        customers={customers}
-                        salesHistory={activeShop.salesHistory}
-                        onAdd={() => handleOpenCustomerModal()}
-                        onEdit={handleOpenCustomerModal}
-                        onDelete={setCustomerToDelete}
-                        currentUser={currentUser}
-                    />
-                }
-                {activeShop && activeView === 'reports' && 
-                    <ReportsView 
-                        salesHistory={activeShop.salesHistory} 
-                        onPrint={setSaleToPrint} 
-                        userPlan={userPlan} 
-                        onUpgrade={handleUpgradeRequest}
-                        isOnline={isOnline}
-                    />
-                }
-                {activeView === 'users' && 
-                    <UsersView
-                        currentUser={currentUser}
-                        users={users}
-                        shops={shops}
-                        onUserAdd={handleUserAdd}
-                        onUserUpdate={handleUserUpdate}
-                        onUserDelete={handleUserDelete}
-                    />
-                }
-                 {activeView === 'settings' && 
-                    <SettingsView 
-                        userPlan={userPlan} 
-                        onRequestUpgrade={handleUpgradeRequest}
-                        onDowngrade={handleDowngrade}
-                        isCloudSyncEnabled={isCloudSyncEnabled}
-                        onToggleCloudSync={toggleCloudSync}
-                        onManageUsers={() => setActiveView('users')}
-                        billSettings={billSettings}
-                        onUpdateBillSettings={handleUpdateBillSettings}
-                        onPreviewBill={() => setIsBillSettingsPreviewOpen(true)}
-                    />
-                }
-                {isInitialSetup && <InitialSetupModal onCreate={handleCreateShop} />}
-                {isShopManagerOpen && (
-                    <ShopManagerModal 
-                        shops={shops} 
-                        activeShopId={activeShopId} 
-                        onSelect={handleSelectShop} 
-                        onCreate={handleCreateShop} 
-                        onClose={() => setIsShopManagerOpen(false)}
-                        userPlan={userPlan}
-                        onUpgrade={handleUpgradeRequest}
-                    />
-                )}
-                {isGoProModalOpen && <GoProModal onClose={() => setIsGoProModalOpen(false)} onUpgrade={handleUpgrade} />}
-                {isProductModalOpen && 
-                    <ProductFormModal 
-                        product={editingProduct} 
-                        onSave={handleSaveProduct} 
-                        onUpdate={handleUpdateProduct} 
-                        onClose={() => { setIsProductModalOpen(false); setEditingProduct(null); }} 
-                    />
-                }
-                {isCustomerModalOpen &&
-                    <CustomerFormModal
-                        customer={editingCustomer}
-                        onSave={handleSaveOrUpdateCustomer}
-                        onClose={() => { setIsCustomerModalOpen(false); setEditingCustomer(null); }}
-                    />
-                }
-                {customerToDelete &&
-                    <ConfirmationModal
-                        message={`Are you sure you want to delete ${customerToDelete.name}? This will remove the customer but their sales history will remain.`}
-                        onConfirm={handleConfirmDeleteCustomer}
-                        onCancel={() => setCustomerToDelete(null)}
-                    />
-                }
-                {isSaleConfirmModalOpen && (
-                    <SaleConfirmationModal
-                        details={{
-                            previousBalance: previousBalanceDue,
-                            currentBill: currentBillTotal,
-                            grandTotal: total,
-                            amountPaid: paidAmount,
-                            newBalance: finalBalance,
-                        }}
-                        onConfirm={handleConfirmAndPreview}
-                        onCancel={() => setIsSaleConfirmModalOpen(false)}
-                    />
-                )}
-                {isInvoiceModalOpen && 
+                {renderActiveView()}
+            </main>
+
+            {isProductModalOpen && <ProductFormModal product={editingProduct} onSave={handleSaveProduct} onUpdate={handleUpdateProduct} onClose={() => setIsProductModalOpen(false)} />}
+            {isCustomerModalOpen && <CustomerFormModal customer={editingCustomer} onSave={handleSaveCustomer} onClose={() => setIsCustomerModalOpen(false)} />}
+            {isConfirmModalOpen && <ConfirmationModal message={`Are you sure you want to delete ${productIdsToDelete.length} product(s)? This action cannot be undone.`} onConfirm={confirmDelete} onCancel={() => setIsConfirmModalOpen(false)} />}
+            {customerToDelete && <ConfirmationModal message={`Are you sure you want to delete customer "${customerToDelete.name}"? All their history will remain, but the customer record will be removed.`} onConfirm={confirmDeleteCustomer} onCancel={() => setCustomerToDelete(null)} />}
+            
+            {isInvoiceModalOpen && (
+                <InvoicePreviewModal 
+                    sale={{ ...activeCart, total, paid_amount: paidAmount, balance_due: total - paidAmount }} 
+                    billSettings={billSettings}
+                    customerName={activeCart.customerName}
+                    customerMobile={activeCart.customerMobile}
+                    onFinalize={handleFinalizeSale} 
+                    onClose={() => setIsInvoiceModalOpen(false)}
+                    onPrint={() => handlePrint({ ...activeCart, id: 'preview', date: new Date().toISOString(), total, subtotal, discount: activeCart.discount, tax: taxAmount, paid_amount: paidAmount, balance_due: total - paidAmount })}
+                    onWhatsApp={() => {}}
+                    language={activeCart.language}
+                    previousBalanceDue={previousBalanceDue}
+                    amountPaidEdited={amountPaidEdited}
+                />
+            )}
+            
+            {isSaleConfirmModalOpen && (
+                <SaleConfirmationModal 
+                    details={{
+                        previousBalance: previousBalanceDue,
+                        currentBill: total - previousBalanceDue,
+                        grandTotal: total,
+                        amountPaid: paidAmount,
+                        newBalance: total - paidAmount,
+                    }}
+                    onConfirm={handleSaleConfirmation}
+                    onCancel={() => setIsSaleConfirmModalOpen(false)}
+                />
+            )}
+            
+            {isBillSettingsPreviewOpen && (
+                <InvoicePreviewModal
+                    sale={{
+                        id: 'PREVIEW-123',
+                        date: new Date().toISOString(),
+                        items: [
+                            { id: 1, productId: 101, description: 'Sample Product 1', quantity: 2, price: 150.0, isReturn: false, hsnCode: '1234' },
+                            { id: 2, productId: 102, description: 'Another Item (Long Name)', quantity: 1, price: 450.50, isReturn: false, hsnCode: '5678' },
+                            { id: 3, productId: 103, description: 'Returned Item', quantity: 1, price: 99.0, isReturn: true, hsnCode: '9101' },
+                        ],
+                        subtotal: 802,
+                        discount: 50,
+                        tax: 75.2,
+                        total: 827.2,
+                        paid_amount: 827.2,
+                        balance_due: 0,
+                    }}
+                    billSettings={billSettings}
+                    customerName="John Doe"
+                    customerMobile="9876543210"
+                    onClose={() => setIsBillSettingsPreviewOpen(false)}
+                    language="english"
+                    previousBalanceDue={150.00}
+                    isPreviewMode={true}
+                />
+            )}
+
+            {saleToPrint && (
+                 <div className="printable-area">
                     <InvoicePreviewModal 
-                        sale={{ ...activeCart, total, subtotal, tax: taxAmount, paid_amount: paidAmount, balance_due: finalBalance }}
-                        billSettings={billSettings}
-                        customerName={activeCart.customerName}
-                        customerMobile={activeCart.customerMobile}
-                        onFinalize={handleFinalizeSale}
-                        onClose={() => setIsInvoiceModalOpen(false)}
-                        onPrint={() => window.print()}
-                        onWhatsApp={(number) => updateActiveCart({ customerMobile: number })}
-                        language={activeCart.language}
-                        previousBalanceDue={previousBalanceDue}
-                        amountPaidEdited={amountPaidEdited}
-                    />
-                }
-                {saleToPrint && 
-                    <InvoicePreviewModal
-                        sale={saleToPrint}
+                        sale={saleToPrint} 
                         billSettings={billSettings}
                         customerName={saleToPrint.customerName}
                         customerMobile={saleToPrint.customerMobile}
-                        onClose={() => setSaleToPrint(null)}
-                        onPrint={() => window.print()}
-                        onWhatsApp={() => {}} // No update needed for historical sales
-                        language={'english'} // default to english for history
-                        previousBalanceDue={0} // Historical invoices don't carry forward balances
-                        amountPaidEdited={true} // Always show details for historical prints
+                        language={activeCart.language}
+                        previousBalanceDue={0} // Note: This might not be accurate for historical prints, but complex to recalculate.
                     />
-                }
-                 {isBillSettingsPreviewOpen &&
-                    <InvoicePreviewModal
-                        sale={sampleSaleForPreview}
-                        billSettings={billSettings}
-                        customerName={sampleSaleForPreview.customerName}
-                        customerMobile={sampleSaleForPreview.customerMobile}
-                        onClose={() => setIsBillSettingsPreviewOpen(false)}
-                        onPrint={() => {
-                            // To print from preview, we need to temporarily move the content
-                            const content = document.querySelector('.invoice-preview-content-wrapper');
-                            if (content) {
-                                content.classList.add('printable-area');
-                                window.print();
-                                content.classList.remove('printable-area');
-                            }
-                        }}
-                        language={'english'}
-                        previousBalanceDue={0}
-                        amountPaidEdited={true}
-                        isPreviewMode={true}
-                    />
-                 }
-                {isHistoryModalOpen && activeShop &&
-                    <HistoryModal 
-                        salesHistory={activeShop.salesHistory} 
-                        customerMobile={activeCart.customerMobile} 
-                        onClose={() => setIsHistoryModalOpen(false)} 
-                    />
-                }
-                {isBulkAddModalOpen && (
-                    <BulkAddModal
-                        fileSrc={bulkAddFileSrc}
-                        fileType={bulkAddFileType}
-                        fileNames={bulkAddFileNames}
-                        initialProducts={bulkAddProducts}
-                        onSave={handleSaveBulkProducts}
-                        onClose={handleCloseBulkAddModal}
-                        loading={isBulkAddLoading}
-                        error={bulkAddError}
-                    />
-                )}
-                 {isPdfUploadModalOpen && (
-                    <PdfUploadModal 
-                        onProcess={handleProcessPdfs}
-                        onClose={() => setIsPdfUploadModalOpen(false)}
-                    />
-                )}
-                {isConfirmModalOpen && activeShop && (
-                    <ConfirmationModal
-                        message={`Are you sure you want to delete ${deletionMessage}? This action cannot be undone.`}
-                        onConfirm={handleConfirmDelete}
-                        onCancel={handleCancelDelete}
-                    />
-                )}
-                {restoreProgress.visible && (
-                    <RestoreProgressModal 
-                        percentage={restoreProgress.percentage}
-                        eta={restoreProgress.eta}
-                        message={restoreProgress.message}
-                    />
-                )}
-            </main>
+                </div>
+            )}
+            {isHistoryModalOpen && <HistoryModal salesHistory={activeShop.salesHistory} customerMobile={activeCart.customerMobile} onClose={() => setIsHistoryModalOpen(false)} />}
+            {isBulkAddModalOpen && <BulkAddModal fileSrc={bulkAddFileSrc} fileType={bulkAddFileType} fileNames={bulkAddFileNames} initialProducts={bulkAddProducts} onSave={handleBulkAddProducts} onClose={() => setIsBulkAddModalOpen(false)} loading={isBulkAddLoading} error={bulkAddError} />}
+            {isPdfUploadModalOpen && <PdfUploadModal onProcess={handleBulkAddFromPdfs} onClose={() => setIsPdfUploadModalOpen(false)} />}
+            {isGoProModalOpen && <GoProModal onClose={() => setIsGoProModalOpen(false)} onUpgrade={handleUpgrade} />}
+            {isShopManagerOpen && <ShopManagerModal shops={shops} activeShopId={activeShopId} onSelect={handleSelectShop} onCreate={handleCreateShop} onClose={() => setIsShopManagerOpen(false)} userPlan={userPlan} onUpgrade={handleUpgradeRequest} />}
+            {restoreProgress.visible && <RestoreProgressModal percentage={restoreProgress.percentage} eta={restoreProgress.eta} message={restoreProgress.message} />}
+
         </div>
     );
 };
 
-// --- STYLES ---
-const styles: { [key: string]: React.CSSProperties } = {
-    appContainer: {
-        width: '100%',
-        maxWidth: '1600px',
-        backgroundColor: 'var(--surface-color)',
-        borderRadius: '12px',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-        padding: '1.5rem',
-        boxSizing: 'border-box',
-    },
-    nav: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingBottom: '1rem',
-        borderBottom: '1px solid var(--border-color)',
-        marginBottom: '1rem',
-        flexWrap: 'wrap',
-        gap: '1rem'
-    },
-    navButton: {
-        padding: '0.6rem 1rem',
-        border: 'none',
-        borderRadius: '8px',
-        backgroundColor: 'transparent',
-        cursor: 'pointer',
-        fontSize: '1rem',
-        fontWeight: 500,
-        color: 'var(--secondary-color)',
-    },
-    navButtonActive: {
-        backgroundColor: 'var(--primary-color)',
-        color: '#fff',
-    },
-    billSelector: {
-        display: 'flex',
-        backgroundColor: 'var(--background-color)',
-        borderRadius: '8px',
-        padding: '0.25rem',
-        border: '1px solid var(--border-color)',
-    },
-    billButton: {
-        padding: '0.4rem 0.8rem',
-        border: 'none',
-        borderRadius: '6px',
-        backgroundColor: 'transparent',
-        cursor: 'pointer',
-        fontWeight: 500,
-        color: 'var(--secondary-color)',
-    },
-    billButtonActive: {
-        backgroundColor: 'var(--surface-color)',
-        color: 'var(--primary-color)',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-    },
-    mainContent: {
-        paddingTop: '1rem',
-    },
-    viewContainer: {
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '1.5rem',
-    },
-    viewHeader: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: '1rem'
-    },
-    input: {
-        padding: '0.75rem 1rem',
-        borderRadius: '8px',
-        border: '1px solid var(--border-color)',
-        fontSize: '1rem',
-        backgroundColor: 'var(--surface-color)',
-    },
-    button: {
-        padding: '0.75rem 1.25rem',
-        border: 'none',
-        borderRadius: '8px',
-        backgroundColor: 'var(--primary-color)',
-        color: '#fff',
-        cursor: 'pointer',
-        fontSize: '1rem',
-        fontWeight: 'bold',
-    },
-    table: {
-        width: '100%',
-        borderCollapse: 'collapse',
-    },
-    th: {
-        backgroundColor: 'var(--background-color)',
-        padding: '0.75rem 1rem',
-        textAlign: 'left',
-        borderBottom: '2px solid var(--border-color)',
-    },
-    td: {
-        padding: '0.75rem 1rem',
-        borderBottom: '1px solid var(--border-color)',
-    },
-    actionButton: {
-        padding: '0.4rem 0.8rem',
-        border: 'none',
-        borderRadius: '6px',
-        color: '#fff',
-        cursor: 'pointer',
-        marginRight: '0.5rem',
-    },
-    modalBackdrop: {
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        backgroundColor: 'rgba(0,0,0,0.6)',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        zIndex: 1000,
-    },
-    modalContent: {
-        backgroundColor: 'var(--surface-color)',
-        padding: '2rem',
-        borderRadius: '12px',
-        boxShadow: '0 5px 15px rgba(0,0,0,0.3)',
-        width: '90%',
-        maxWidth: '600px',
-    },
-    modalActions: {
-        display: 'flex',
-        justifyContent: 'flex-end',
-        gap: '1rem',
-        marginTop: '1.5rem',
-    },
-    productForm: {
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '1rem',
-    },
-    label: {
-        fontWeight: 'bold',
-        marginBottom: '-0.5rem',
-    },
-    emptyMessage: {
-        textAlign: 'center',
-        padding: '2rem',
-        color: 'var(--secondary-color)',
-    },
-    customerSection: {
-        display: 'flex',
-        gap: '1rem',
-        marginBottom: '1rem',
-    },
-    customerInput: {
-        flex: 2,
-        padding: '0.75rem 1rem',
-        borderRadius: '8px',
-        border: '1px solid var(--border-color)',
-        fontSize: '1rem',
-    },
-    countryCodeInput: {
-        flex: '0 0 70px',
-        padding: '0.75rem 1rem',
-        borderRadius: '8px 0 0 8px',
-        border: '1px solid var(--border-color)',
-        borderRight: 'none',
-        fontSize: '1rem',
-        textAlign: 'center',
-    },
-    mobileNumberInput: {
-        flex: 1,
-        padding: '0.75rem 1rem',
-        borderRadius: '0 8px 8px 0',
-        border: '1px solid var(--border-color)',
-        fontSize: '1rem',
-    },
-    searchResults: {
-        position: 'absolute',
-        top: '100%',
-        left: 0,
-        right: 0,
-        backgroundColor: 'var(--surface-color)',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
-        listStyle: 'none',
-        padding: 0,
-        margin: '0.5rem 0 0',
-        maxHeight: '300px',
-        overflowY: 'auto',
-        zIndex: 100,
-    },
-    searchResultItem: {
-        padding: '0.75rem 1rem',
-        cursor: 'pointer',
-    },
-    highlighted: {
-        backgroundColor: 'var(--background-color)',
-    },
-    gridInput: {
-        width: '80px',
-        padding: '0.5rem',
-        borderRadius: '6px',
-        border: '1px solid var(--border-color)',
-        fontSize: '1rem',
-    },
-    wideGridInput: {
-        width: '95%',
-        padding: '0.5rem',
-        borderRadius: '6px',
-        border: '1px solid var(--border-color)',
-        fontSize: '1rem',
-        backgroundColor: '#fff',
-        color: '#333'
-    },
-    totalsSection: {
-        display: 'flex',
-        justifyContent: 'flex-end',
-        alignItems: 'center',
-        gap: '1.5rem',
-        marginTop: '1.5rem',
-        paddingTop: '1rem',
-        borderTop: '1px solid var(--border-color)',
-    },
-    totalsInput: {
-        width: '100px',
-        padding: '0.5rem',
-        borderRadius: '6px',
-        border: '1px solid var(--border-color)',
-        fontSize: '1rem',
-    },
-    grandTotal: {
-        textAlign: 'right',
-        marginLeft: '1rem',
-        minWidth: '200px',
-    },
-    priceModeSelector: {
-        display: 'flex',
-        backgroundColor: 'var(--background-color)',
-        borderRadius: '8px',
-        padding: '0.25rem',
-    },
-    priceModeLabel: {
-        padding: '0.5rem 1rem',
-        borderRadius: '6px',
-        cursor: 'pointer',
-        fontWeight: 500,
-        color: 'var(--secondary-color)',
-    },
-    priceModeLabel_input: {
-        display: 'none',
-    },
-    priceModeLabelChecked: {
-        backgroundColor: 'var(--surface-color)',
-        color: 'var(--primary-color)',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-    },
-    voiceSearchButton: {
-        position: 'absolute',
-        right: '10px',
-        top: '50%',
-        transform: 'translateY(-50%)',
-        border: 'none',
-        background: 'transparent',
-        cursor: 'pointer',
-        padding: '0.5rem',
-    },
-    barcodeScanButton: {
-        position: 'absolute',
-        right: '50px',
-        top: '50%',
-        transform: 'translateY(-50%)',
-        border: 'none',
-        background: 'transparent',
-        cursor: 'pointer',
-        padding: '0.5rem',
-    },
-    shopListItem: {
-        padding: '1rem',
-        cursor: 'pointer',
-        borderBottom: '1px solid var(--border-color)',
-    },
-    shopListItemActive: {
-        backgroundColor: 'var(--primary-color)',
-        color: '#fff',
-        fontWeight: 'bold',
-    },
-    backupSection: {
-        marginTop: '2rem',
-        padding: '1.5rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        backgroundColor: 'var(--background-color)',
-    },
-    backupTitle: {
-        marginTop: 0,
-    },
-    backupDescription: {
-        color: 'var(--secondary-color)',
-        maxWidth: '600px',
-    },
-    backupActions: {
-        display: 'flex',
-        gap: '1rem',
-        marginTop: '1rem',
-    },
-    settingsCard: {
-        padding: '1.5rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        marginBottom: '1.5rem',
-    },
-    featureListItem: {
-        fontSize: '1.1rem',
-        padding: '0.5rem 0',
-    },
-    proBadge: {
-        position: 'absolute',
-        top: '0',
-        right: '0',
-        transform: 'translate(50%, -50%)',
-        backgroundColor: '#ffc107',
-        color: 'black',
-        padding: '0.2rem 0.5rem',
-        borderRadius: '6px',
-        fontSize: '0.8rem',
-        fontWeight: 'bold',
-    },
-    proBadgeSmall: {
-        backgroundColor: '#ffc107',
-        color: 'black',
-        padding: '0.1rem 0.4rem',
-        borderRadius: '4px',
-        fontSize: '0.7rem',
-        fontWeight: 'bold',
-        marginTop: '0.25rem'
-    },
-    reportFilters: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '1rem',
-    },
-    dateRangePicker: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem',
-    },
-    reportTabs: {
-        display: 'flex',
-        borderBottom: '1px solid var(--border-color)',
-        marginBottom: '1rem',
-    },
-    reportTabButton: {
-        padding: '0.75rem 1.25rem',
-        border: 'none',
-        background: 'none',
-        cursor: 'pointer',
-        fontSize: '1rem',
-        color: 'var(--secondary-color)',
-        borderBottom: '3px solid transparent',
-    },
-    reportTabButtonActive: {
-        color: 'var(--primary-color)',
-        borderBottom: '3px solid var(--primary-color)',
-    },
-    reportSummary: {
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '1rem',
-        marginBottom: '1.5rem',
-    },
-    summaryCard: {
-        padding: '1.5rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        textAlign: 'center',
-    },
-    confirmationDetails: {
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '0.5rem',
-        margin: '1rem 0',
-    },
-    confirmationRow: {
-        display: 'flex',
-        justifyContent: 'space-between',
-    },
-    customerViewLayout: {
-        display: 'grid',
-        gridTemplateColumns: '300px 1fr',
-        gap: '1.5rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        minHeight: '70vh',
-    },
-    customerListPanel: {
-        borderRight: '1px solid var(--border-color)',
-    },
-    customerListItem: {
-        padding: '1rem',
-        cursor: 'pointer',
-        borderBottom: '1px solid var(--border-color)',
-    },
-    customerListItemActive: {
-        backgroundColor: 'var(--background-color)',
-        fontWeight: 'bold',
-    },
-    customerDetailPanel: {
-        padding: '1.5rem',
-    },
-    customerDetailHeader: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        borderBottom: '1px solid var(--border-color)',
-        paddingBottom: '1rem',
-        marginBottom: '1rem',
-    },
-    purchaseHistoryItem: {
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        padding: '1rem',
-        marginBottom: '1rem',
-    },
-    dueTag: {
-        backgroundColor: 'var(--danger-color)',
-        color: '#fff',
-        padding: '0.2rem 0.5rem',
-        borderRadius: '12px',
-        fontSize: '0.8rem',
-        fontWeight: 'bold',
-    },
-    settingsGrid: {
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-        gap: '1rem',
-        marginBottom: '1rem',
-    },
-    checkboxControl: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem',
-    },
-    dropdownContainer: {
-        position: 'relative',
-        display: 'inline-block',
-    },
-    dropdownButton: {
-        backgroundColor: 'var(--background-color)',
-        color: 'var(--text-color)',
-        padding: '0.6rem 1rem',
-        fontSize: '1rem',
-        fontWeight: '500',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        minWidth: '180px',
-        justifyContent: 'space-between',
-    },
-    dropdownMenu: {
-        display: 'block',
-        position: 'absolute',
-        backgroundColor: 'var(--surface-color)',
-        minWidth: '200px',
-        boxShadow: '0 8px 16px 0 rgba(0,0,0,0.2)',
-        zIndex: 1,
-        borderRadius: '8px',
-        overflow: 'hidden',
-        border: '1px solid var(--border-color)',
-    },
-    dropdownMenuItem: {
-        color: 'var(--text-color)',
-        padding: '12px 16px',
-        textDecoration: 'none',
-        display: 'block',
-        width: '100%',
-        textAlign: 'left',
-        border: 'none',
-        background: 'none',
-        cursor: 'pointer',
-        fontSize: '1rem',
-    },
-    dropdownMenuItemActive: {
-        backgroundColor: 'var(--primary-color)',
-        color: '#fff',
-    },
-    sessionDropdownContainer: {
-        position: 'relative',
-    },
-    sessionDropdownButton: {
-        backgroundColor: 'transparent',
-        border: 'none',
-        cursor: 'pointer',
-        padding: '0.5rem',
-        borderRadius: '8px',
-        display: 'flex',
-        alignItems: 'center',
-    },
-    sessionDropdownMenu: {
-        position: 'absolute',
-        right: 0,
-        top: '120%',
-        backgroundColor: 'var(--surface-color)',
-        borderRadius: '8px',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-        width: '250px',
-        zIndex: 100,
-        border: '1px solid var(--border-color)',
-        overflow: 'hidden',
-    },
-    sessionDropdownHeader: {
-        padding: '1rem',
-        borderBottom: '1px solid var(--border-color)',
-        backgroundColor: 'var(--background-color)',
-    },
-    sessionDropdownInfoItem: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '0.75rem 1rem',
-        fontSize: '0.9rem',
-    },
-    sessionDropdownSeparator: {
-        border: 'none',
-        borderTop: '1px solid var(--border-color)',
-        margin: 0,
-    },
-    sessionDropdownMenuItem: {
-        width: '100%',
-        padding: '0.75rem 1rem',
-        border: 'none',
-        background: 'none',
-        textAlign: 'left',
-        cursor: 'pointer',
-        fontSize: '1rem',
-    },
-    mobileSingleColumnLayout: {
-        display: 'flex',
-        flexDirection: 'column',
-        height: 'calc(100vh - 4rem)',
-    },
-    mobileScrollableContent: {
-        flex: 1,
-        overflowY: 'auto',
-        padding: '1rem',
-        paddingBottom: '80px', // Space for bottom action bar
-    },
-    mobileBottomActionBar: {
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        padding: '1rem',
-        backgroundColor: 'var(--surface-color)',
-        borderTop: '1px solid var(--border-color)',
-        boxShadow: '0 -2px 8px rgba(0,0,0,0.1)',
-        zIndex: 100,
-    },
-    mobileFinalizeButton: {
-        width: '100%',
-        padding: '1rem',
-        fontSize: '1.2rem',
-        fontWeight: 'bold',
-        backgroundColor: 'var(--success-color)',
-        color: '#fff',
-        border: 'none',
-        borderRadius: '8px',
-    },
-    mobileSection: {
-        marginBottom: '1.5rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        padding: '1rem',
-    },
-    mobileSectionTitle: {
-        marginTop: 0,
-        borderBottom: '1px solid var(--border-color)',
-        paddingBottom: '0.5rem',
-        marginBottom: '1rem',
-    },
-    mobileInput: {
-        width: '100%',
-        padding: '0.8rem 1rem',
-        fontSize: '1rem',
-        borderRadius: '8px',
-        border: '1px solid var(--border-color)',
-        boxSizing: 'border-box',
-        marginBottom: '0.5rem',
-    },
-    mobileButton: {
-        width: '100%',
-        padding: '0.8rem 1rem',
-        fontSize: '1rem',
-        borderRadius: '8px',
-        border: 'none',
-        backgroundColor: 'var(--primary-color)',
-        color: '#fff',
-    },
-    mobileInputIconButton: {
-        position: 'absolute',
-        right: '5px',
-        top: '5px',
-        bottom: '10px',
-        border: 'none',
-        background: 'transparent',
-        cursor: 'pointer',
-        padding: '0.5rem',
-    },
-    mobileInlineSearchResults: {
-        listStyle: 'none',
-        padding: 0,
-        margin: '0.5rem 0 0',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        maxHeight: '200px',
-        overflowY: 'auto',
-    },
-    mobileInlineSearchResultItem: {
-        padding: '0.75rem',
-        borderBottom: '1px solid var(--border-color)',
-        cursor: 'pointer',
-    },
-    mobileBillItemCard: {
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        padding: '1rem',
-        marginBottom: '0.75rem',
-    },
-    mobileBillItemCardReturn: {
-        backgroundColor: '#ffebee',
-        borderColor: 'var(--danger-color)',
-    },
-    mobileBillItemInfo: {
-        marginBottom: '0.75rem',
-    },
-    mobileBillItemControls: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
-    mobileQuantityControls: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '1rem',
-    },
-    mobileRoundButton: {
-        width: '36px',
-        height: '36px',
-        borderRadius: '50%',
-        border: '1px solid var(--border-color)',
-        backgroundColor: 'var(--surface-color)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: 'pointer',
-    },
-    mobileSettingsGroup: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '0.5rem',
-    },
-    mobileSettingsLabel: {
-        fontWeight: 500,
-    },
-    mobilePaymentRow: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '0.5rem 0',
-    },
-    mobilePaymentInput: {
-        border: 'none',
-        borderBottom: '1px solid var(--border-color)',
-        borderRadius: 0,
-        textAlign: 'right',
-        width: '100px',
-        fontSize: '1rem',
-    },
-    mobileGrandTotal: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '0.75rem 0',
-        fontWeight: 'bold',
-        fontSize: '1.2rem',
-        borderTop: '1px solid var(--border-color)',
-        marginTop: '0.5rem',
-    },
-};
-
-const root = createRoot(document.getElementById('root')!);
+const container = document.getElementById('root');
+const root = createRoot(container!);
 root.render(<App />);
