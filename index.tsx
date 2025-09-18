@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -147,6 +146,15 @@ const createSchema = () => {
             payment_method TEXT,
             FOREIGN KEY (sale_id) REFERENCES sales_history(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS expenses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            shop_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            description TEXT NOT NULL,
+            category TEXT,
+            amount REAL NOT NULL,
+            FOREIGN KEY (shop_id) REFERENCES shops(id) ON DELETE CASCADE
+        );
     `;
     db.exec(schema);
 };
@@ -217,6 +225,7 @@ interface SaleRecord {
     balance_due: number;
     customerName?: string;
     customerMobile?: string;
+    previousBalanceForPreview?: number;
 }
 
 interface Payment {
@@ -234,11 +243,21 @@ interface Customer {
     mobile: string;
 }
 
+interface Expense {
+    id: number;
+    shop_id: number;
+    date: string; // ISO string
+    description: string;
+    category?: string;
+    amount: number;
+}
+
 interface Shop {
     id: number;
     name: string;
     products: Product[];
     salesHistory: SaleRecord[];
+    expenses: Expense[];
     nextProductId: number;
 }
 
@@ -696,7 +715,7 @@ const BarcodeScannerModal = ({ onScan, onClose }: { onScan: (barcode: string) =>
 const PdfIcon = ({ size = 80, color = 'var(--danger-color)' }) => (
     <svg xmlns="http://www.w3.org/2000/svg" height={`${size}px`} viewBox="0 0 24 24" width={`${size}px`} fill={color} style={{marginBottom: '1rem'}}>
         <path d="M0 0h24v24H0V0z" fill="none"/>
-        <path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM9.5 11.5c0 .83-.67 1.5-1.5 1.5H7v2H5.5V9h2.5c.83 0 1.5.67 1.5 1.5v1zm3.5 1.5h-1v-2h-1.5v2h-1V9H13v4zm5.5-1.5h-1.5v-1h1.5v-1h-1.5v-1h1.5v-1h-3V9h3c.83 0 1.5.67 1.5 1.5v1.5c0 .83-.67 1.5-1.5 1.5z"/>
+        <path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0 -1.1-.9-2-2-2zM9.5 11.5c0 .83-.67 1.5-1.5 1.5H7v2H5.5V9h2.5c.83 0 1.5.67 1.5 1.5v1zm3.5 1.5h-1v-2h-1.5v2h-1V9H13v4zm5.5-1.5h-1.5v-1h1.5v-1h-1.5v-1h1.5v-1h-3V9h3c.83 0 1.5.67 1.5 1.5v1.5c0 .83-.67 1.5-1.5 1.5z"/>
         <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2-H4V6z"/>
     </svg>
 );
@@ -829,7 +848,6 @@ const BulkAddModal = ({ fileSrc, fileType, fileNames, initialProducts, onSave, o
                                 <div style={{textAlign: 'center'}}>
                                     <PdfIcon size={50} />
                                     <h4 style={{margin: '0 0 0.5rem 0'}}>B2C List</h4>
-                                    {/* Fix: Corrected typo from c2c to b2c */}
                                     <p style={{fontSize: '0.8rem', margin: 0, wordBreak: 'break-all'}}>{fileNames?.b2c}</p>
                                 </div>
                             </div>
@@ -939,7 +957,7 @@ const BulkAddModal = ({ fileSrc, fileType, fileNames, initialProducts, onSave, o
 
 
 // --- PRODUCTS VIEW COMPONENT ---
-const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddPdfs, selectedProductIds, setSelectedProductIds, onDeleteSelected, isOnline, aiUsage, onUpgrade, currentUser }) => {
+const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddPdfs, onExportPdf, selectedProductIds, setSelectedProductIds, onDeleteSelected, isOnline, aiUsage, onUpgrade, currentUser }) => {
     const [filter, setFilter] = useState<'all' | 'low'>('all');
     const [searchQuery, setSearchQuery] = useState('');
     const bulkAddInputRef = useRef<HTMLInputElement>(null);
@@ -1093,7 +1111,8 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddP
                                 {aiUsage.plan === 'free' && <span style={styles.proBadgeSmall}>Uses left: {Math.max(0, AI_FREE_LIMIT - aiUsage.count)}</span>}
                             </div>
                             <button onClick={onAdd} style={styles.button}>Add New Product</button>
-                            <button onClick={handleExport} style={{...styles.button, backgroundColor: 'var(--success-color)'}}>Export Product List As Excel File</button>
+                            <button onClick={handleExport} style={{...styles.button, backgroundColor: 'var(--success-color)'}}>Export as Excel</button>
+                            <button onClick={() => onExportPdf(filteredProducts)} style={{...styles.button, backgroundColor: 'var(--danger-color)'}}>Export as PDF</button>
                         </>
                     )}
                 </div>
@@ -1214,7 +1233,6 @@ const InvoicePreviewModal = ({
     customerMobile, 
     onFinalize, 
     onClose, 
-    onPrint, 
     onWhatsApp, 
     language, 
     previousBalanceDue, 
@@ -1227,7 +1245,6 @@ const InvoicePreviewModal = ({
     customerMobile?: string;
     onFinalize?: () => void;
     onClose?: () => void;
-    onPrint?: () => void;
     onWhatsApp?: (number: string) => void;
     language: 'english' | 'tamil';
     previousBalanceDue: number;
@@ -1252,69 +1269,142 @@ const InvoicePreviewModal = ({
         // ... (WhatsApp logic remains the same)
     };
     
-    const handleSaveAsPdf = () => {
-        if (printAreaRef.current) {
-            const getPdfOptions = (settings: BillSettings) => {
-                const options: any = {
-                    margin: [0.2, 0.2, 0.2, 0.2], // top, left, bottom, right
-                    filename: `invoice-${sale.id || 'preview'}.pdf`,
-                    image: { type: 'jpeg', quality: 0.98 },
-                    html2canvas: { scale: 2, useCORS: true, logging: false },
-                    jsPDF: { unit: 'in', orientation: 'portrait' }
-                };
-    
-                switch (settings.size) {
-                    case 'A4':
-                        options.jsPDF.format = 'a4';
-                        options.margin = [0.5, 0.5, 0.5, 0.5];
-                        break;
-                    case 'A5':
-                        options.jsPDF.format = 'a5';
-                        options.margin = [0.4, 0.4, 0.4, 0.4];
-                        break;
-                    case '3-inch':
-                        // html2pdf calculates height from content. Width is 3 inches.
-                        options.jsPDF.format = [3, 11]; // Width: 3in, Height: arbitrary large
-                        options.margin = [0.1, 0.1, 0.1, 0.1];
-                        break;
-                    case '4-inch':
-                        options.jsPDF.format = [4, 11]; // Width: 4in
-                        options.margin = [0.15, 0.15, 0.15, 0.15];
-                        break;
-                    case 'custom':
-                        const widthStr = settings.customWidth || '80mm';
-                        const widthValue = parseFloat(widthStr);
-                        let widthInInches = 3.15; // Default to 80mm
-    
-                        if (!isNaN(widthValue)) {
-                            if (widthStr.includes('mm')) {
-                                widthInInches = widthValue / 25.4;
-                            } else if (widthStr.includes('cm')) {
-                                widthInInches = widthValue / 2.54;
-                            } else if (widthStr.includes('in')) {
-                                widthInInches = widthValue;
-                            } else {
-                                // assume mm if no unit is provided
-                                widthInInches = widthValue / 25.4;
-                            }
-                        }
-                        options.jsPDF.format = [widthInInches, 11];
-                        options.margin = [0.1, 0.1, 0.1, 0.1];
-                        break;
-                    default:
-                        options.jsPDF.format = 'letter';
-                        break;
-                }
-                return options;
-            };
+    const getPdfOptions = (settings: BillSettings) => {
+        const options: any = {
+            margin: [0.2, 0.2, 0.2, 0.2], // top, left, bottom, right
+            filename: `invoice-${sale.id || 'preview'}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true, logging: false },
+            jsPDF: { unit: 'in', orientation: 'portrait' }
+        };
 
+        switch (settings.size) {
+            case 'A4':
+                options.jsPDF.format = 'a4';
+                options.margin = [0.5, 0.5, 0.5, 0.5];
+                break;
+            case 'A5':
+                options.jsPDF.format = 'a5';
+                options.margin = [0.4, 0.4, 0.4, 0.4];
+                break;
+            case '3-inch':
+                options.jsPDF.format = [3, 11]; // Width: 3in, Height: arbitrary large
+                options.margin = [0.1, 0.1, 0.1, 0.1];
+                break;
+            case '4-inch':
+                options.jsPDF.format = [4, 11]; // Width: 4in
+                options.margin = [0.15, 0.15, 0.15, 0.15];
+                break;
+            case 'custom':
+                const widthStr = settings.customWidth || '80mm';
+                const widthValue = parseFloat(widthStr);
+                let widthInInches = 3.15; // Default to 80mm
+
+                if (!isNaN(widthValue)) {
+                    if (widthStr.includes('mm')) {
+                        widthInInches = widthValue / 25.4;
+                    } else if (widthStr.includes('cm')) {
+                        widthInInches = widthValue / 2.54;
+                    } else if (widthStr.includes('in')) {
+                        widthInInches = widthValue;
+                    } else {
+                        // assume mm if no unit is provided
+                        widthInInches = widthValue / 25.4;
+                    }
+                }
+                options.jsPDF.format = [widthInInches, 11];
+                options.margin = [0.1, 0.1, 0.1, 0.1];
+                break;
+            default:
+                options.jsPDF.format = 'letter';
+                break;
+        }
+        return options;
+    };
+
+    const downloadPdf = () => {
+        if (printAreaRef.current) {
             const opt = getPdfOptions(billSettings);
             html2pdf().from(printAreaRef.current).set(opt).save();
         }
     };
+
+    const getPrintStyles = () => `
+        body { font-family: sans-serif, 'Segoe UI', Roboto, Helvetica, Arial; margin: 0; }
+        table { width: 100%; border-collapse: collapse; font-size: inherit; }
+        th, td { padding: 4px 2px; border: none; }
+        th { text-align: left; }
+        td { vertical-align: top; }
+        hr { border: 0; border-top: 1px dashed #888; margin: 0.5rem 0; }
+        h2, h4, p { margin: 0.2rem 0; }
+        .invoice-size-3-inch { font-size: 9pt; }
+        .invoice-size-4-inch { font-size: 10pt; }
+        .invoice-size-A5 { font-size: 10pt; }
+        .invoice-size-A4 { font-size: 12pt; }
+    `;
+
+    const printInvoice = () => {
+        if (!printAreaRef.current) return;
+        const invoiceHtml = printAreaRef.current.outerHTML;
+
+        const iframe = document.createElement('iframe');
+        iframe.style.position = 'absolute';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        iframe.style.border = '0';
+        document.body.appendChild(iframe);
+
+        const doc = iframe.contentWindow?.document;
+        if (doc) {
+            doc.open();
+            doc.write(`
+                <html>
+                    <head><title>Print Invoice</title>
+                        <style>${getPrintStyles()}</style>
+                    </head>
+                    <body>${invoiceHtml}</body>
+                </html>
+            `);
+            doc.close();
+
+            setTimeout(() => {
+                iframe.contentWindow?.focus();
+                iframe.contentWindow?.print();
+                document.body.removeChild(iframe);
+            }, 500); // Timeout to ensure content is fully rendered
+        } else {
+            document.body.removeChild(iframe);
+            alert("Could not open print window. Please check your browser's popup settings.");
+        }
+    };
     
     const invoiceSizeClass = `invoice-size-${billSettings.size}`;
-    const invoiceStyle = billSettings.size === 'custom' ? { width: billSettings.customWidth } : {};
+
+    const getInvoiceDynamicStyles = (): React.CSSProperties => {
+        const style: React.CSSProperties = {};
+        if (billSettings.size === 'custom') {
+            style.width = billSettings.customWidth;
+        }
+
+        switch (billSettings.size) {
+            case '3-inch':
+                style.fontSize = '9pt';
+                break;
+            case '4-inch':
+                style.fontSize = '10pt';
+                break;
+            case 'A5':
+                style.fontSize = '10pt';
+                break;
+            case 'A4':
+            default:
+                style.fontSize = '12pt';
+                break;
+        }
+        return style;
+    };
+
+    const invoiceDynamicStyle = getInvoiceDynamicStyles();
 
     const renderHeader = () => (
         <div style={{textAlign: 'center', marginBottom: '0.5rem'}}>
@@ -1358,8 +1448,8 @@ const InvoicePreviewModal = ({
 
     return (
         <div className="invoice-preview-backdrop" style={styles.modalBackdrop}>
-            <div className={`invoice-preview-content-wrapper ${isPreviewMode ? '' : 'printable-area'}`} style={{...styles.modalContent, ...invoiceStyle, maxWidth: 'none', maxHeight: '90vh', overflowY: 'auto'}}>
-                <div ref={printAreaRef} id="invoice-to-print" className={invoiceSizeClass}>
+            <div className={`invoice-preview-content-wrapper`} style={{...styles.modalContent, maxWidth: 'none', width: 'auto', maxHeight: '90vh', overflowY: 'auto'}}>
+                 <div ref={printAreaRef} id="invoice-to-print" className={invoiceSizeClass} style={invoiceDynamicStyle}>
                     {renderHeader()}
                     
                     {customerName && <p style={{margin: '0.2rem 0'}}><b>Customer:</b> {customerName}</p>}
@@ -1417,8 +1507,8 @@ const InvoicePreviewModal = ({
                             <button onClick={handleWhatsAppClick} style={{...styles.button, backgroundColor: '#25D366'}}>WhatsApp</button>
                         </>
                     )}
-                    {onPrint && <button onClick={onPrint} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Print</button>}
-                    <button onClick={handleSaveAsPdf} style={{...styles.button, backgroundColor: '#dc3545'}}>Save as PDF</button>
+                    <button onClick={printInvoice} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Print Bill</button>
+                    <button onClick={downloadPdf} style={{...styles.button, backgroundColor: '#dc3545'}}>Download PDF</button>
                     {!isPreviewMode && onFinalize && <button onClick={onFinalize} style={{...styles.button, backgroundColor: 'var(--success-color)'}}>Finalize Sale</button>}
                     {onClose && <button onClick={onClose} style={{...styles.button, backgroundColor: onFinalize ? 'var(--danger-color)' : 'var(--secondary-color)'}}>{onFinalize ? 'Back' : 'Close'}</button>}
                 </div>
@@ -1685,7 +1775,7 @@ const ReportsView = ({ salesHistory, onPrint, userPlan, onUpgrade, isOnline }) =
                                                     {expandedSale === sale.id ? 'Hide' : 'View'}
                                                 </button>
                                                 <button onClick={() => onPrint(sale)} style={{...styles.actionButton, backgroundColor: 'var(--primary-color)'}}>
-                                                    Print
+                                                    Re-Print
                                                 </button>
                                             </td>
                                         </tr>
@@ -1879,6 +1969,184 @@ const CustomersView = ({ customers, salesHistory, onAdd, onEdit, onDelete, curre
                         <div style={{textAlign: 'center', padding: '4rem 1rem'}}>
                             <p style={{color: 'var(--secondary-color)'}}>Select a customer from the list to view their details and purchase history.</p>
                         </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- EXPENSES VIEW COMPONENT ---
+const ExpensesView = ({ expenses, onAdd, onDelete, shopId, userPlan, onUpgrade }: { expenses: Expense[], onAdd: (expense: Omit<Expense, 'id'>) => void, onDelete: (id: number) => void, shopId: number, userPlan: UserPlan, onUpgrade: () => boolean }) => {
+    const [description, setDescription] = useState('');
+    const [category, setCategory] = useState('');
+    const [amount, setAmount] = useState('');
+    const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+    
+    const [filterType, setFilterType] = useState('this_month');
+    const todayISO = new Date().toISOString().split('T')[0];
+    const [startDate, setStartDate] = useState(todayISO);
+    const [endDate, setEndDate] = useState(todayISO);
+    
+    const descriptionRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        descriptionRef.current?.focus();
+    }, []);
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const amountNum = parseFloat(amount);
+        if (description.trim() && !isNaN(amountNum) && amountNum > 0) {
+            onAdd({
+                shop_id: shopId,
+                date,
+                description: description.trim(),
+                category: category.trim(),
+                amount: amountNum,
+            });
+            setDescription('');
+            setCategory('');
+            setAmount('');
+            descriptionRef.current?.focus();
+        } else {
+            alert("Please enter a valid description and amount.");
+        }
+    };
+    
+    const getFilterRange = () => {
+        const now = new Date();
+        let start: Date, end: Date;
+        switch (filterType) {
+            case 'today':
+                start = new Date(); start.setHours(0, 0, 0, 0);
+                end = new Date(); end.setHours(23, 59, 59, 999);
+                break;
+            case 'yesterday':
+                start = new Date(); start.setDate(now.getDate() - 1); start.setHours(0, 0, 0, 0);
+                end = new Date(start); end.setHours(23, 59, 59, 999);
+                break;
+            case 'this_week':
+                start = new Date(); start.setDate(now.getDate() - now.getDay()); start.setHours(0, 0, 0, 0);
+                end = new Date(start); end.setDate(start.getDate() + 6); end.setHours(23, 59, 59, 999);
+                break;
+            case 'this_month':
+                start = new Date(now.getFullYear(), now.getMonth(), 1);
+                end = new Date(now.getFullYear(), now.getMonth() + 1, 0); end.setHours(23, 59, 59, 999);
+                break;
+            case 'custom':
+                const [sy, sm, sd] = startDate.split('-').map(Number);
+                start = new Date(sy, sm - 1, sd, 0, 0, 0, 0);
+                const [ey, em, ed] = endDate.split('-').map(Number);
+                end = new Date(ey, em - 1, ed, 23, 59, 59, 999);
+                if (start > end) [start, end] = [end, start];
+                break;
+            default: start = new Date(); end = new Date(); break;
+        }
+        return { start, end };
+    };
+
+    const { start, end } = getFilterRange();
+    const filteredExpenses = expenses.filter(exp => {
+        const expDate = new Date(exp.date);
+        const startOfDay = new Date(expDate.getFullYear(), expDate.getMonth(), expDate.getDate());
+        return startOfDay >= start && startOfDay <= end;
+    });
+    
+    const totalExpenses = filteredExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+
+    const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const newFilter = e.target.value;
+        const isProFilter = ['custom'].includes(newFilter);
+        if (userPlan === 'free' && isProFilter) {
+            onUpgrade();
+        } else {
+            setFilterType(newFilter);
+        }
+    };
+
+    return (
+        <div style={styles.viewContainer}>
+            <div style={styles.viewHeader}>
+                <h2>Expense Management</h2>
+            </div>
+            
+            <div style={{display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '2rem', alignItems: 'start'}}>
+                <div style={{...styles.settingsCard, margin: 0}}>
+                    <h3 style={{marginTop: 0}}>Add New Expense</h3>
+                    <form onSubmit={handleSubmit} style={{display: 'flex', flexDirection: 'column', gap: '1rem'}}>
+                        <div>
+                            <label style={styles.label}>Date</label>
+                            <input type="date" value={date} onChange={e => setDate(e.target.value)} style={styles.input} required />
+                        </div>
+                        <div>
+                            <label style={styles.label}>Description</label>
+                            <input ref={descriptionRef} type="text" value={description} onChange={e => setDescription(e.target.value)} placeholder="e.g., Office Supplies" style={styles.input} required />
+                        </div>
+                        <div>
+                            <label style={styles.label}>Category (Optional)</label>
+                            <input type="text" value={category} onChange={e => setCategory(e.target.value)} placeholder="e.g., Utilities" style={styles.input} />
+                        </div>
+                        <div>
+                            <label style={styles.label}>Amount (₹)</label>
+                            <input type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" style={styles.input} required />
+                        </div>
+                        <button type="submit" style={styles.button}>Add Expense</button>
+                    </form>
+                </div>
+                
+                <div>
+                    <div style={{...styles.viewHeader, marginBottom: '1rem'}}>
+                        <h3>Expense History</h3>
+                         <div style={styles.reportFilters}>
+                            <select value={filterType} onChange={handleFilterChange} style={{...styles.input, height: 'auto'}}>
+                                <option value="today">Today</option>
+                                <option value="yesterday">Yesterday</option>
+                                <option value="this_week">This Week</option>
+                                <option value="this_month">This Month</option>
+                                <option value="custom" disabled={userPlan === 'free'}>Custom Range {userPlan === 'free' && '(PRO)'}</option>
+                            </select>
+                            {filterType === 'custom' && userPlan !== 'free' && (
+                                <div style={styles.dateRangePicker}>
+                                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={styles.input} />
+                                    <span style={{color: 'var(--secondary-color)'}}>to</span>
+                                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={styles.input} />
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    <div style={{...styles.summaryCard, textAlign: 'right', marginBottom: '1rem', padding: '1rem'}}>
+                        <h4 style={{margin: 0}}>Total for Period: <span style={{color: 'var(--danger-color)'}}>₹{totalExpenses.toFixed(2)}</span></h4>
+                    </div>
+                    {filteredExpenses.length > 0 ? (
+                        <div style={{maxHeight: '55vh', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px'}}>
+                            <table style={styles.table}>
+                                <thead>
+                                    <tr>
+                                        <th style={styles.th}>Date</th>
+                                        <th style={styles.th}>Description</th>
+                                        <th style={styles.th}>Category</th>
+                                        <th style={styles.th}>Amount</th>
+                                        <th style={styles.th}>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredExpenses.map(exp => (
+                                        <tr key={exp.id}>
+                                            <td style={styles.td}>{new Date(exp.date).toLocaleDateString()}</td>
+                                            <td style={styles.td}>{exp.description}</td>
+                                            <td style={styles.td}>{exp.category || 'N/A'}</td>
+                                            <td style={styles.td}>₹{exp.amount.toFixed(2)}</td>
+                                            <td style={styles.td}>
+                                                <button onClick={() => onDelete(exp.id)} style={{...styles.actionButton, backgroundColor: 'var(--danger-color)'}}>Delete</button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    ) : (
+                        <p style={styles.emptyMessage}>No expenses recorded for this period.</p>
                     )}
                 </div>
             </div>
@@ -2930,15 +3198,17 @@ const DropdownNav = ({ activeView, onSelectView, disabled, currentUser }: { acti
 
     const allNavItems = [
         { key: 'sales', label: 'New Sale', roles: ['super_admin', 'shop_admin', 'cashier'] },
-        { key: 'products', label: 'Product Inventory', roles: ['super_admin', 'shop_admin'] },
+        { key: 'products', label: 'Product Inventory', roles: ['super_admin', 'shop_admin', 'cashier'] },
+        { key: 'expenses', label: 'Expenses', roles: ['super_admin', 'shop_admin'] },
         { key: 'balance_due', label: 'Balance Due', roles: ['super_admin', 'shop_admin'] },
         { key: 'customers', label: 'Customers', roles: ['super_admin', 'shop_admin'] },
         { key: 'reports', label: 'Reports', roles: ['super_admin', 'shop_admin'] },
-        { key: 'users', label: 'Users', roles: ['super_admin', 'shop_admin'] },
         { key: 'settings', label: 'Settings', roles: ['super_admin', 'shop_admin'] },
     ];
-
+    
     const navItems = allNavItems.filter(item => currentUser && item.roles.includes(currentUser.role));
+    const currentLabel = navItems.find(item => item.key === activeView)?.label || 'Menu';
+
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -2946,2167 +3216,670 @@ const DropdownNav = ({ activeView, onSelectView, disabled, currentUser }: { acti
                 setIsOpen(false);
             }
         };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => {
-            document.removeEventListener("mousedown", handleClickOutside);
-        };
-    }, [dropdownRef]);
-    
-    const activeLabel = navItems.find(item => item.key === activeView)?.label || 'Menu';
-
-    return (
-        <div ref={dropdownRef} style={styles.dropdownContainer}>
-            <button onClick={() => setIsOpen(!isOpen)} style={styles.dropdownButton} disabled={disabled}>
-                {activeLabel}
-                <span style={{ marginLeft: 'auto', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', display: 'inline-block' }}>▼</span>
-            </button>
-            {isOpen && (
-                <div style={styles.dropdownMenu}>
-                    {navItems.map(item => (
-                        <button
-                            key={item.key}
-                            onClick={() => {
-                                onSelectView(item.key);
-                                setIsOpen(false);
-                            }}
-                            style={activeView === item.key ? {...styles.dropdownMenuItem, ...styles.dropdownMenuItemActive} : styles.dropdownMenuItem}
-                        >
-                            {item.label}
-                        </button>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-};
-
-// --- BILL SETTINGS MODULE ---
-const BillSettingsModule = ({ settings, onUpdate, onPreview }: {
-    settings: BillSettings;
-    onUpdate: (updatedSettings: Partial<BillSettings> | ((prev: BillSettings) => Partial<BillSettings>)) => void;
-    onPreview: () => void;
-}) => {
-    const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                onUpdate({ logo: reader.result as string });
-            };
-            reader.readAsDataURL(file);
-        }
-    };
-
-    const handleDisplayOptionChange = (option: keyof BillSettings['displayOptions'], value: boolean) => {
-        onUpdate(prev => ({
-            displayOptions: {
-                ...prev.displayOptions,
-                [option]: value,
-            }
-        }));
-    };
-
-    return (
-        <div style={{display: 'flex', flexDirection: 'column', gap: '1rem'}}>
-            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem'}}>
-                <div>
-                    <label style={styles.label}>Bill Paper Size</label>
-                    <select
-                        style={styles.input}
-                        value={settings.size}
-                        onChange={(e) => onUpdate({ size: e.target.value as BillSettings['size'] })}
-                    >
-                        <option value="3-inch">3-inch Thermal Roll</option>
-                        <option value="4-inch">4-inch Thermal Roll</option>
-                        <option value="A4">A4 Paper</option>
-                        <option value="A5">A5 Paper</option>
-                        <option value="custom">Custom Width</option>
-                    </select>
-                </div>
-                 <div>
-                    <label style={styles.label}>Bill Format</label>
-                    <select
-                        style={styles.input}
-                        value={settings.format}
-                        onChange={(e) => onUpdate({ format: e.target.value as BillSettings['format'] })}
-                    >
-                        <option value="simple">Simple (Items & Total)</option>
-                        <option value="detailed">Detailed (With All Charges)</option>
-                        <option value="gst">GST / Tax Compliant</option>
-                    </select>
-                </div>
-            </div>
-             {settings.size === 'custom' && (
-                <div>
-                    <label style={styles.label}>Custom Paper Width (e.g., 80mm, 4in)</label>
-                    <input
-                        style={styles.input}
-                        value={settings.customWidth}
-                        onChange={(e) => onUpdate({ customWidth: e.target.value })}
-                    />
-                </div>
-            )}
-            <hr style={{border: 'none', borderTop: '1px solid var(--border-color)', margin: '1rem 0'}} />
-            
-            <h4 style={{margin: '0 0 1rem 0'}}>Invoice Content</h4>
-            <div style={styles.settingsGrid}>
-                <div style={styles.checkboxControl}>
-                    <input type="checkbox" id="showLogo" checked={settings.displayOptions.showLogo} onChange={e => handleDisplayOptionChange('showLogo', e.target.checked)} />
-                    <label htmlFor="showLogo">Show Logo</label>
-                </div>
-                 <div style={styles.checkboxControl}>
-                    <input type="checkbox" id="showShopName" checked={settings.displayOptions.showShopName} onChange={e => handleDisplayOptionChange('showShopName', e.target.checked)} />
-                    <label htmlFor="showShopName">Show Shop Name</label>
-                </div>
-                 <div style={styles.checkboxControl}>
-                    <input type="checkbox" id="showShopAddress" checked={settings.displayOptions.showShopAddress} onChange={e => handleDisplayOptionChange('showShopAddress', e.target.checked)} />
-                    <label htmlFor="showShopAddress">Show Shop Address</label>
-                </div>
-                {settings.format === 'gst' && (
-                    <div style={styles.checkboxControl}>
-                        <input type="checkbox" id="showGstin" checked={settings.displayOptions.showGstin} onChange={e => handleDisplayOptionChange('showGstin', e.target.checked)} />
-                        <label htmlFor="showGstin">Show GSTIN</label>
-                    </div>
-                )}
-                 <div style={styles.checkboxControl}>
-                    <input type="checkbox" id="showTagline" checked={settings.displayOptions.showTagline} onChange={e => handleDisplayOptionChange('showTagline', e.target.checked)} />
-                    <label htmlFor="showTagline">Show Tagline</label>
-                </div>
-                 <div style={styles.checkboxControl}>
-                    <input type="checkbox" id="showFooter" checked={settings.displayOptions.showFooterNotes} onChange={e => handleDisplayOptionChange('showFooterNotes', e.target.checked)} />
-                    <label htmlFor="showFooter">Show Footer Notes</label>
-                </div>
-            </div>
-
-            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', alignItems: 'center'}}>
-                <div>
-                     <label style={styles.label}>Shop Logo</label>
-                     <input type="file" accept="image/*" onChange={handleLogoUpload} style={{...styles.input, padding: '0.5rem'}} />
-                     {settings.logo && <img src={settings.logo} alt="logo preview" style={{maxWidth: '100px', marginTop: '0.5rem', border: '1px solid var(--border-color)', padding: '0.25rem', borderRadius: '4px'}}/>}
-                </div>
-                <div>
-                    <label style={styles.label}>Shop Name</label>
-                    <input style={styles.input} value={settings.shopName} onChange={(e) => onUpdate({ shopName: e.target.value, shopNameEdited: true })} />
-                </div>
-            </div>
-             <div>
-                <label style={styles.label}>Shop Address</label>
-                <input style={styles.input} value={settings.shopAddress} onChange={(e) => onUpdate({ shopAddress: e.target.value })} />
-            </div>
-            {settings.format === 'gst' && (
-                <div>
-                    <label style={styles.label}>GSTIN</label>
-                    <input style={styles.input} value={settings.gstin} onChange={(e) => onUpdate({ gstin: e.target.value })} />
-                </div>
-            )}
-             <div>
-                <label style={styles.label}>Bill Tagline (Optional)</label>
-                <input style={styles.input} value={settings.tagline} onChange={(e) => onUpdate({ tagline: e.target.value })} />
-            </div>
-             <div>
-                <label style={styles.label}>Footer Notes (Optional)</label>
-                <input style={styles.input} value={settings.footerNotes} onChange={(e) => onUpdate({ footerNotes: e.target.value })} />
-            </div>
-            <div style={{display: 'flex', justifyContent: 'flex-end', marginTop: '1rem'}}>
-                <button onClick={onPreview} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>
-                    Preview Invoice
-                </button>
-            </div>
-        </div>
-    );
-};
-
-
-// --- SETTINGS VIEW ---
-const SettingsView = ({ userPlan, onRequestUpgrade, onDowngrade, isCloudSyncEnabled, onToggleCloudSync, onManageUsers, billSettings, onUpdateBillSettings, onPreviewBill }) => {
-    return (
-        <div style={styles.viewContainer}>
-            <div style={styles.viewHeader}>
-                <h2>Settings & Subscription</h2>
-            </div>
-            <div style={{ maxWidth: '800px' }}>
-                <div style={styles.settingsCard}>
-                    <h3>Bill & Invoice Settings</h3>
-                    <BillSettingsModule settings={billSettings} onUpdate={onUpdateBillSettings} onPreview={onPreviewBill} />
-                </div>
-            
-                <div style={styles.settingsCard}>
-                    <h3>Subscription Plan</h3>
-                    {userPlan === 'free' ? (
-                        <>
-                            <p>You are currently on the <strong style={{color: 'var(--primary-color)'}}>Free Plan</strong>.</p>
-                            <p style={{color: 'var(--secondary-color)'}}>Upgrade to Pro to unlock powerful features like multi-shop management, AI sales forecasting, and advanced reporting.</p>
-                            <button onClick={onRequestUpgrade} style={{...styles.button, backgroundColor: 'var(--success-color)'}}>Upgrade to Pro</button>
-                        </>
-                    ) : (
-                        <>
-                            <p>You are on the <strong style={{color: 'var(--success-color)'}}>Pro Plan</strong>. Thank you for your support!</p>
-                             <p style={{color: 'var(--secondary-color)'}}>You have access to all premium features.</p>
-                            <button onClick={onDowngrade} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Switch to Free Plan</button>
-                        </>
-                    )}
-                </div>
-
-                <div style={styles.settingsCard}>
-                    <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
-                        <h3>Automated Cloud Sync</h3>
-                        <span style={{...styles.proBadge, position: 'static'}}>PRO</span>
-                    </div>
-                     {isCloudSyncEnabled && userPlan === 'pro' ? (
-                         <p style={{color: 'var(--secondary-color)'}}>Your data is being automatically backed up. Changes are saved periodically.</p>
-                    ) : (
-                         <p style={{color: 'var(--secondary-color)'}}>Enable this feature to automatically back up your data and sync across devices.</p>
-                    )}
-                    <button 
-                        onClick={userPlan === 'free' ? onRequestUpgrade : onToggleCloudSync} 
-                        style={{...styles.button, backgroundColor: isCloudSyncEnabled && userPlan === 'pro' ? 'var(--secondary-color)' : 'var(--success-color)'}}
-                    >
-                        {isCloudSyncEnabled && userPlan === 'pro' ? 'Disable Cloud Sync' : 'Enable Cloud Sync'}
-                    </button>
-                </div>
-                 <div style={styles.settingsCard}>
-                    <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
-                        <h3>User Roles & Permissions</h3>
-                         <span style={{...styles.proBadge, position: 'static'}}>PRO</span>
-                    </div>
-                    <p style={{color: 'var(--secondary-color)'}}>Create and manage accounts for your staff with specific roles like 'Shop Admin' or 'Cashier'.</p>
-                    <button onClick={userPlan === 'free' ? onRequestUpgrade : onManageUsers} style={styles.button}>
-                        Manage Users
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-
-// --- GO PRO MODAL ---
-const GoProModal = ({ onClose, onUpgrade }) => (
-    <div style={styles.modalBackdrop}>
-        <div style={{ ...styles.modalContent, maxWidth: '550px', textAlign: 'center' }}>
-            <h2 style={{color: 'var(--primary-color)', marginTop: 0}}>Upgrade to Pro</h2>
-            <p style={{color: 'var(--secondary-color)', fontSize: '1.1rem'}}>Unlock exclusive features to supercharge your business!</p>
-            <ul style={{textAlign: 'left', listStyle: 'none', padding: 0, margin: '2rem 0'}}>
-                <li style={styles.featureListItem}>✅ Manage unlimited shops from one account.</li>
-                <li style={styles.featureListItem}>🤖 Access AI-powered Sales Forecasting & insights.</li>
-                <li style={styles.featureListItem}>📈 Use advanced reporting with custom date ranges.</li>
-                <li style={styles.featureListItem}>♾️ Enjoy unlimited AI bulk product uploads.</li>
-                <li style={styles.featureListItem}>☁️ Automated cloud backup & sync.</li>
-            </ul>
-            <div style={{...styles.modalActions, justifyContent: 'center'}}>
-                <button onClick={onClose} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Maybe Later</button>
-                <button onClick={onUpgrade} style={{...styles.button, backgroundColor: 'var(--success-color)', transform: 'scale(1.1)'}}>Upgrade Now</button>
-            </div>
-        </div>
-    </div>
-);
-
-// --- USER MANAGEMENT VIEW & MODAL ---
-const UserFormModal = ({ user, onSave, onClose, currentUser, shops }: { user: User | null, onSave: (userData: any) => Promise<void>, onClose: () => void, currentUser: User, shops: Shop[] }) => {
-    const [username, setUsername] = useState(user?.username || '');
-    const [password, setPassword] = useState('');
-    const [role, setRole] = useState<UserRole>(user?.role || (currentUser.role === 'super_admin' ? 'shop_admin' : 'cashier'));
-    const [shopId, setShopId] = useState<string>(String(user?.shop_id || ''));
-    
-    const isSuperAdmin = currentUser.role === 'super_admin';
-    const isEditing = !!user;
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        const userData: any = { username, role };
-        if (password) userData.password = password;
-        if (isSuperAdmin && role === 'shop_admin') userData.shop_id = parseInt(shopId, 10);
-        if (isEditing) userData.id = user.id;
-
-        onSave(userData);
-    };
-
-    return (
-        <div style={styles.modalBackdrop}>
-            <div style={styles.modalContent}>
-                <h2>{isEditing ? 'Edit User' : 'Add New User'}</h2>
-                <form onSubmit={handleSubmit} style={styles.productForm}>
-                    <label style={styles.label}>Username</label>
-                    <input type="text" value={username} onChange={e => setUsername(e.target.value)} style={styles.input} required />
-
-                    <label style={styles.label}>Password</label>
-                    <input type="password" value={password} onChange={e => setPassword(e.target.value)} style={styles.input} placeholder={isEditing ? 'Leave blank to keep current' : ''} required={!isEditing} />
-
-                    <label style={styles.label}>Role</label>
-                    <select value={role} onChange={e => setRole(e.target.value as UserRole)} style={styles.input}>
-                        {isSuperAdmin && <option value="shop_admin">Shop Admin</option>}
-                        <option value="cashier">Cashier</option>
-                    </select>
-
-                    {isSuperAdmin && role === 'shop_admin' && (
-                        <>
-                            <label style={styles.label}>Assign to Shop</label>
-                            <select value={shopId} onChange={e => setShopId(e.target.value)} style={styles.input} required>
-                                <option value="" disabled>Select a shop</option>
-                                {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                            </select>
-                        </>
-                    )}
-
-                    <div style={styles.modalActions}>
-                        <button type="button" onClick={onClose} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Cancel</button>
-                        <button type="submit" style={styles.button}>Save User</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    );
-};
-
-
-const UsersView = ({ currentUser, users, shops, onUserAdd, onUserUpdate, onUserDelete }) => {
-    const [editingUser, setEditingUser] = useState<User | null>(null);
-    const [isUserModalOpen, setIsUserModalOpen] = useState(false);
-    const [userToDelete, setUserToDelete] = useState<User | null>(null);
-
-    const handleOpenModal = (user: User | null = null) => {
-        setEditingUser(user);
-        setIsUserModalOpen(true);
-    };
-
-    const handleSave = async (userData: any) => {
-        if (userData.id) {
-            await onUserUpdate(userData);
-        } else {
-            await onUserAdd(userData);
-        }
-        setIsUserModalOpen(false);
-        setEditingUser(null);
-    };
-    
-    const getShopName = (shopId: number | null) => {
-        if (shopId === null) return 'N/A';
-        return shops.find(s => s.id === shopId)?.name || 'Unknown Shop';
-    };
-
-    return (
-        <div style={styles.viewContainer}>
-            <div style={styles.viewHeader}>
-                <h2>User Management</h2>
-                <button onClick={() => handleOpenModal()} style={styles.button}>Add New User</button>
-            </div>
-
-             <table style={styles.table}>
-                <thead>
-                    <tr>
-                        <th style={styles.th}>Username</th>
-                        <th style={styles.th}>Role</th>
-                        <th style={styles.th}>Shop</th>
-                        <th style={styles.th}>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {users.map(user => (
-                        <tr key={user.id}>
-                            <td style={styles.td}>{user.username}</td>
-                            <td style={styles.td}>{user.role.replace('_', ' ')}</td>
-                            <td style={styles.td}>{getShopName(user.shop_id)}</td>
-                            <td style={styles.td}>
-                                <button onClick={() => handleOpenModal(user)} style={{...styles.actionButton, backgroundColor: '#ffc107'}}>Edit</button>
-                                <button onClick={() => setUserToDelete(user)} style={{...styles.actionButton, backgroundColor: 'var(--danger-color)'}} disabled={user.id === currentUser.id}>Delete</button>
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-            
-            {isUserModalOpen && (
-                <UserFormModal
-                    user={editingUser}
-                    onSave={handleSave}
-                    onClose={() => setIsUserModalOpen(false)}
-                    currentUser={currentUser}
-                    shops={shops}
-                />
-            )}
-            {userToDelete && (
-                 <ConfirmationModal
-                    message={`Are you sure you want to delete the user "${userToDelete.username}"? This action cannot be undone.`}
-                    onConfirm={() => { onUserDelete(userToDelete.id); setUserToDelete(null); }}
-                    onCancel={() => setUserToDelete(null)}
-                />
-            )}
-
-        </div>
-    );
-};
-
-
-// --- PAYMENT MODAL ---
-const PaymentModal = ({ sale, onClose, onAddPayment }: { sale: SaleRecord, onClose: () => void, onAddPayment: (saleId: string, amount: number, method: string) => void }) => {
-    const [amount, setAmount] = useState<string>(sale.balance_due.toFixed(2));
-    const [paymentMethod, setPaymentMethod] = useState('Cash');
-    const amountInputRef = useRef<HTMLInputElement>(null);
-
-    useEffect(() => {
-        amountInputRef.current?.focus();
-        amountInputRef.current?.select();
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        const paidAmount = parseFloat(amount);
-        if (!isNaN(paidAmount) && paidAmount > 0) {
-            if (paidAmount > sale.balance_due) {
-                alert(`Payment cannot be greater than the balance due of ₹${sale.balance_due.toFixed(2)}`);
-                return;
-            }
-            onAddPayment(sale.id, paidAmount, paymentMethod);
-        }
+    const handleSelect = (view: string) => {
+        onSelectView(view);
+        setIsOpen(false);
     };
 
     return (
-        <div style={styles.modalBackdrop}>
-            <div style={{ ...styles.modalContent, maxWidth: '450px' }}>
-                <h2 style={{ marginTop: 0 }}>Add Payment</h2>
-                <p><strong>Customer:</strong> {sale.customerName || 'N/A'}</p>
-                <p><strong>Total Bill:</strong> ₹{sale.total.toFixed(2)}</p>
-                <p style={{ color: 'var(--danger-color)', fontWeight: 'bold' }}><strong>Balance Due:</strong> ₹{sale.balance_due.toFixed(2)}</p>
-                <form onSubmit={handleSubmit} style={styles.productForm}>
-                    <label style={styles.label}>Payment Amount</label>
-                    <input
-                        ref={amountInputRef}
-                        type="number"
-                        step="0.01"
-                        min="0.01"
-                        max={sale.balance_due.toFixed(2)}
-                        value={amount}
-                        onChange={e => setAmount(e.target.value)}
-                        style={styles.input}
-                        required
-                    />
-                    <label style={styles.label}>Payment Method</label>
-                    <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} style={styles.input}>
-                        <option>Cash</option>
-                        <option>Card</option>
-                        <option>UPI</option>
-                        <option>Other</option>
-                    </select>
-                    <div style={styles.modalActions}>
-                        <button type="button" onClick={onClose} style={{ ...styles.button, backgroundColor: 'var(--secondary-color)' }}>Cancel</button>
-                        <button type="submit" style={styles.button}>Save Payment</button>
-                    </div>
-                </form>
-            </div>
+        <div style={styles.dropdownContainer} ref={dropdownRef}>
+            <button onClick={() => setIsOpen(!isOpen)} style={styles.dropdownButton} disabled={disabled}>
+                {currentLabel}
+                <span style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', display: 'inline-block' }}>▼</span>
+            </button>
+            {isOpen && (
+                <ul style={styles.dropdownMenu}>
+                    {navItems.map(item => (
+                        <li key={item.key} onClick={() => handleSelect(item.key)} style={activeView === item.key ? {...styles.dropdownMenuItem, ...styles.dropdownMenuItemActive} : styles.dropdownMenuItem}>
+                            {item.label}
+                        </li>
+                    ))}
+                </ul>
+            )}
         </div>
     );
 };
 
-
 // --- BALANCE DUE VIEW ---
-const BalanceDueView = ({ salesHistory, onAddPayment, onPrint }) => {
+const BalanceDueView = ({ salesHistory, customers, onSettlePayment }: { salesHistory: SaleRecord[], customers: Customer[], onSettlePayment: (saleId: string, amount: number) => void }) => {
     const [searchQuery, setSearchQuery] = useState('');
-    const [saleToPay, setSaleToPay] = useState<SaleRecord | null>(null);
+    const [selectedSale, setSelectedSale] = useState<SaleRecord | null>(null);
+    const [paymentAmount, setPaymentAmount] = useState('');
 
-    const outstandingSales = salesHistory
-        .filter(s => s.balance_due > 0)
-        .filter(s => 
-            (s.customerName && s.customerName.toLowerCase().includes(searchQuery.toLowerCase())) ||
-            (s.customerMobile && s.customerMobile.includes(searchQuery))
-        );
+    const salesWithBalance = salesHistory
+        .filter(s => s.balance_due > 0.01)
+        .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    const filteredSales = salesWithBalance.filter(s =>
+        (s.customerName && s.customerName.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (s.customerMobile && s.customerMobile.includes(searchQuery)) ||
+        s.id.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    const handleSettleClick = (sale: SaleRecord) => {
+        setSelectedSale(sale);
+        setPaymentAmount(sale.balance_due.toFixed(2));
+    };
+
+    const handleConfirmPayment = () => {
+        if (selectedSale) {
+            const amount = parseFloat(paymentAmount);
+            if (!isNaN(amount) && amount > 0) {
+                onSettlePayment(selectedSale.id, amount);
+                setSelectedSale(null);
+                setPaymentAmount('');
+            } else {
+                alert("Please enter a valid payment amount.");
+            }
+        }
+    };
 
     return (
         <div style={styles.viewContainer}>
             <div style={styles.viewHeader}>
-                <h2>Outstanding Balances</h2>
+                <h2>Balance Due Payments</h2>
                 <div style={{ position: 'relative' }}>
                     <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', display: 'flex', alignItems: 'center', pointerEvents: 'none' }}>
                         <SearchIcon color="var(--secondary-color)" />
                     </span>
                     <input
                         type="search"
-                        placeholder="Search by customer..."
+                        placeholder="Search by customer, mobile, or invoice ID..."
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
-                        style={{ ...styles.input, width: '300px', paddingLeft: '40px' }}
-                        aria-label="Search outstanding balances"
+                        style={{ ...styles.input, width: '400px', paddingLeft: '40px' }}
+                        aria-label="Search balance due records"
                     />
                 </div>
             </div>
-            {outstandingSales.length > 0 ? (
-                <table style={styles.table}>
+             {filteredSales.length > 0 ? (
+                 <table style={styles.table}>
                     <thead>
                         <tr>
                             <th style={styles.th}>Date</th>
+                            <th style={styles.th}>Invoice ID</th>
                             <th style={styles.th}>Customer</th>
-                            <th style={styles.th}>Total</th>
-                            <th style={styles.th}>Paid</th>
+                            <th style={styles.th}>Mobile</th>
+                            <th style={styles.th}>Total Bill</th>
                             <th style={{...styles.th, color: 'var(--danger-color)'}}>Balance Due</th>
                             <th style={styles.th}>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {outstandingSales.map(sale => (
-                            <tr key={sale.id}>
-                                <td style={styles.td}>{new Date(sale.date).toLocaleDateString()}</td>
-                                <td style={styles.td}>{sale.customerName || 'N/A'} ({sale.customerMobile || 'N/A'})</td>
-                                <td style={styles.td}>₹{sale.total.toFixed(2)}</td>
-                                <td style={styles.td}>₹{sale.paid_amount.toFixed(2)}</td>
-                                <td style={{...styles.td, color: 'var(--danger-color)', fontWeight: 'bold'}}>₹{sale.balance_due.toFixed(2)}</td>
+                        {filteredSales.map(s => (
+                            <tr key={s.id}>
+                                <td style={styles.td}>{new Date(s.date).toLocaleDateString()}</td>
+                                <td style={styles.td}>{s.id}</td>
+                                <td style={styles.td}>{s.customerName || 'N/A'}</td>
+                                <td style={styles.td}>{s.customerMobile || 'N/A'}</td>
+                                <td style={styles.td}>₹{s.total.toFixed(2)}</td>
+                                <td style={{...styles.td, color: 'var(--danger-color)', fontWeight: 'bold'}}>₹{s.balance_due.toFixed(2)}</td>
                                 <td style={styles.td}>
-                                    <button onClick={() => setSaleToPay(sale)} style={{...styles.actionButton, backgroundColor: 'var(--success-color)'}}>Add Payment</button>
-                                    <button onClick={() => onPrint(sale)} style={{...styles.actionButton, backgroundColor: 'var(--secondary-color)'}}>Print</button>
+                                    <button onClick={() => handleSettleClick(s)} style={{...styles.button, padding: '0.25rem 0.75rem', fontSize: '0.9rem'}}>Settle Payment</button>
                                 </td>
                             </tr>
                         ))}
                     </tbody>
                 </table>
             ) : (
-                <p style={styles.emptyMessage}>No outstanding balances found.</p>
+                 <p style={styles.emptyMessage}>
+                    {searchQuery ? `No records found matching "${searchQuery}".` : "No outstanding balances found. Great job!"}
+                </p>
             )}
-            {saleToPay && <PaymentModal sale={saleToPay} onClose={() => setSaleToPay(null)} onAddPayment={onAddPayment} />}
-        </div>
-    );
-};
 
-// --- SESSION DROPDOWN COMPONENT ---
-const SessionDropdown = ({ currentUser, activeShop, syncStatus, isCloudSyncEnabled, userPlan, onShopManagerClick, onLogout }: {
-    currentUser: User;
-    activeShop: Shop | null;
-    syncStatus: 'idle' | 'syncing' | 'synced' | 'error';
-    isCloudSyncEnabled: boolean;
-    userPlan: UserPlan;
-    onShopManagerClick: () => void;
-    onLogout: () => void;
-}) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const dropdownRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-                setIsOpen(false);
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => {
-            document.removeEventListener("mousedown", handleClickOutside);
-        };
-    }, []);
-
-    const getSyncStatusStyle = (status: typeof syncStatus) => {
-        switch (status) {
-            case 'syncing': return { color: '#007bff' };
-            case 'synced': return { color: 'var(--success-color)' };
-            case 'error': return { color: 'var(--danger-color)' };
-            default: return { color: 'var(--secondary-color)' };
-        }
-    };
-
-    const getSyncStatusText = (status: typeof syncStatus) => {
-        switch (status) {
-            case 'syncing': return 'Syncing...';
-            case 'synced': return 'Data Synced';
-            case 'error': return 'Sync Error';
-            default: return 'Sync Enabled';
-        }
-    };
-    
-    return (
-        <div ref={dropdownRef} style={styles.sessionDropdownContainer}>
-            <button onClick={() => setIsOpen(!isOpen)} style={styles.sessionDropdownButton}>
-                <UserIcon size={20} />
-                <span style={{ marginLeft: '0.5rem', fontWeight: 500 }}>{currentUser.username}</span>
-                <span style={{ marginLeft: 'auto', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', display: 'inline-block' }}>▼</span>
-            </button>
-            {isOpen && (
-                <div style={styles.sessionDropdownMenu}>
-                    <div style={styles.sessionDropdownHeader}>
-                        <strong style={{display: 'block'}}>{currentUser.username}</strong>
-                        <span style={{fontSize: '0.9rem', color: 'var(--secondary-color)'}}>{currentUser.role.replace('_', ' ')}</span>
-                    </div>
-                    <div style={styles.sessionDropdownInfoItem}>
-                        <strong>Shop:</strong>
-                        <span>{activeShop?.name || 'N/A'}</span>
-                    </div>
-                    {userPlan === 'pro' && (
-                        <div style={{...styles.sessionDropdownInfoItem, ...(isCloudSyncEnabled ? getSyncStatusStyle(syncStatus) : { color: 'var(--secondary-color)' })}}>
-                             <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
-                                <CloudIcon size={18} />
-                                <strong>Sync Status:</strong>
-                            </div>
-                            <span>{isCloudSyncEnabled ? getSyncStatusText(syncStatus) : 'Disabled'}</span>
+            {selectedSale && (
+                <div style={styles.modalBackdrop}>
+                    <div style={{...styles.modalContent, maxWidth: '450px'}}>
+                        <h3 style={{marginTop: 0}}>Settle Payment for Invoice {selectedSale.id}</h3>
+                        <p>Customer: <strong>{selectedSale.customerName}</strong></p>
+                        <p>Total Due: <strong style={{color: 'var(--danger-color)'}}>₹{selectedSale.balance_due.toFixed(2)}</strong></p>
+                        <label style={styles.label}>Amount to Pay</label>
+                        <input
+                            type="number"
+                            step="0.01"
+                            value={paymentAmount}
+                            onChange={e => setPaymentAmount(e.target.value)}
+                            style={styles.input}
+                            autoFocus
+                        />
+                         <div style={styles.modalActions}>
+                            <button onClick={() => setSelectedSale(null)} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Cancel</button>
+                            <button onClick={handleConfirmPayment} style={{...styles.button, backgroundColor: 'var(--success-color)'}}>Confirm Payment</button>
                         </div>
-                    )}
-                    <hr style={styles.sessionDropdownSeparator} />
-                    {currentUser.role === 'super_admin' && (
-                        <button onClick={() => { onShopManagerClick(); setIsOpen(false); }} style={styles.sessionDropdownMenuItem}>
-                            Shop Manager
-                        </button>
-                    )}
-                    <button onClick={() => { onLogout(); setIsOpen(false); }} style={{...styles.sessionDropdownMenuItem, color: 'var(--danger-color)'}}>
-                        Logout
-                    </button>
+                    </div>
                 </div>
             )}
         </div>
     );
 };
 
-// --- STYLES OBJECT ---
-const styles: { [key: string]: React.CSSProperties } = {
-    // Modals
-    modalBackdrop: {
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.6)',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        zIndex: 1000,
-    },
-    modalContent: {
-        backgroundColor: 'var(--surface-color)',
-        padding: '2rem',
-        borderRadius: '12px',
-        boxShadow: '0 5px 15px rgba(0,0,0,0.3)',
-        width: '90%',
-        maxWidth: '600px',
-        maxHeight: '90vh',
-        overflowY: 'auto',
-        display: 'flex',
-        flexDirection: 'column',
-    },
-    modalActions: {
-        display: 'flex',
-        justifyContent: 'flex-end',
-        gap: '1rem',
-        marginTop: '1.5rem',
-        paddingTop: '1rem',
-        borderTop: '1px solid var(--border-color)',
-    },
 
-    // Forms
-    productForm: {
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '1rem',
-    },
-    label: {
-        fontWeight: 'bold',
-        fontSize: '0.9rem',
-        color: 'var(--secondary-color)',
-        marginBottom: '-0.5rem'
-    },
-    input: {
-        width: '100%',
-        padding: '0.75rem 1rem',
-        borderRadius: '8px',
-        border: '1px solid var(--border-color)',
-        fontSize: '1rem',
-        boxSizing: 'border-box',
-    },
+// --- SETTINGS VIEW ---
+const SettingsView = ({ billSettings, onSave, onPreview, activeShopName, onRenameShop, userPlan, onUpgrade }: {
+    billSettings: BillSettings,
+    onSave: (settings: BillSettings) => void,
+    onPreview: () => void,
+    activeShopName: string,
+    onRenameShop: (newName: string) => void,
+    userPlan: UserPlan,
+    onUpgrade: () => void
+}) => {
+    const [settings, setSettings] = useState(billSettings);
+    const [shopName, setShopName] = useState(activeShopName);
+    const logoInputRef = useRef<HTMLInputElement>(null);
 
-    // Buttons
-    button: {
-        padding: '0.75rem 1.25rem',
-        border: 'none',
-        borderRadius: '8px',
-        backgroundColor: 'var(--primary-color)',
-        color: '#fff',
-        cursor: 'pointer',
-        fontSize: '1rem',
-        fontWeight: 'bold',
-        transition: 'background-color 0.2s ease',
-    },
-    actionButton: {
-        padding: '0.4rem 0.8rem',
-        border: 'none',
-        borderRadius: '6px',
-        color: '#fff',
-        cursor: 'pointer',
-        fontSize: '0.9rem',
-        marginRight: '0.5rem',
-    },
+    useEffect(() => {
+        setSettings(billSettings);
+        setShopName(activeShopName);
+    }, [billSettings, activeShopName]);
 
-    // Confirmation Modal specific
-    confirmationDetails: {
-        margin: '1rem 0',
-        padding: '1rem',
-        backgroundColor: '#f8f9fa',
-        borderRadius: '8px',
-        border: '1px solid var(--border-color)',
-    },
-    confirmationRow: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        padding: '0.25rem 0',
-    },
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+        const { name, value } = e.target;
+        setSettings(prev => ({ ...prev, [name]: value }));
+    };
     
-    // Tables
-    table: {
-        width: '100%',
-        borderCollapse: 'collapse',
-        backgroundColor: 'var(--surface-color)',
-    },
-    th: {
-        backgroundColor: '#f8f9fa',
-        padding: '0.75rem 1rem',
-        textAlign: 'left',
-        borderBottom: '2px solid var(--border-color)',
-        fontWeight: 600,
-        color: 'var(--secondary-color)',
-        fontSize: '0.9rem',
-    },
-    td: {
-        padding: '0.75rem 1rem',
-        borderBottom: '1px solid var(--border-color)',
-        verticalAlign: 'middle',
-    },
-    gridInput: {
-        width: '100%',
-        padding: '0.5rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '4px',
-        boxSizing: 'border-box',
-    },
-    wideGridInput: {
-        width: '100%',
-        padding: '0.5rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '4px',
-        boxSizing: 'border-box',
-    },
-    
-    // Layouts & Views
-    viewContainer: {
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '1.5rem',
-    },
-    viewHeader: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: '1rem',
-    },
-    emptyMessage: {
-        textAlign: 'center',
-        color: 'var(--secondary-color)',
-        padding: '2rem',
-    },
-    
-    // Badges
-    proBadge: {
-        position: 'absolute',
-        top: '-10px',
-        right: '-10px',
-        background: 'linear-gradient(45deg, #ffc107, #ff9800)',
-        color: 'black',
-        padding: '0.2rem 0.6rem',
-        borderRadius: '12px',
-        fontSize: '0.8rem',
-        fontWeight: 'bold',
-        border: '2px solid white',
-    },
-    proBadgeSmall: {
-        position: 'absolute',
-        bottom: '-8px',
-        right: '-8px',
-        backgroundColor: 'var(--primary-color)',
-        color: 'white',
-        padding: '0.1rem 0.4rem',
-        borderRadius: '8px',
-        fontSize: '0.7rem',
-        fontWeight: 'bold',
-    },
-    dueTag: {
-        backgroundColor: 'var(--danger-color)',
-        color: 'white',
-        padding: '0.2rem 0.5rem',
-        borderRadius: '12px',
-        fontSize: '0.8rem',
-        fontWeight: 'bold',
-    },
-    
-    // Reports View
-    reportFilters: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '1rem',
-    },
-    dateRangePicker: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem',
-    },
-    reportTabs: {
-        display: 'flex',
-        borderBottom: '1px solid var(--border-color)',
-    },
-    reportTabButton: {
-        padding: '0.75rem 1.5rem',
-        border: 'none',
-        background: 'none',
-        cursor: 'pointer',
-        fontSize: '1rem',
-        color: 'var(--secondary-color)',
-        position: 'relative',
-    },
-    reportTabButtonActive: {
-        color: 'var(--primary-color)',
-        fontWeight: 'bold',
-        borderBottom: '3px solid var(--primary-color)',
-    },
-    reportSummary: {
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-        gap: '1rem',
-    },
-    summaryCard: {
-        backgroundColor: 'var(--surface-color)',
-        padding: '1.5rem',
-        borderRadius: '8px',
-        border: '1px solid var(--border-color)',
-        textAlign: 'center',
-    },
+    const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, checked } = e.target;
+        setSettings(prev => ({
+            ...prev,
+            displayOptions: {
+                ...prev.displayOptions,
+                [name]: checked
+            }
+        }));
+    };
 
-    // Customer View
-    customerViewLayout: {
-        display: 'flex',
-        gap: '1.5rem',
-        height: '70vh',
-    },
-    customerListPanel: {
-        flex: 1,
-        backgroundColor: 'var(--surface-color)',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        display: 'flex',
-        flexDirection: 'column',
-    },
-    customerDetailPanel: {
-        flex: 2,
-        backgroundColor: 'var(--surface-color)',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        padding: '1.5rem',
-    },
-    customerListItem: {
-        padding: '1rem 1.5rem',
-        borderBottom: '1px solid var(--border-color)',
-        cursor: 'pointer',
-    },
-    customerListItemActive: {
-        backgroundColor: 'var(--primary-color-light)',
-        borderLeft: '4px solid var(--primary-color)',
-        paddingLeft: 'calc(1.5rem - 4px)',
-    },
-    customerDetailHeader: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        paddingBottom: '1rem',
-        borderBottom: '1px solid var(--border-color)',
-        marginBottom: '1rem',
-    },
-    purchaseHistoryItem: {
-        padding: '1rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        marginBottom: '1rem',
-    },
+    const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setSettings(prev => ({ ...prev, logo: reader.result as string }));
+            };
+            reader.readAsDataURL(file);
+        }
+    };
     
-    // Sales View
-    priceModeSelector: {
-        display: 'flex',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        overflow: 'hidden',
-    },
-    priceModeLabel: {
-        padding: '0.5rem 1rem',
-        cursor: 'pointer',
-        backgroundColor: 'var(--surface-color)',
-        color: 'var(--secondary-color)',
-    },
-    priceModeLabelChecked: {
-        backgroundColor: 'var(--primary-color)',
-        color: 'white',
-    },
-    priceModeLabel_input: {
-        display: 'none',
-    },
-    customerSection: {
-        display: 'flex',
-        gap: '1rem',
-        marginBottom: '1rem',
-    },
-    customerInput: {
-        flex: 2,
-        width: '100%',
-        padding: '0.75rem 1rem',
-        borderRadius: '8px',
-        border: '1px solid var(--border-color)',
-        fontSize: '1rem',
-        boxSizing: 'border-box',
-    },
-    countryCodeInput: {
-        flex: '0 0 70px',
-        width: '100%',
-        padding: '0.75rem 1rem',
-        border: '1px solid var(--border-color)',
-        fontSize: '1rem',
-        boxSizing: 'border-box',
-        borderRight: 'none',
-        borderTopLeftRadius: '8px',
-        borderBottomLeftRadius: '8px',
-    },
-    mobileNumberInput: {
-        flex: 1,
-        width: '100%',
-        padding: '0.75rem 1rem',
-        border: '1px solid var(--border-color)',
-        fontSize: '1rem',
-        boxSizing: 'border-box',
-        borderTopRightRadius: '8px',
-        borderBottomRightRadius: '8px',
-    },
-    barcodeScanButton: {
-        position: 'absolute',
-        right: '50px',
-        top: '50%',
-        transform: 'translateY(-50%)',
-        background: 'none',
-        border: 'none',
-        cursor: 'pointer',
-        padding: '0.5rem',
-    },
-    voiceSearchButton: {
-        position: 'absolute',
-        right: '10px',
-        top: '50%',
-        transform: 'translateY(-50%)',
-        background: 'none',
-        border: 'none',
-        cursor: 'pointer',
-        padding: '0.5rem',
-    },
-    searchResults: {
-        position: 'absolute',
-        top: '100%',
-        left: 0,
-        right: 0,
-        backgroundColor: 'var(--surface-color)',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
-        listStyle: 'none',
-        padding: '0.5rem 0',
-        margin: '0.25rem 0 0 0',
-        zIndex: 100,
-        maxHeight: '300px',
-        overflowY: 'auto',
-    },
-    searchResultItem: {
-        padding: '0.75rem 1rem',
-        cursor: 'pointer',
-    },
-    highlighted: {
-        backgroundColor: 'var(--primary-color-light)',
-    },
-    totalsSection: {
-        display: 'flex',
-        justifyContent: 'flex-end',
-        alignItems: 'center',
-        gap: '1.5rem',
-        marginTop: '1rem',
-        paddingTop: '1rem',
-        borderTop: '1px solid var(--border-color)',
-    },
-    totalsInput: {
-        padding: '0.5rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '4px',
-        width: '100px',
-    },
-    grandTotal: {
-        textAlign: 'right',
-        marginLeft: '2rem',
-    },
-    backupSection: {
-        marginTop: '2rem',
-        padding: '1.5rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        backgroundColor: '#f8f9fa',
-    },
-    backupTitle: { marginTop: 0 },
-    backupDescription: { color: 'var(--secondary-color)' },
-    backupActions: { display: 'flex', gap: '1rem', marginTop: '1rem' },
+    const handleSaveShopName = () => {
+        const trimmedName = shopName.trim();
+        if (trimmedName && trimmedName !== activeShopName) {
+            onRenameShop(trimmedName);
+        } else {
+            setShopName(activeShopName); // Reset if empty or unchanged
+        }
+    };
+    
+    const isProFeature = (feature: keyof BillSettings) => {
+        if (userPlan === 'pro') return false;
+        const proFeatures: (keyof BillSettings)[] = ['logo', 'gstin'];
+        if (feature === 'format' && (settings.format === 'detailed' || settings.format === 'gst')) {
+            return true;
+        }
+        return proFeatures.includes(feature);
+    };
 
-    // Mobile Sales View
-    mobileSingleColumnLayout: {
-        height: 'calc(100vh - 120px)',
-        display: 'flex',
-        flexDirection: 'column',
-    },
-    mobileScrollableContent: {
-        flex: 1,
-        overflowY: 'auto',
-        padding: '1rem',
-    },
-    mobileSection: {
-        marginBottom: '1.5rem',
-    },
-    mobileSectionTitle: {
-        margin: '0 0 1rem 0',
-        fontSize: '1.1rem',
-        borderBottom: '1px solid var(--border-color)',
-        paddingBottom: '0.5rem',
-    },
-    mobileSettingsGroup: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '0.5rem',
-    },
-    mobileSettingsLabel: {
-        margin: 0,
-        color: 'var(--secondary-color)',
-    },
-    mobileInput: {
-        width: '100%',
-        padding: '0.75rem 1rem',
-        borderRadius: '8px',
-        border: '1px solid var(--border-color)',
-        fontSize: '1rem',
-        boxSizing: 'border-box',
-    },
-    mobileButton: {
-        width: '100%',
-        padding: '0.75rem 1.25rem',
-        border: 'none',
-        borderRadius: '8px',
-        backgroundColor: 'var(--primary-color)',
-        color: '#fff',
-        cursor: 'pointer',
-        fontSize: '1rem',
-        fontWeight: 'bold',
-    },
-    mobileInputIconButton: {
-        position: 'absolute',
-        right: '5px',
-        top: '50%',
-        transform: 'translateY(-50%)',
-        background: 'none',
-        border: 'none',
-        cursor: 'pointer',
-        padding: '0.5rem',
-    },
-    mobileInlineSearchResults: {
-        listStyle: 'none',
-        padding: 0,
-        margin: '0.5rem 0 0 0',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        maxHeight: '200px',
-        overflowY: 'auto',
-    },
-    mobileInlineSearchResultItem: {
-        padding: '0.75rem',
-        borderBottom: '1px solid var(--border-color)',
-    },
-    mobileBillItemCard: {
-        backgroundColor: 'var(--surface-color)',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        padding: '1rem',
-        marginBottom: '0.75rem',
-    },
-    mobileBillItemCardReturn: {
-        borderColor: 'var(--danger-color)',
-        backgroundColor: '#ffebee',
-    },
-    mobileBillItemInfo: {
-        marginBottom: '0.75rem',
-    },
-    mobileBillItemControls: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
-    mobileQuantityControls: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '1rem',
-    },
-    mobileRoundButton: {
-        width: '32px',
-        height: '32px',
-        borderRadius: '50%',
-        border: '1px solid var(--border-color)',
-        backgroundColor: 'white',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        cursor: 'pointer',
-    },
-    mobilePaymentRow: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '0.75rem 0',
-    },
-    mobilePaymentInput: {
-        width: '120px',
-        padding: '0.5rem',
-        textAlign: 'right',
-        border: '1px solid var(--border-color)',
-        borderRadius: '4px',
-    },
-    mobileGrandTotal: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '1rem 0',
-        fontWeight: 'bold',
-        fontSize: '1.2rem',
-        borderTop: '1px solid var(--border-color)',
-        marginTop: '0.5rem',
-    },
-    mobileBottomActionBar: {
-        padding: '1rem',
-        backgroundColor: 'var(--surface-color)',
-        borderTop: '1px solid var(--border-color)',
-    },
-    mobileFinalizeButton: {
-        width: '100%',
-        padding: '1rem',
-        border: 'none',
-        borderRadius: '8px',
-        backgroundColor: 'var(--success-color)',
-        color: '#fff',
-        cursor: 'pointer',
-        fontSize: '1.1rem',
-        fontWeight: 'bold',
-    },
+    return (
+        <div style={styles.viewContainer}>
+            <div style={styles.viewHeader}>
+                <h2>Settings</h2>
+                <div>
+                    <button onClick={onPreview} style={{...styles.button, backgroundColor: 'var(--secondary-color)', marginRight: '1rem'}}>Preview Bill</button>
+                    <button onClick={() => onSave(settings)} style={styles.button}>Save Settings</button>
+                </div>
+            </div>
+            
+            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', alignItems: 'start'}}>
+                <div style={styles.settingsCard}>
+                    <h3 style={{marginTop: 0}}>Shop Information</h3>
+                    <label style={styles.label}>Shop Name</label>
+                    <div style={{display: 'flex', gap: '1rem', marginBottom: '1rem'}}>
+                        <input type="text" value={shopName} onChange={e => setShopName(e.target.value)} style={{...styles.input, flex: 1}} />
+                        <button onClick={handleSaveShopName} style={styles.button}>Rename</button>
+                    </div>
 
-    // Shop Manager
-    shopListItem: {
-        padding: '1rem 1.5rem',
-        borderBottom: '1px solid var(--border-color)',
-        cursor: 'pointer',
-    },
-    shopListItemActive: {
-        backgroundColor: 'var(--primary-color-light)',
-        fontWeight: 'bold',
-        color: 'var(--primary-color)',
-    },
-    
-    // Dropdowns
-    dropdownContainer: {
-        position: 'relative',
-    },
-    dropdownButton: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem',
-        padding: '0.5rem 1rem',
-        backgroundColor: 'var(--surface-color)',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        cursor: 'pointer',
-        minWidth: '180px',
-        justifyContent: 'space-between',
-    },
-    dropdownMenu: {
-        position: 'absolute',
-        top: 'calc(100% + 5px)',
-        left: 0,
-        backgroundColor: 'var(--surface-color)',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
-        zIndex: 10,
-        width: '100%',
-        padding: '0.5rem 0',
-    },
-    dropdownMenuItem: {
-        display: 'block',
-        width: '100%',
-        padding: '0.75rem 1rem',
-        border: 'none',
-        background: 'none',
-        textAlign: 'left',
-        cursor: 'pointer',
-    },
-    dropdownMenuItemActive: {
-        backgroundColor: 'var(--primary-color-light)',
-    },
-    
-    // Settings
-    settingsGrid: {
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '1rem',
-        marginBottom: '1rem'
-    },
-    checkboxControl: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem'
-    },
-    settingsCard: {
-        backgroundColor: 'var(--surface-color)',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        padding: '1.5rem',
-        marginBottom: '1.5rem',
-    },
-    featureListItem: {
-        padding: '0.75rem 0',
-        fontSize: '1.1rem',
-    },
-    
-    // Session Dropdown
-    sessionDropdownContainer: { position: 'relative' },
-    sessionDropdownButton: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem',
-        padding: '0.5rem 1rem',
-        backgroundColor: 'var(--surface-color)',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        cursor: 'pointer',
-        minWidth: '150px',
-    },
-    sessionDropdownMenu: {
-        position: 'absolute',
-        top: 'calc(100% + 5px)',
-        right: 0,
-        backgroundColor: 'var(--surface-color)',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
-        zIndex: 10,
-        width: '250px',
-        padding: '0.5rem 0',
-    },
-    sessionDropdownHeader: {
-        padding: '0.75rem 1rem',
-        borderBottom: '1px solid var(--border-color)',
-    },
-    sessionDropdownInfoItem: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        padding: '0.75rem 1rem',
-        fontSize: '0.9rem',
-    },
-    sessionDropdownSeparator: {
-        border: 'none',
-        borderTop: '1px solid var(--border-color)',
-        margin: '0.5rem 0',
-    },
-    
-    // Nav
-    billSelector: {
-        display: 'flex',
-        backgroundColor: '#e9ecef',
-        borderRadius: '8px',
-        padding: '0.25rem',
-    },
-    billButton: {
-        padding: '0.5rem 1rem',
-        border: 'none',
-        background: 'none',
-        borderRadius: '6px',
-        cursor: 'pointer',
-        fontWeight: 'bold',
-    },
-    billButtonActive: {
-        backgroundColor: 'var(--surface-color)',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-    },
-    // General & Layout
-    appContainer: {
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100vh',
-        fontFamily: "'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif",
-        color: 'var(--text-color)',
-        backgroundColor: 'var(--background-color)',
-    },
-    nav: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '0.75rem 1.5rem',
-        backgroundColor: 'var(--surface-color)',
-        borderBottom: '1px solid var(--border-color)',
-        flexShrink: 0,
-    },
-    mainContent: {
-        flex: 1,
-        overflowY: 'auto',
-        padding: '1.5rem',
-    },
+                    <label style={styles.label}>Shop Address</label>
+                    <textarea name="shopAddress" value={settings.shopAddress} onChange={handleChange} style={{...styles.input, height: '80px', resize: 'vertical'}} />
+                    
+                    <label style={styles.label}>Shop Tagline / Slogan (Optional)</label>
+                    <input type="text" name="tagline" value={settings.tagline} onChange={handleChange} style={styles.input} />
+
+                    <label style={styles.label}>Footer Notes (Optional)</label>
+                    <input type="text" name="footerNotes" value={settings.footerNotes} onChange={handleChange} style={styles.input} />
+
+                     <div style={{position: 'relative'}}>
+                        <label style={styles.label}>GSTIN (Optional)</label>
+                        <input type="text" name="gstin" value={settings.gstin} onChange={handleChange} style={styles.input} disabled={isProFeature('gstin')} />
+                        {isProFeature('gstin') && <span style={styles.proBadgeLarge} onClick={onUpgrade}>PRO</span>}
+                    </div>
+
+                     <div style={{position: 'relative'}}>
+                        <label style={styles.label}>Shop Logo (Optional)</label>
+                        <input type="file" accept="image/*" ref={logoInputRef} onChange={handleLogoChange} style={{display: 'none'}} disabled={isProFeature('logo')} />
+                        <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
+                            <button onClick={() => logoInputRef.current?.click()} style={styles.button} disabled={isProFeature('logo')}>Upload Logo</button>
+                            {settings.logo && <img src={settings.logo} alt="logo preview" style={{maxHeight: '50px', maxWidth: '150px', border: '1px solid var(--border-color)'}} />}
+                        </div>
+                        {isProFeature('logo') && <span style={styles.proBadgeLarge} onClick={onUpgrade}>PRO</span>}
+                    </div>
+                </div>
+
+                <div style={styles.settingsCard}>
+                    <h3 style={{marginTop: 0}}>Invoice / Bill Customization</h3>
+                    <div style={{position: 'relative'}}>
+                        <label style={styles.label}>Bill Format</label>
+                        <select name="format" value={settings.format} onChange={handleChange} style={styles.input} >
+                            <option value="simple">Simple (Item, Qty, Price, Total)</option>
+                            <option value="detailed" disabled={userPlan === 'free'}>Detailed (Includes discount, tax, balance)</option>
+                            <option value="gst" disabled={userPlan === 'free'}>GST Ready (Includes HSN, GSTIN)</option>
+                        </select>
+                        {isProFeature('format') && <span style={styles.proBadgeLarge} onClick={onUpgrade}>PRO</span>}
+                    </div>
+                    
+                    <label style={styles.label}>Paper Size</label>
+                    <select name="size" value={settings.size} onChange={handleChange} style={styles.input}>
+                        <option value="3-inch">3-inch Thermal</option>
+                        <option value="4-inch">4-inch Thermal</option>
+                        <option value="A4">A4</option>
+                        <option value="A5">A5</option>
+                        <option value="custom">Custom Width</option>
+                    </select>
+
+                    {settings.size === 'custom' && (
+                        <div>
+                            <label style={styles.label}>Custom Paper Width (e.g., 80mm, 5cm, 3in)</label>
+                            <input name="customWidth" value={settings.customWidth} onChange={handleChange} style={styles.input} />
+                        </div>
+                    )}
+                    
+                    <h4 style={{marginTop: '2rem'}}>Display Options</h4>
+                     <div style={styles.checkboxGrid}>
+                        <label style={styles.checkboxLabel}><input type="checkbox" name="showLogo" checked={settings.displayOptions.showLogo} onChange={handleCheckboxChange} /> Show Logo</label>
+                        <label style={styles.checkboxLabel}><input type="checkbox" name="showShopName" checked={settings.displayOptions.showShopName} onChange={handleCheckboxChange} /> Show Shop Name</label>
+                        <label style={styles.checkboxLabel}><input type="checkbox" name="showShopAddress" checked={settings.displayOptions.showShopAddress} onChange={handleCheckboxChange} /> Show Address</label>
+                        <label style={styles.checkboxLabel}><input type="checkbox" name="showGstin" checked={settings.displayOptions.showGstin} onChange={handleCheckboxChange} /> Show GSTIN</label>
+                        <label style={styles.checkboxLabel}><input type="checkbox" name="showTagline" checked={settings.displayOptions.showTagline} onChange={handleCheckboxChange} /> Show Tagline</label>
+                        <label style={styles.checkboxLabel}><input type="checkbox" name="showFooterNotes" checked={settings.displayOptions.showFooterNotes} onChange={handleCheckboxChange} /> Show Footer Notes</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
 };
 
 // --- MAIN APP COMPONENT ---
 const App = () => {
-    const [dbLoading, setDbLoading] = useState(true);
+    const [dbReady, setDbReady] = useState(false);
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [currentUser, setCurrentUser] = useState<User | null>(null);
-    const [activeView, setActiveView] = useState('sales');
+
+    const [shops, setShops] = useState<Shop[]>([]);
+    const [activeShopId, setActiveShopId] = useState<number | null>(null);
+    
+    const [products, setProducts] = useState<Product[]>([]);
+    const [customers, setCustomers] = useState<Customer[]>([]);
+    const [salesHistory, setSalesHistory] = useState<SaleRecord[]>([]);
+    const [expenses, setExpenses] = useState<Expense[]>([]);
+
+    const [activeCart, setActiveCart] = useState<CartState>(defaultCartState);
+    const [paidAmount, setPaidAmount] = useState(0);
+    const [isAmountPaidEdited, setIsAmountPaidEdited] = useState(false);
+
+    const [view, setView] = useState('sales');
     const [viewMode, setViewMode] = useState<'desktop' | 'mobile'>('desktop');
     
-    // Multi-Shop State
-    const [shops, setShops] = useState<Shop[]>([]);
-    const [users, setUsers] = useState<User[]>([]);
-    const [activeShopId, setActiveShopId] = useState<number | null>(null);
-    const [isShopManagerOpen, setIsShopManagerOpen] = useState(false);
-    const [isInitialSetup, setIsInitialSetup] = useState(false);
-
-    // Monetization State
-    const [userPlan, setUserPlan] = useState<UserPlan>('free');
-    const [isGoProModalOpen, setIsGoProModalOpen] = useState(false);
-    const [aiUsage, setAiUsage] = useState<{ count: number, lastReset: string }>({ count: 0, lastReset: new Date().toISOString().slice(0, 10) });
-    const AI_FREE_LIMIT = 3;
-    const [isCloudSyncEnabled, setIsCloudSyncEnabled] = useState(false);
-    const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
-    const syncIntervalRef = useRef<number | null>(null);
-
-    // Bill Settings State
-    const [billSettings, setBillSettings] = useState<BillSettings>(defaultBillSettings);
-    const [isBillSettingsPreviewOpen, setIsBillSettingsPreviewOpen] = useState(false);
-
-
-    // Derived state for the active shop
-    const activeShop = shops.find(s => s.id === activeShopId) || null;
-    
-    // Customer Management State
-    const [customers, setCustomers] = useState<Customer[]>([]);
-    const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
-    const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
-    const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
-
-    // Multi-bill state
-    const [carts, setCarts] = useState<CartState[]>([
-        {...defaultCartState},
-        {...defaultCartState},
-        {...defaultCartState},
-    ]);
-    const [activeCartIndex, setActiveCartIndex] = useState(0);
-    const [paidAmounts, setPaidAmounts] = useState<number[]>([0, 0, 0]);
-    const [amountPaidEditedFlags, setAmountPaidEditedFlags] = useState<boolean[]>([false, false, false]);
-    const [previousBalancesDue, setPreviousBalancesDue] = useState<number[]>([0, 0, 0]);
-
-    const activeCart = carts[activeCartIndex] || defaultCartState;
-    const paidAmount = paidAmounts[activeCartIndex] || 0;
-    const amountPaidEdited = amountPaidEditedFlags[activeCartIndex];
-    const previousBalanceDue = previousBalancesDue[activeCartIndex] || 0;
-
-    const updateActiveCart = (updatedData: Partial<CartState>) => {
-        setCarts(prevCarts => {
-            const newCarts = [...prevCarts];
-            const currentCart = newCarts[activeCartIndex] || defaultCartState;
-            newCarts[activeCartIndex] = { ...currentCart, ...updatedData };
-            return newCarts;
-        });
-    };
-    
-    const setPaidAmount = (amount: number) => {
-        setPaidAmounts(prev => {
-            const newAmounts = [...prev];
-            newAmounts[activeCartIndex] = amount;
-            return newAmounts;
-        });
-    };
-    
-    const handleAmountPaidEdit = () => {
-        setAmountPaidEditedFlags(prev => {
-            const newFlags = [...prev];
-            newFlags[activeCartIndex] = true;
-            return newFlags;
-        });
-    };
-
     const [isProductModalOpen, setIsProductModalOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-    const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
-    const [isSaleConfirmModalOpen, setIsSaleConfirmModalOpen] = useState(false);
-    const [saleToPrint, setSaleToPrint] = useState<SaleRecord | null>(null);
-    const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
 
-    // State for Bulk Add Modals
+    const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
+    const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+
+    const [isConfirmationModalOpen, setIsConfirmationModalOpen] = useState(false);
+    const [confirmation, setConfirmation] = useState({ message: '', onConfirm: () => {} });
+
+    const [isSaleConfirmationOpen, setIsSaleConfirmationOpen] = useState(false);
+    const [saleConfirmationDetails, setSaleConfirmationDetails] = useState({ previousBalance: 0, currentBill: 0, grandTotal: 0, amountPaid: 0, newBalance: 0 });
+
+    const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+    const [historyMobile, setHistoryMobile] = useState('');
+    
+    const [isInvoicePreviewOpen, setIsInvoicePreviewOpen] = useState(false);
+    const [previewSale, setPreviewSale] = useState<any>(null);
+    
     const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState(false);
-    const [isPdfUploadModalOpen, setIsPdfUploadModalOpen] = useState(false);
     const [bulkAddFileSrc, setBulkAddFileSrc] = useState<string | null>(null);
     const [bulkAddFileType, setBulkAddFileType] = useState<'image' | 'pdf' | 'dual-pdf' | null>(null);
-    const [bulkAddFileNames, setBulkAddFileNames] = useState<{b2b: string, b2c: string} | null>(null);
+    const [bulkAddPdfFileNames, setBulkAddPdfFileNames] = useState<{ b2b: string, b2c: string } | null>(null);
     const [bulkAddProducts, setBulkAddProducts] = useState<EditableProduct[]>([]);
     const [isBulkAddLoading, setIsBulkAddLoading] = useState(false);
     const [bulkAddError, setBulkAddError] = useState<string | null>(null);
     
-    // State for multi-select delete
+    const [isPdfUploadModalOpen, setIsPdfUploadModalOpen] = useState(false);
+    
+    const [isShopManagerOpen, setIsShopManagerOpen] = useState(false);
+    const [isInitialSetup, setIsInitialSetup] = useState(false);
+
+    const [isRestoreModalOpen, setIsRestoreModalOpen] = useState(false);
+    const [restoreProgress, setRestoreProgress] = useState({ percentage: 0, eta: '...', message: 'Initializing...' });
+
     const [selectedProductIds, setSelectedProductIds] = useState<number[]>([]);
-    const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
-    const [productIdsToDelete, setProductIdsToDelete] = useState<number[]>([]);
+    const [isOnline, setIsOnline] = useState(navigator.onLine);
     
-    // State for Online/Offline status
-    const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+    const [billSettings, setBillSettings] = useState<BillSettings>(defaultBillSettings);
+    const [isBillSettingsPreviewOpen, setIsBillSettingsPreviewOpen] = useState(false);
 
-    // State for Restore Backup Progress
-    const [restoreProgress, setRestoreProgress] = useState({ visible: false, percentage: 0, eta: '...', message: '' });
-    
-    // --- Monetization Logic ---
-    const handleUpgrade = () => {
-        setUserPlan('pro');
-        setIsGoProModalOpen(false);
-        // Persist choice for simulation
-        localStorage.setItem('userPlan', 'pro');
-    };
-    
-    const handleDowngrade = () => {
-        setUserPlan('free');
-        localStorage.setItem('userPlan', 'free');
-    };
+    const [userPlan, setUserPlan] = useState<UserPlan>('free');
+    const [aiUsageCount, setAiUsageCount] = useState(0);
 
-    const handleUpgradeRequest = () => {
-        setIsGoProModalOpen(true);
-    };
-    
-    const checkAndIncrementAiUsage = () => {
-        const today = new Date().toISOString().slice(0, 10);
-        let currentUsage = aiUsage;
+    // --- DB & AUTH ---
+    useEffect(() => {
+        initDb().then(() => setDbReady(true));
 
-        // Reset daily counter
-        if (aiUsage.lastReset !== today) {
-            currentUsage = { count: 0, lastReset: today };
-        }
+        const updateOnlineStatus = () => setIsOnline(navigator.onLine);
+        window.addEventListener('online', updateOnlineStatus);
+        window.addEventListener('offline', updateOnlineStatus);
         
-        if (userPlan === 'free' && currentUsage.count >= AI_FREE_LIMIT) {
+        const storedViewMode = localStorage.getItem('pos-view-mode');
+        if (storedViewMode === 'mobile' || storedViewMode === 'desktop') {
+            setViewMode(storedViewMode);
+        } else if (window.innerWidth < 768) {
+            setViewMode('mobile');
+        }
+
+        return () => {
+            window.removeEventListener('online', updateOnlineStatus);
+            window.removeEventListener('offline', updateOnlineStatus);
+        };
+    }, []);
+    
+    useEffect(() => {
+        localStorage.setItem('pos-view-mode', viewMode);
+    }, [viewMode]);
+    
+    useEffect(() => {
+        if (!dbReady) return;
+        const storedPlan = localStorage.getItem('userPlan');
+        if (storedPlan === 'pro') setUserPlan('pro');
+        
+        const storedAiUsage = localStorage.getItem('aiUsageCount');
+        if(storedAiUsage) setAiUsageCount(parseInt(storedAiUsage, 10));
+
+        const storedSettings = localStorage.getItem(`billSettings_${activeShopId}`);
+        if (storedSettings) {
+            setBillSettings(JSON.parse(storedSettings));
+        } else {
+            setBillSettings(defaultBillSettings);
+        }
+    }, [dbReady, activeShopId]);
+    
+    const handleLoginSuccess = (user: User) => {
+        setCurrentUser(user);
+        setIsLoggedIn(true);
+        loadShops();
+        if (user.shop_id) {
+            setActiveShopId(user.shop_id);
+        }
+    };
+    
+    const handleLogout = () => {
+        setIsLoggedIn(false);
+        setCurrentUser(null);
+        setShops([]);
+        setActiveShopId(null);
+        setProducts([]);
+        setCustomers([]);
+        setSalesHistory([]);
+        setExpenses([]);
+        setActiveCart(defaultCartState);
+    };
+
+    // --- DATA LOADING & SAVING ---
+    const loadShops = () => {
+        if (!db) return;
+        const shopsData = sqlResultToObjects(db.exec("SELECT id, name, nextProductId FROM shops"));
+        if (shopsData.length === 0) {
+            setIsInitialSetup(true);
+        } else {
+            setShops(shopsData);
+            if (!activeShopId) {
+                setActiveShopId(shopsData[0].id);
+            }
+        }
+    };
+
+    useEffect(() => {
+        if (activeShopId && db) {
+            loadShopData(activeShopId);
+            const storedSettings = localStorage.getItem(`billSettings_${activeShopId}`);
+            const baseSettings = storedSettings ? JSON.parse(storedSettings) : defaultBillSettings;
+            const activeShop = shops.find(s => s.id === activeShopId);
+            if (activeShop && !baseSettings.shopNameEdited) {
+                baseSettings.shopName = activeShop.name;
+            }
+            setBillSettings(baseSettings);
+        }
+    }, [activeShopId, db]);
+
+    const loadShopData = (shopId: number) => {
+        if (!db) return;
+        // Products
+        const productsData = sqlResultToObjects(db.exec("SELECT * FROM products WHERE shop_id = ?", [shopId]));
+        setProducts(productsData);
+
+        // Sales History
+        const salesData = sqlResultToObjects(db.exec("SELECT * FROM sales_history WHERE shop_id = ? ORDER BY date DESC", [shopId]));
+        const salesWithItems = salesData.map((sale: any) => {
+            const items = sqlResultToObjects(db.exec("SELECT * FROM sale_items WHERE sale_id = ?", [sale.id]));
+            return { ...sale, items };
+        });
+        setSalesHistory(salesWithItems);
+        
+        // Customers (Assuming customers are global, not per-shop for simplicity)
+        const customerData = sqlResultToObjects(db.exec("SELECT * FROM customers"));
+        setCustomers(customerData);
+        
+        // Expenses
+        const expenseData = sqlResultToObjects(db.exec("SELECT * FROM expenses WHERE shop_id = ? ORDER BY date DESC", [shopId]));
+        setExpenses(expenseData);
+    };
+    
+    // --- SHOP MANAGEMENT ---
+    const handleCreateShop = (shopName: string) => {
+        if (!db) return;
+        const newShopId = Date.now(); // Simple unique ID
+        db.run("INSERT INTO shops (id, name, nextProductId) VALUES (?, ?, ?)", [newShopId, shopName, 1]);
+        saveDbToIndexedDB();
+        setIsInitialSetup(false);
+        setIsShopManagerOpen(false);
+        loadShops();
+        setActiveShopId(newShopId); // Switch to the new shop
+    };
+    
+    const handleSelectShop = (shopId: number) => {
+        setActiveShopId(shopId);
+        setIsShopManagerOpen(false);
+        setView('sales');
+        
+        // Update user's default shop if they are not a super_admin
+        if (currentUser && currentUser.role !== 'super_admin') {
+            db.run("UPDATE users SET shop_id = ? WHERE id = ?", [shopId, currentUser.id]);
+            saveDbToIndexedDB();
+        }
+    };
+    
+    const handleRenameShop = (newName: string) => {
+        if (!db || !activeShopId) return;
+        db.run("UPDATE shops SET name = ? WHERE id = ?", [newName, activeShopId]);
+        saveDbToIndexedDB();
+        loadShops(); // Refresh shop list
+        alert(`Shop renamed to "${newName}"`);
+    };
+
+    // --- PRODUCT MANAGEMENT ---
+    const handleAddProduct = (productData: Omit<Product, 'id'>) => {
+        if (!db || !activeShopId) return;
+        const shop = shops.find(s => s.id === activeShopId);
+        if (!shop) return;
+        
+        const newProductId = shop.nextProductId;
+        db.run(
+            "INSERT INTO products (id, shop_id, description, descriptionTamil, barcode, b2bPrice, b2cPrice, stock, category, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [newProductId, activeShopId, productData.description, productData.descriptionTamil, productData.barcode, productData.b2bPrice, productData.b2cPrice, productData.stock, productData.category, productData.hsnCode]
+        );
+        db.run("UPDATE shops SET nextProductId = ? WHERE id = ?", [newProductId + 1, activeShopId]);
+        saveDbToIndexedDB().then(() => {
+            loadShopData(activeShopId);
+            loadShops(); // To update nextProductId in state
+            setIsProductModalOpen(false);
+        });
+    };
+
+    const handleUpdateProduct = (product: Product) => {
+        if (!db || !activeShopId) return;
+        db.run(
+            "UPDATE products SET description = ?, descriptionTamil = ?, barcode = ?, b2bPrice = ?, b2cPrice = ?, stock = ?, category = ?, hsnCode = ? WHERE id = ? AND shop_id = ?",
+            [product.description, product.descriptionTamil, product.barcode, product.b2bPrice, product.b2cPrice, product.stock, product.category, product.hsnCode, product.id, activeShopId]
+        );
+        saveDbToIndexedDB().then(() => {
+            loadShopData(activeShopId);
+            setIsProductModalOpen(false);
+            setEditingProduct(null);
+        });
+    };
+    
+     const handleDeleteProduct = (productId: number) => {
+        setConfirmation({
+            message: `Are you sure you want to delete this product? This action cannot be undone.`,
+            onConfirm: () => {
+                if (!db || !activeShopId) return;
+                db.run("DELETE FROM products WHERE id = ? AND shop_id = ?", [productId, activeShopId]);
+                saveDbToIndexedDB().then(() => {
+                    loadShopData(activeShopId);
+                    setIsConfirmationModalOpen(false);
+                });
+            }
+        });
+        setIsConfirmationModalOpen(true);
+    };
+    
+    const handleDeleteSelectedProducts = () => {
+         setConfirmation({
+            message: `Are you sure you want to delete ${selectedProductIds.length} selected products? This action cannot be undone.`,
+            onConfirm: () => {
+                if (!db || !activeShopId) return;
+                const placeholders = selectedProductIds.map(() => '?').join(',');
+                db.run(`DELETE FROM products WHERE id IN (${placeholders}) AND shop_id = ?`, [...selectedProductIds, activeShopId]);
+                saveDbToIndexedDB().then(() => {
+                    loadShopData(activeShopId);
+                    setSelectedProductIds([]);
+                    setIsConfirmationModalOpen(false);
+                });
+            }
+        });
+        setIsConfirmationModalOpen(true);
+    };
+
+    // --- CUSTOMER MANAGEMENT ---
+    const handleSaveCustomer = (customerData: Omit<Customer, 'id'>) => {
+        if (!db) return;
+        
+        // Simple check to see if we are editing or adding
+        const existingCustomer = customers.find(c => c.mobile === customerData.mobile);
+        
+        if (editingCustomer) { // Update existing
+            db.run(
+                "UPDATE customers SET name = ?, mobile = ? WHERE id = ?",
+                [customerData.name, customerData.mobile, editingCustomer.id]
+            );
+        } else if (existingCustomer) { // Prevent duplicate mobile on add
+            alert(`Customer with mobile number ${customerData.mobile} already exists.`);
+            return;
+        }
+        else { // Add new
+            db.run(
+                "INSERT INTO customers (name, mobile) VALUES (?, ?)",
+                [customerData.name, customerData.mobile]
+            );
+        }
+
+        saveDbToIndexedDB().then(() => {
+            loadShopData(activeShopId!);
+            setIsCustomerModalOpen(false);
+            setEditingCustomer(null);
+        });
+    };
+    
+    const handleDeleteCustomer = (customer: Customer) => {
+         setConfirmation({
+            message: `Are you sure you want to delete customer "${customer.name}"? This will not affect their past sales records.`,
+            onConfirm: () => {
+                if (!db) return;
+                db.run("DELETE FROM customers WHERE id = ?", [customer.id]);
+                saveDbToIndexedDB().then(() => {
+                    loadShopData(activeShopId!);
+                    setIsConfirmationModalOpen(false);
+                });
+            }
+        });
+        setIsConfirmationModalOpen(true);
+    };
+    
+    
+    // --- AI & BULK UPLOAD ---
+    const checkAndIncrementAiUsage = () => {
+        if (userPlan === 'pro') return true;
+        
+        const AI_FREE_LIMIT = 3;
+        if (aiUsageCount >= AI_FREE_LIMIT) {
             handleUpgradeRequest();
             return false;
         }
         
-        const newUsage = { ...currentUsage, count: currentUsage.count + 1 };
-        setAiUsage(newUsage);
-        localStorage.setItem('aiUsage', JSON.stringify(newUsage));
+        const newCount = aiUsageCount + 1;
+        setAiUsageCount(newCount);
+        localStorage.setItem('aiUsageCount', newCount.toString());
         return true;
     };
     
-    // --- Load settings from localStorage on initial render ---
-    useEffect(() => {
-        const savedPlan = localStorage.getItem('userPlan') as UserPlan;
-        if (savedPlan) setUserPlan(savedPlan);
-
-        const savedUsage = localStorage.getItem('aiUsage');
-        if (savedUsage) { 
-            try {
-                const parsedUsage = JSON.parse(savedUsage);
-                setAiUsage(parsedUsage);
-            } catch(e) {
-                console.error("Failed to parse AI usage from localStorage", e);
-            }
-        }
-        
-        const savedSync = localStorage.getItem('cloudSyncEnabled');
-        if (savedSync === 'true') setIsCloudSyncEnabled(true);
-        
-        const savedBillSettings = localStorage.getItem('billSettings');
-        if (savedBillSettings) {
-            try {
-                // Merge saved settings with defaults to ensure new properties are not missing
-                const parsedSettings = JSON.parse(savedBillSettings);
-                setBillSettings(prev => ({ ...prev, ...parsedSettings }));
-            } catch (e) {
-                console.error("Failed to parse bill settings from localStorage", e);
-            }
-        }
-    }, []);
-    
-    const handleUpdateBillSettings = (updatedSettings: Partial<BillSettings> | ((prev: BillSettings) => Partial<BillSettings>)) => {
-        setBillSettings(prev => {
-            const newPartialSettings = typeof updatedSettings === 'function' ? updatedSettings(prev) : updatedSettings;
-            const newSettings = { ...prev, ...newPartialSettings };
-            
-            // If displayOptions is being updated, merge it deeply
-            if (newPartialSettings.displayOptions) {
-                newSettings.displayOptions = { ...prev.displayOptions, ...newPartialSettings.displayOptions };
-            }
-    
-            // If shopName is being updated, check if it's different from default
-            if (newPartialSettings.shopName !== undefined && newPartialSettings.shopName !== defaultBillSettings.shopName && !prev.shopNameEdited) {
-                newSettings.shopNameEdited = true;
-            }
-            
-            localStorage.setItem('billSettings', JSON.stringify(newSettings));
-            return newSettings;
+    const fileToGenerativePart = async (file: File) => {
+        const base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve((reader.result as string).split(',')[1]);
+            reader.onerror = (err) => reject(err);
+            reader.readAsDataURL(file);
         });
-    };
-
-
-    const toggleCloudSync = () => {
-        const newState = !isCloudSyncEnabled;
-        setIsCloudSyncEnabled(newState);
-        localStorage.setItem('cloudSyncEnabled', String(newState));
-        if (!newState) {
-            setSyncStatus('idle'); // Reset status when disabled
-        }
-    };
-
-    useEffect(() => {
-        const performSync = async () => {
-            if (!db) return;
-            setSyncStatus('syncing');
-            try {
-                await saveDbToIndexedDB();
-                await new Promise(resolve => setTimeout(resolve, 500));
-                setSyncStatus('synced');
-            } catch (err) {
-                console.error("Cloud sync failed:", err);
-                setSyncStatus('error');
+        return {
+            inlineData: {
+                mimeType: file.type,
+                data: base64
             }
         };
-
-        if (isCloudSyncEnabled && currentUser && userPlan === 'pro') {
-            performSync();
-            syncIntervalRef.current = window.setInterval(performSync, 30000); // Sync every 30 seconds
-        }
-
-        return () => {
-            if (syncIntervalRef.current) {
-                clearInterval(syncIntervalRef.current);
-                syncIntervalRef.current = null;
-            }
-        };
-    }, [isCloudSyncEnabled, currentUser, userPlan, db]);
-
-
-    // --- DB & AUTH ---
-    useEffect(() => {
-        const init = async () => {
-            await initDb();
-            const loggedInUserJson = sessionStorage.getItem('loggedInUser');
-            if (loggedInUserJson) {
-                const user: User = JSON.parse(loggedInUserJson);
-                // Re-verify user from DB in case of tampering
-                const userFromDb = sqlResultToObjects(db.exec("SELECT * FROM users WHERE id = ?", [user.id]));
-                if (userFromDb.length > 0) {
-                    setCurrentUser(userFromDb[0]);
-                } else {
-                    sessionStorage.removeItem('loggedInUser'); // Clear invalid session
-                }
-            }
-            setDbLoading(false);
-        };
-        init();
-        
-        const setOnline = () => setIsOnline(true);
-        const setOffline = () => setIsOnline(false);
-
-        window.addEventListener('online', setOnline);
-        window.addEventListener('offline', setOffline);
-
-        return () => {
-            window.removeEventListener('online', setOnline);
-            window.removeEventListener('offline', setOffline);
-        };
-    }, []);
-
-
-    const handleLoginSuccess = (user: User) => {
-        sessionStorage.setItem('loggedInUser', JSON.stringify(user));
-        setCurrentUser(user);
-        if (user.role === 'cashier') setActiveView('sales');
     };
 
-    const handleLogout = () => {
-        sessionStorage.removeItem('loggedInUser');
-        setCurrentUser(null);
-        setShops([]);
-        setUsers([]);
-        setActiveShopId(null);
-        setCarts([defaultCartState, defaultCartState, defaultCartState]);
-        setActiveCartIndex(0);
-    };
-
-    const extractAndParseJson = (rawText: string | undefined): any => {
-        if (!rawText || typeof rawText !== 'string' || rawText.trim() === '') {
-            throw new Error("Received an empty or invalid text response from the AI model.");
-        }
-    
-        let textToParse = rawText.trim();
-        
-        // 1. Try to find a markdown-fenced JSON block
-        const markdownMatch = textToParse.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-        
-        if (markdownMatch && markdownMatch[1]) {
-            textToParse = markdownMatch[1].trim();
-        } else {
-            // 2. If no markdown, find the first '{' or '[' and last '}' or ']'
-            const firstBracket = textToParse.indexOf('{');
-            const firstSquare = textToParse.indexOf('[');
-            
-            let startIndex = -1;
-            // Determine the true start of the JSON data
-            if (firstBracket === -1) {
-                startIndex = firstSquare;
-            } else if (firstSquare === -1) {
-                startIndex = firstBracket;
-            } else {
-                startIndex = Math.min(firstBracket, firstSquare);
-            }
-
-            if (startIndex > -1) {
-                const lastBracket = textToParse.lastIndexOf('}');
-                const lastSquare = textToParse.lastIndexOf(']');
-                const endIndex = Math.max(lastBracket, lastSquare);
-                
-                if (endIndex > startIndex) {
-                    textToParse = textToParse.substring(startIndex, endIndex + 1);
-                }
-            }
-        }
-        
-        // 3. Attempt to fix common LLM JSON error: missing commas between objects in an array.
-        // This handles cases like `[ { ... } { ... } ]` which would otherwise fail to parse.
-        const repairedText = textToParse.replace(/}\s*{/g, '},{');
-        
-        // 4. Now, try to parse the repaired text.
-        try {
-            return JSON.parse(repairedText);
-        } catch (error: any) {
-            console.error("Failed to parse cleaned JSON:", { error, originalText: rawText, repairedText });
-            throw new Error(`The AI returned a response that could not be understood as valid JSON. Details: ${error.message}`);
-        }
-    };
-
-    const ACTIVE_SHOP_KEY = 'pos-active-shop-id';
-
-    
-    // Load data from DB based on current user
-    useEffect(() => {
-        if (!currentUser || !db) {
-            return;
-        }
-
-        const loadDataForUser = async () => {
-            let shopsFromDb = [];
-            let usersFromDb = [];
-
-            if (currentUser.role === 'super_admin') {
-                shopsFromDb = sqlResultToObjects(db.exec("SELECT * FROM shops"));
-                usersFromDb = sqlResultToObjects(db.exec("SELECT id, username, role, shop_id FROM users"));
-                const storedActiveId = localStorage.getItem(ACTIVE_SHOP_KEY);
-                const activeId = storedActiveId ? parseInt(storedActiveId, 10) : (shopsFromDb.length > 0 ? shopsFromDb[0].id : null);
-                setActiveShopId(activeId);
-
-            } else if (currentUser.role === 'shop_admin') {
-                shopsFromDb = sqlResultToObjects(db.exec("SELECT * FROM shops WHERE id = ?", [currentUser.shop_id]));
-                usersFromDb = sqlResultToObjects(db.exec("SELECT id, username, role, shop_id FROM users WHERE shop_id = ?", [currentUser.shop_id]));
-                setActiveShopId(currentUser.shop_id);
-
-            } else if (currentUser.role === 'cashier') {
-                shopsFromDb = sqlResultToObjects(db.exec("SELECT * FROM shops WHERE id = ?", [currentUser.shop_id]));
-                // Cashiers don't need to see the user list
-                usersFromDb = [];
-                setActiveShopId(currentUser.shop_id);
-            }
-
-            if (shopsFromDb.length > 0) {
-                 const fullShopsDataPromises = shopsFromDb.map(async (shop: any) => {
-                    const products = sqlResultToObjects(db.exec("SELECT * FROM products WHERE shop_id = ?", [shop.id]));
-                    const salesHistoryRaw = sqlResultToObjects(db.exec("SELECT * FROM sales_history WHERE shop_id = ? ORDER BY date DESC", [shop.id]));
-                    const salesHistoryPromises = salesHistoryRaw.map(async (sale) => {
-                         const items = sqlResultToObjects(db.exec("SELECT *, CASE WHEN isReturn = 1 THEN 1 ELSE 0 END as isReturn FROM sale_items WHERE sale_id = ?", [sale.id]));
-                         return {...sale, items: items.map(i => ({...i, isReturn: !!i.isReturn}))};
-                    });
-                    const salesHistory = await Promise.all(salesHistoryPromises);
-                    return {...shop, products, salesHistory};
-                });
-                const fullShopsData = await Promise.all(fullShopsDataPromises);
-                setShops(fullShopsData);
-            } else {
-                setShops([]);
-                setIsInitialSetup(currentUser.role === 'super_admin');
-            }
-            
-            setUsers(usersFromDb);
-            const customersFromDb = sqlResultToObjects(db.exec("SELECT * FROM customers ORDER BY name"));
-            setCustomers(customersFromDb);
-        };
-
-        loadDataForUser().catch(console.error);
-    }, [currentUser, db]);
-
-    const handleCreateShop = async (name: string) => {
-        const newShopId = Date.now();
-        const newShop: Shop = {
-            id: newShopId,
-            name,
-            products: [],
-            salesHistory: [],
-            nextProductId: 1,
-        };
-        db.run("INSERT INTO shops (id, name, nextProductId) VALUES (?, ?, ?)", [newShop.id, newShop.name, newShop.nextProductId]);
-        await saveDbToIndexedDB();
-        
-        setShops(prev => [...prev, newShop]);
-        setActiveShopId(newShop.id);
-        localStorage.setItem(ACTIVE_SHOP_KEY, newShop.id.toString());
-        setIsInitialSetup(false);
-        setIsShopManagerOpen(false);
-    };
-
-    const handleSelectShop = (shopId: number) => {
-        if (shopId === activeShopId) return;
-        setActiveShopId(shopId);
-        localStorage.setItem(ACTIVE_SHOP_KEY, shopId.toString());
-        setCarts([defaultCartState, defaultCartState, defaultCartState]);
-        setActiveCartIndex(0);
-        setSelectedProductIds([]);
-        setIsShopManagerOpen(false);
-    };
-
-    const handleSaveProduct = async (productData: Omit<Product, 'id'>) => {
-        if (!activeShop) return;
-
-        const newProduct = { ...productData, id: activeShop.nextProductId };
-        db.run("INSERT INTO products (id, shop_id, description, descriptionTamil, barcode, b2bPrice, b2cPrice, stock, category, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [newProduct.id, activeShop.id, newProduct.description, newProduct.descriptionTamil, newProduct.barcode, newProduct.b2bPrice, newProduct.b2cPrice, newProduct.stock, newProduct.category, newProduct.hsnCode]
-        );
-        db.run("UPDATE shops SET nextProductId = ? WHERE id = ?", [activeShop.nextProductId + 1, activeShop.id]);
-        await saveDbToIndexedDB();
-
-        const updatedShops = shops.map(s => s.id === activeShop.id ? {
-            ...s,
-            products: [...s.products, newProduct],
-            nextProductId: s.nextProductId + 1,
-        } : s);
-        setShops(updatedShops);
-        setIsProductModalOpen(false);
-    };
-
-    const handleUpdateProduct = async (updatedProduct: Product) => {
-        if (!activeShop) return;
-        db.run(
-            `UPDATE products SET 
-                description = ?, descriptionTamil = ?, barcode = ?, 
-                b2bPrice = ?, b2cPrice = ?, stock = ?, category = ?, hsnCode = ?
-            WHERE id = ? AND shop_id = ?`,
-            [
-                updatedProduct.description, updatedProduct.descriptionTamil, updatedProduct.barcode,
-                updatedProduct.b2bPrice, updatedProduct.b2cPrice, updatedProduct.stock, updatedProduct.category, updatedProduct.hsnCode,
-                updatedProduct.id, activeShop.id
-            ]
-        );
-        await saveDbToIndexedDB();
-
-        const updatedShops = shops.map(s => s.id === activeShop.id ? {
-            ...s,
-            products: s.products.map(p => p.id === updatedProduct.id ? updatedProduct : p)
-        } : s);
-        setShops(updatedShops);
-        setIsProductModalOpen(false);
-        setEditingProduct(null);
-    };
-
-    const handleAddNewProductFromSale = (description: string): Product | null => {
-        if (!activeShop) return null;
-        const trimmedDescription = description.trim();
-        if (!trimmedDescription) return null;
-
-        const newProduct: Product = { 
-            id: activeShop.nextProductId, 
-            description: trimmedDescription, 
-            descriptionTamil: '', 
-            barcode: '', 
-            b2bPrice: 0, 
-            b2cPrice: 0, 
-            stock: 0, 
-            category: '',
-            hsnCode: '',
-        };
-        
-        handleSaveProduct(newProduct);
-        return newProduct;
-    };
-
-    const handleUpdateProductPrice = async (productId: number, newPrice: number, priceType: 'b2b' | 'b2c') => {
-        if (!activeShop) return;
-        const fieldToUpdate = priceType === 'b2b' ? 'b2bPrice' : 'b2cPrice';
-        db.run(`UPDATE products SET ${fieldToUpdate} = ? WHERE id = ? AND shop_id = ?`, [newPrice, productId, activeShop.id]);
-        await saveDbToIndexedDB();
-
-        const updatedShops = shops.map(s => s.id === activeShop.id ? {
-            ...s,
-            products: s.products.map(p => p.id === productId ? { ...p, [fieldToUpdate]: newPrice } : p)
-        } : s);
-        setShops(updatedShops);
-    };
-
-    const handleUpdateProductDetails = async (productId: number, field: keyof Product, value: string) => {
-        if (!activeShop) return;
-
-        db.run(`UPDATE products SET ${field} = ? WHERE id = ? AND shop_id = ?`, [value, productId, activeShop.id]);
-        await saveDbToIndexedDB();
-        
-        const updatedShops = shops.map(s => {
-            if (s.id !== activeShop.id) return s;
-            return {
-                ...s,
-                products: s.products.map(p => p.id === productId ? {...p, [field]: value} : p)
-            };
-        });
-        setShops(updatedShops);
-    };
-
-    const handleDeleteProduct = async (productIds: number[]) => {
-        if (!activeShop) return;
-        
-        const placeholders = productIds.map(() => '?').join(',');
-        db.run(`DELETE FROM products WHERE id IN (${placeholders}) AND shop_id = ?`, [...productIds, activeShop.id]);
-        await saveDbToIndexedDB();
-        
-        const updatedShops = shops.map(s => s.id === activeShop.id ? {
-            ...s,
-            products: s.products.filter(p => !productIds.includes(p.id))
-        } : s);
-        setShops(updatedShops);
-    };
-
-    const handleDeleteSelectedProducts = () => {
-        if (selectedProductIds.length > 0) {
-            setProductIdsToDelete(selectedProductIds);
-            setIsConfirmModalOpen(true);
-        }
-    };
-
-    const confirmDelete = () => {
-        handleDeleteProduct(productIdsToDelete);
-        setIsConfirmModalOpen(false);
-        setProductIdsToDelete([]);
-        setSelectedProductIds([]); // Clear selection after deletion
-    };
-
-    const subtotal = activeCart.items.reduce((sum, item) => {
-        const itemTotal = item.quantity * item.price;
-        return item.isReturn ? sum - itemTotal : sum + itemTotal;
-    }, 0);
-
-    const taxAmount = subtotal * (activeCart.tax / 100);
-    const total = subtotal - activeCart.discount + taxAmount + previousBalanceDue;
-
-    const resetCart = () => {
-        setCarts(prev => {
-            const newCarts = [...prev];
-            newCarts[activeCartIndex] = {...defaultCartState};
-            return newCarts;
-        });
-        setPaidAmount(0);
-        handleAmountPaidEdit(); // To reset the flag
-        setAmountPaidEditedFlags(prev => {
-            const newFlags = [...prev];
-            newFlags[activeCartIndex] = false;
-            return newFlags;
-        });
-        setPreviousBalancesDue(prev => {
-            const newBalances = [...prev];
-            newBalances[activeCartIndex] = 0;
-            return newBalances;
-        });
-    };
-    
-    const handleFinalizeSale = () => {
-        const grandTotal = parseFloat(total.toFixed(2)); // Use calculated total
-        const amountPaidNum = parseFloat(paidAmount.toString()); // Ensure it's a number
-        
-        if (activeCart.items.length === 0 && previousBalanceDue <= 0) {
-            alert("Cannot finalize an empty sale with no previous balance.");
-            return;
-        }
-
-        const newBalance = grandTotal - amountPaidNum;
-
-        // Show confirmation modal
-        setIsSaleConfirmModalOpen(true);
-    };
-    
-    const handleSaleConfirmation = async () => {
-        if (!activeShop) return;
-
-        const grandTotal = parseFloat(total.toFixed(2));
-        const amountPaidNum = parseFloat(String(paidAmount));
-        const newBalance = grandTotal - amountPaidNum;
-
-        const newSale: SaleRecord = {
-            id: `sale-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-            date: new Date().toISOString(),
-            items: activeCart.items,
-            subtotal: subtotal,
-            discount: activeCart.discount,
-            tax: taxAmount,
-            total: grandTotal,
-            paid_amount: amountPaidNum,
-            balance_due: newBalance > 0 ? newBalance : 0,
-            customerName: activeCart.customerName,
-            customerMobile: activeCart.customerMobile
-        };
-        
-        // --- DB OPERATIONS ---
-        db.run("INSERT INTO sales_history (id, shop_id, date, subtotal, discount, tax, total, paid_amount, balance_due, customerName, customerMobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
-            [newSale.id, activeShop.id, newSale.date, newSale.subtotal, newSale.discount, newSale.tax, newSale.total, newSale.paid_amount, newSale.balance_due, newSale.customerName, newSale.customerMobile]
-        );
-        
-        const itemStmt = db.prepare("INSERT INTO sale_items (sale_id, productId, shop_id, description, descriptionTamil, quantity, price, isReturn, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        const stockUpdateStmts: { [key: number]: number } = {};
-
-        newSale.items.forEach(item => {
-            itemStmt.run([newSale.id, item.productId, activeShop.id, item.description, item.descriptionTamil, item.quantity, item.price, item.isReturn ? 1 : 0, item.hsnCode]);
-            const stockChange = item.isReturn ? item.quantity : -item.quantity;
-            stockUpdateStmts[item.productId] = (stockUpdateStmts[item.productId] || 0) + stockChange;
-        });
-        itemStmt.free();
-
-        const stockStmt = db.prepare("UPDATE products SET stock = stock + ? WHERE id = ? AND shop_id = ?");
-        Object.entries(stockUpdateStmts).forEach(([productId, change]) => {
-            stockStmt.run([change, parseInt(productId), activeShop.id]);
-        });
-        stockStmt.free();
-        
-        await saveDbToIndexedDB();
-
-        // --- UPDATE STATE ---
-        const updatedShops = shops.map(s => {
-            if (s.id !== activeShop.id) return s;
-            return {
-                ...s,
-                salesHistory: [newSale, ...s.salesHistory],
-                products: s.products.map(p => {
-                    if (stockUpdateStmts[p.id]) {
-                        return { ...p, stock: p.stock + stockUpdateStmts[p.id] };
-                    }
-                    return p;
-                })
-            };
-        });
-        setShops(updatedShops);
-        
-        setIsSaleConfirmModalOpen(false); // Close confirmation modal
-        setIsInvoiceModalOpen(false); // Close preview modal
-        resetCart(); // Reset the current cart for a new sale
-    };
-    
-    // --- CUSTOMER MANAGEMENT ---
-    const handleSaveCustomer = async (customerData: Omit<Customer, 'id'>) => {
-        if (editingCustomer) {
-            // Update
-            db.run(`UPDATE customers SET name = ?, mobile = ? WHERE id = ?`, [customerData.name, customerData.mobile, editingCustomer.id]);
-            await saveDbToIndexedDB();
-            setCustomers(customers.map(c => c.id === editingCustomer.id ? { ...c, ...customerData } : c));
-        } else {
-            // Create
-            try {
-                db.run(`INSERT INTO customers (name, mobile) VALUES (?, ?)`, [customerData.name, customerData.mobile]);
-                const newId = db.exec("select last_insert_rowid();")[0].values[0][0];
-                await saveDbToIndexedDB();
-                setCustomers([...customers, { id: newId, ...customerData }]);
-            } catch (e: any) {
-                if (e.message.includes('UNIQUE constraint failed')) {
-                    alert('A customer with this mobile number already exists.');
-                } else {
-                    alert('An error occurred. Please try again.');
-                    console.error(e);
-                }
-            }
-        }
-        setIsCustomerModalOpen(false);
-        setEditingCustomer(null);
-    };
-
-    const handleDeleteCustomer = (customer: Customer) => {
-        setCustomerToDelete(customer);
-    };
-
-    const confirmDeleteCustomer = async () => {
-        if (!customerToDelete) return;
-        db.run(`DELETE FROM customers WHERE id = ?`, [customerToDelete.id]);
-        await saveDbToIndexedDB();
-        setCustomers(customers.filter(c => c.id !== customerToDelete.id));
-        setCustomerToDelete(null);
-    };
-
-    // --- BULK ADD LOGIC ---
-    // Fix: Defined 'handleBulkAddProducts' to save products from the bulk add modal.
-    const handleBulkAddProducts = async (productsToSave: EditableProduct[]) => {
-        if (!activeShop) return;
-        
-        let nextId = activeShop.nextProductId;
-        const newProducts: Product[] = [];
-
-        // Using transactions for performance and atomicity
-        db.exec("BEGIN TRANSACTION;");
-        try {
-            const productStmt = db.prepare("INSERT INTO products (id, shop_id, description, descriptionTamil, barcode, b2bPrice, b2cPrice, stock, category, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            
-            for (const productData of productsToSave) {
-                const newProduct = { ...productData, id: nextId };
-                productStmt.run([
-                    newProduct.id,
-                    activeShop.id,
-                    newProduct.description,
-                    productData.descriptionTamil || '',
-                    productData.barcode || '',
-                    productData.b2bPrice,
-                    productData.b2cPrice,
-                    productData.stock,
-                    productData.category || '',
-                    productData.hsnCode || ''
-                ]);
-                newProducts.push(newProduct);
-                nextId++;
-            }
-            productStmt.free();
-            
-            db.run("UPDATE shops SET nextProductId = ? WHERE id = ?", [nextId, activeShop.id]);
-            
-            db.exec("COMMIT;");
-            await saveDbToIndexedDB();
-
-            // Update state
-            const updatedShops = shops.map(s => s.id === activeShop.id ? {
-                ...s,
-                products: [...s.products, ...newProducts],
-                nextProductId: nextId,
-            } : s);
-            setShops(updatedShops);
-            
-            // Close modal and reset state
-            setIsBulkAddModalOpen(false);
-            setBulkAddProducts([]);
-            setBulkAddFileSrc(null);
-            setBulkAddFileType(null);
-            setBulkAddFileNames(null);
-            setBulkAddError(null);
-
-        } catch (err: any) {
-            db.exec("ROLLBACK;");
-            console.error("Failed to bulk add products:", err);
-            setBulkAddError("An error occurred while saving products to the database. Please check the data and try again: " + err.message);
-            // Don't close modal on error
-        }
-    };
-
-    const handleBulkAddFromFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!checkAndIncrementAiUsage()) {
-            e.target.value = ''; // Reset file input
-            return;
-        }
-        const file = e.target.files?.[0];
+    const handleBulkAddFromFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
         if (!file) return;
 
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-            const base64Image = (event.target?.result as string).split(',')[1];
-            setBulkAddFileSrc(event.target?.result as string);
-            setBulkAddFileType('image');
-            setIsBulkAddModalOpen(true);
-            setIsBulkAddLoading(true);
-            setBulkAddError(null);
-
-            try {
-                const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-                
-                const response = await ai.models.generateContent({
-                    model: "gemini-2.5-flash",
-                    contents: {
-                        parts: [
-                            { inlineData: { mimeType: file.type, data: base64Image } },
-                            { text: `
-                                From the provided image of a product price list, extract the following details for each item:
-                                - description: The name or description of the product.
-                                - descriptionTamil: The name of the product in Tamil, if available.
-                                - category: A suitable category for the product (e.g., 'Groceries', 'Snacks').
-                                - b2bPrice: The business-to-business or wholesale price. If not available, set to 0.
-                                - b2cPrice: The business-to-customer or retail price. If not available, set to 0.
-                                - stock: The initial stock quantity. Default to 0 if not mentioned.
-                                - barcode: The product's barcode or SKU. Leave empty if not available.
-                            ` },
-                        ],
-                    },
-                    config: {
-                        responseMimeType: "application/json",
-                        responseSchema: {
-                            type: Type.ARRAY,
-                            items: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    description: { type: Type.STRING },
-                                    descriptionTamil: { type: Type.STRING },
-                                    category: { type: Type.STRING },
-                                    b2bPrice: { type: Type.NUMBER },
-                                    b2cPrice: { type: Type.NUMBER },
-                                    stock: { type: Type.NUMBER },
-                                    barcode: { type: Type.STRING },
-                                },
-                            },
-                        },
-                    },
-                });
-
-                const parsedProducts = extractAndParseJson(response.text);
-                setBulkAddProducts(parsedProducts);
-                
-            } catch (error: any) {
-                console.error("Error with Gemini API:", error);
-                setBulkAddError(error.message || "An unknown error occurred while processing the image.");
-            } finally {
-                setIsBulkAddLoading(false);
-            }
-        };
-        reader.readAsDataURL(file);
-        e.target.value = ''; // Reset file input
-    };
-    
-    const handleBulkAddFromPdfs = async (b2bFile: File, b2cFile: File) => {
-        if (!checkAndIncrementAiUsage()) return;
-
-        setIsPdfUploadModalOpen(false);
         setIsBulkAddModalOpen(true);
         setIsBulkAddLoading(true);
         setBulkAddError(null);
-        setBulkAddFileType('dual-pdf');
-        setBulkAddFileNames({ b2b: b2bFile.name, b2c: b2cFile.name });
-
+        setBulkAddFileSrc(URL.createObjectURL(file));
+        setBulkAddFileType('image');
+        
         try {
-            const toBase64 = (file: File): Promise<string> => new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.readAsDataURL(file);
-                reader.onload = () => resolve((reader.result as string).split(',')[1]);
-                reader.onerror = error => reject(error);
-            });
-
-            const [b2bBase64, b2cBase64] = await Promise.all([toBase64(b2bFile), toBase64(b2cFile)]);
-
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            
+            const imagePart = await fileToGenerativePart(file);
+
             const response = await ai.models.generateContent({
                 model: "gemini-2.5-flash",
                 contents: {
                     parts: [
-                        { text: "Here are two PDF files containing B2B and B2C product price lists. Please act as an expert data entry operator." },
-                        { inlineData: { mimeType: 'application/pdf', data: b2bBase64 } },
-                        { inlineData: { mimeType: 'application/pdf', data: b2cBase64 } },
-                        { text: `
-                            Your task is to:
-                            1.  Carefully analyze both PDF files. The first is the B2B price list, and the second is the B2C price list.
-                            2.  Match the products between the two lists based on their names or descriptions.
-                            3.  Extract the description, b2bPrice (from the first PDF), and b2cPrice (from the second PDF) for each product.
-                            4.  Also extract descriptionTamil, category, and barcode if available. If not, leave them as empty strings. Default stock to 0.
-                        `},
-                    ],
+                        { text: "Analyze this image of a product list. Extract the product name, price, and any other relevant details. Provide the output as a JSON array." },
+                        imagePart
+                    ]
                 },
                 config: {
                     responseMimeType: "application/json",
@@ -5118,551 +3891,1324 @@ const App = () => {
                                 description: { type: Type.STRING },
                                 descriptionTamil: { type: Type.STRING },
                                 category: { type: Type.STRING },
-                                b2bPrice: { type: Type.NUMBER },
                                 b2cPrice: { type: Type.NUMBER },
+                                b2bPrice: { type: Type.NUMBER },
+                                stock: { type: Type.NUMBER, description: "Initial stock, default to 100 if not specified" },
+                                barcode: { type: Type.STRING },
+                            },
+                        },
+                    },
+                }
+            });
+
+            const parsedProducts = JSON.parse(response.text).map((p: any) => ({
+                description: p.description || '',
+                descriptionTamil: p.descriptionTamil || '',
+                category: p.category || '',
+                b2bPrice: p.b2bPrice || p.b2cPrice || 0,
+                b2cPrice: p.b2cPrice || 0,
+                stock: p.stock || 100,
+                barcode: p.barcode || '',
+                hsnCode: '',
+            }));
+            setBulkAddProducts(parsedProducts);
+
+        } catch (error: any) {
+            console.error("Error processing image with AI:", error);
+            setBulkAddError("Failed to analyze the image. The AI model might be unavailable or the image format is not supported. Please try again.");
+        } finally {
+            setIsBulkAddLoading(false);
+            event.target.value = '';
+        }
+    };
+    
+    const handleProcessPdfs = async (b2bFile: File, b2cFile: File) => {
+        setIsPdfUploadModalOpen(false);
+        setIsBulkAddModalOpen(true);
+        setIsBulkAddLoading(true);
+        setBulkAddError(null);
+        setBulkAddFileSrc(null);
+        setBulkAddFileType('dual-pdf');
+        setBulkAddPdfFileNames({ b2b: b2bFile.name, b2c: b2cFile.name });
+
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const b2bPart = await fileToGenerativePart(b2bFile);
+            const b2cPart = await fileToGenerativePart(b2cFile);
+            
+            const prompt = `
+                You are given two PDF files containing product price lists.
+                File 1 (B2B): Contains business-to-business prices.
+                File 2 (B2C): Contains business-to-consumer prices.
+
+                Your task is to:
+                1. Extract product information (description, price) from both files.
+                2. Merge the two lists based on the product description. The description is the primary key.
+                3. Generate a single, clean JSON array as the output. Each object in the array should represent a unique product and include 'description', 'b2bPrice', and 'b2cPrice'.
+                4. If a product exists in one list but not the other, include it and set the missing price to 0.
+                5. Also extract Tamil description and category if available. Default stock to 100 if not specified.
+            `;
+
+            const response = await ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: {
+                    parts: [
+                        { text: prompt },
+                        b2bPart,
+                        b2cPart,
+                    ]
+                },
+                config: {
+                    responseMimeType: "application/json",
+                     responseSchema: {
+                        type: Type.ARRAY,
+                        items: {
+                            type: Type.OBJECT,
+                            properties: {
+                                description: { type: Type.STRING },
+                                descriptionTamil: { type: Type.STRING },
+                                category: { type: Type.STRING },
+                                b2cPrice: { type: Type.NUMBER },
+                                b2bPrice: { type: Type.NUMBER },
                                 stock: { type: Type.NUMBER },
                                 barcode: { type: Type.STRING },
                             },
                         },
                     },
-                },
+                }
             });
-            
-            const parsedProducts = extractAndParseJson(response.text);
+
+             const parsedProducts = JSON.parse(response.text).map((p: any) => ({
+                description: p.description || '',
+                descriptionTamil: p.descriptionTamil || '',
+                category: p.category || '',
+                b2bPrice: p.b2bPrice || 0,
+                b2cPrice: p.b2cPrice || p.b2bPrice || 0, // Default b2c to b2b if not found
+                stock: p.stock || 100,
+                barcode: p.barcode || '',
+                hsnCode: '',
+            }));
             setBulkAddProducts(parsedProducts);
 
-        } catch (error: any) {
-            console.error("Error with Gemini API:", error);
-            setBulkAddError(error.message || "An unknown error occurred while processing the PDFs.");
+        } catch (error: any)
+        {
+            console.error("Error processing PDFs with AI:", error);
+            setBulkAddError("Failed to analyze PDFs. Ensure they are text-based and not scanned images. The AI model might also be temporarily unavailable.");
         } finally {
             setIsBulkAddLoading(false);
         }
     };
     
-    // --- BACKUP & RESTORE ---
-    const handleSaveBackup = async () => {
-        if (!db) return;
-        const data = db.export();
-        const blob = new Blob([data]);
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        const date = new Date().toISOString().slice(0, 10);
-        link.download = `pos_backup_${date}.sqlite`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-    };
-    
-    const handleRestoreBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        const startTime = Date.now();
+    const handleSaveBulkProducts = (productsToSave: EditableProduct[]) => {
+        if (!db || !activeShopId) return;
         
-        reader.onprogress = (event) => {
-            if (event.lengthComputable) {
-                const percentage = (event.loaded / event.total) * 100;
-                const elapsedTime = (Date.now() - startTime) / 1000; // in seconds
-                const bps = event.loaded / elapsedTime;
-                const remainingBytes = event.total - event.loaded;
-                const etaSeconds = Math.round(remainingBytes / bps);
-                const eta = etaSeconds > 60 ? `${Math.floor(etaSeconds / 60)}m ${etaSeconds % 60}s` : `${etaSeconds}s`;
-                
-                setRestoreProgress({ visible: true, percentage, eta, message: 'Loading file...' });
-            }
-        };
+        let nextId = shops.find(s => s.id === activeShopId)!.nextProductId;
         
-        reader.onload = async () => {
-            try {
-                const arrayBuffer = reader.result as ArrayBuffer;
-                const uInt8Array = new Uint8Array(arrayBuffer);
-                
-                setRestoreProgress({ visible: true, percentage: 100, eta: '0s', message: 'Restoring database...' });
-                
-                const SQL = await initSqlJs({ locateFile: (file: string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}` });
-                db = new SQL.Database(uInt8Array);
-                
-                await saveDbToIndexedDB();
-                
-                // Show a final success message briefly before reload
-                setRestoreProgress(prev => ({ ...prev, message: 'Restore successful! Reloading...' }));
-                
-                setTimeout(() => {
-                    window.location.reload();
-                }, 1500);
-                
-            } catch (err: any) {
-                console.error("Failed to restore database:", err);
-                alert(`Error restoring database: ${err.message}`);
-                setRestoreProgress({ visible: false, percentage: 0, eta: '', message: '' });
-            }
-        };
-        
-        reader.onerror = () => {
-             alert('Failed to read the backup file.');
-             setRestoreProgress({ visible: false, percentage: 0, eta: '', message: '' });
+        db.exec("BEGIN TRANSACTION;");
+        try {
+            productsToSave.forEach(productData => {
+                 db.run(
+                    "INSERT INTO products (id, shop_id, description, descriptionTamil, barcode, b2bPrice, b2cPrice, stock, category, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [nextId, activeShopId, productData.description, productData.descriptionTamil, productData.barcode, productData.b2bPrice, productData.b2cPrice, productData.stock, productData.category, productData.hsnCode]
+                );
+                nextId++;
+            });
+            db.run("UPDATE shops SET nextProductId = ? WHERE id = ?", [nextId, activeShopId]);
+            db.exec("COMMIT;");
+        } catch (e) {
+            db.exec("ROLLBACK;");
+            console.error("Bulk add transaction failed:", e);
+            alert("An error occurred while saving products. The operation has been rolled back.");
         }
 
-        reader.readAsArrayBuffer(file);
-        e.target.value = ''; // Reset file input
+        saveDbToIndexedDB().then(() => {
+            loadShopData(activeShopId);
+            loadShops();
+            setIsBulkAddModalOpen(false);
+        });
+    };
+    
+    // --- DB BACKUP & RESTORE ---
+    const handleSaveBackup = async () => {
+        if (!db) return;
+        const binaryDb = db.export();
+        const blob = new Blob([binaryDb], { type: 'application/x-sqlite3' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const date = new Date().toISOString().slice(0, 10);
+        a.href = url;
+        a.download = `pos_gem_backup_${date}.db`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     };
 
-    // --- USER MANAGEMENT ---
-    const handleUserAdd = async (userData: any) => {
-        if (!activeShop && currentUser.role === 'shop_admin') {
-            alert("No active shop found to assign user.");
+    const handleRestoreBackup = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        const confirmed = window.confirm("Restoring from a backup will completely overwrite all current data. Are you sure you want to proceed?");
+        if (!confirmed) {
+            event.target.value = ''; // Reset file input
             return;
         }
 
-        try {
-            const password_hash = await hashPassword(userData.password);
-            const shop_id = currentUser.role === 'super_admin' ? userData.shop_id : activeShop?.id;
-            
-            db.run(
-                "INSERT INTO users (username, password_hash, role, shop_id) VALUES (?, ?, ?, ?)",
-                [userData.username.toLowerCase(), password_hash, userData.role, shop_id]
-            );
-            const newId = db.exec("select last_insert_rowid();")[0].values[0][0];
-            await saveDbToIndexedDB();
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            const contents = e.target?.result;
+            if (contents) {
+                const data = new Uint8Array(contents as ArrayBuffer);
+                setIsRestoreModalOpen(true);
+                setRestoreProgress({ percentage: 0, eta: '...', message: 'Starting Restore...' });
+                
+                // Simulate progress
+                await new Promise(res => setTimeout(res, 500));
+                setRestoreProgress({ percentage: 25, eta: '2s', message: 'Validating file...' });
+                
+                try {
+                     // Close current DB if open
+                    if (db) db.close();
+                    
+                    const SQL = await initSqlJs({ locateFile: (file: string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}` });
+                    db = new SQL.Database(data);
+                    
+                    await new Promise(res => setTimeout(res, 1000));
+                    setRestoreProgress({ percentage: 75, eta: '1s', message: 'Saving to storage...' });
 
-            const newUser: User = { id: newId, username: userData.username, role: userData.role, shop_id };
-            setUsers(prev => [...prev, newUser]);
-        } catch (e: any) {
-             if (e.message.includes('UNIQUE constraint failed')) {
-                alert('A user with this username already exists.');
-            } else {
-                alert('An error occurred while creating the user.');
-                console.error(e);
+                    await saveDbToIndexedDB();
+                    
+                    await new Promise(res => setTimeout(res, 500));
+                    setRestoreProgress({ percentage: 100, eta: '0s', message: 'Restore Complete!' });
+                    
+                    setTimeout(() => {
+                        alert("Database restored successfully. The application will now reload.");
+                        window.location.reload();
+                    }, 1000);
+
+                } catch (err) {
+                    setIsRestoreModalOpen(false);
+                    console.error("Restore failed:", err);
+                    alert("Failed to restore database. The file may be corrupt or in an invalid format. The application will now reload with the old data.");
+                    window.location.reload();
+                }
             }
-        }
+        };
+        reader.readAsArrayBuffer(file);
+        event.target.value = ''; // Reset file input
     };
 
-    const handleUserUpdate = async (userData: any) => {
+
+    // --- SALES & BILLING ---
+    const updateActiveCartState = (updates: Partial<CartState>) => {
+        setActiveCart(prev => ({...prev, ...updates}));
+    };
+
+    const previousBalanceDue = React.useMemo(() => {
+        if (!activeCart.customerMobile) return 0;
+        return salesHistory
+            .filter(sale => sale.customerMobile === activeCart.customerMobile)
+            .reduce((sum, sale) => sum + sale.balance_due, 0);
+    }, [activeCart.customerMobile, salesHistory]);
+    
+     const { subtotal, total } = React.useMemo(() => {
+        const currentSubtotal = activeCart.items.reduce((sum, item) => {
+            const itemTotal = item.quantity * item.price;
+            return item.isReturn ? sum - itemTotal : sum + itemTotal;
+        }, 0);
+        
+        const taxAmount = currentSubtotal * (activeCart.tax / 100);
+        const finalTotal = currentSubtotal - activeCart.discount + taxAmount + previousBalanceDue;
+
+        return { subtotal: currentSubtotal, total: finalTotal };
+    }, [activeCart, previousBalanceDue]);
+    
+    useEffect(() => {
+        if (!isAmountPaidEdited) {
+            setPaidAmount(Math.max(0, total));
+        }
+    }, [total, isAmountPaidEdited]);
+
+    const handlePreviewInvoice = () => {
+        if (activeCart.items.length === 0 && previousBalanceDue <= 0) {
+            alert("Please add items to the cart or select a customer with a balance to create an invoice.");
+            return;
+        }
+
+        const balance = total - paidAmount;
+        
+        const saleData = {
+            id: 'PREVIEW-' + Date.now(),
+            date: new Date().toISOString(),
+            items: activeCart.items,
+            subtotal: subtotal,
+            discount: activeCart.discount,
+            tax: activeCart.tax * subtotal / 100,
+            total: total - previousBalanceDue, // Total for this bill only
+            paid_amount: paidAmount,
+            balance_due: balance,
+        };
+        setPreviewSale(saleData);
+        setIsInvoicePreviewOpen(true);
+    };
+
+    const handleFinalizeSale = () => {
+        if (!db || !activeShopId) return;
+
+        const balance = total - paidAmount;
+
+        const saleData = {
+            id: `${activeShopId}-${Date.now()}`,
+            shop_id: activeShopId,
+            date: new Date().toISOString(),
+            subtotal: subtotal,
+            discount: activeCart.discount,
+            tax: activeCart.tax * subtotal / 100,
+            total: total,
+            paid_amount: paidAmount,
+            balance_due: balance,
+            customerName: activeCart.customerName,
+            customerMobile: activeCart.customerMobile
+        };
+        
+         const saleConfirmation = {
+            previousBalance: previousBalanceDue,
+            currentBill: total - previousBalanceDue,
+            grandTotal: total,
+            amountPaid: paidAmount,
+            newBalance: balance,
+        };
+        setSaleConfirmationDetails(saleConfirmation);
+        setIsSaleConfirmationOpen(true);
+    };
+    
+    const confirmAndSaveSale = () => {
+        if (!db || !activeShopId) return;
+        
+        const balance = total - paidAmount;
+        const newSaleId = `${activeShopId}-${Date.now()}`;
+        
+        db.exec("BEGIN TRANSACTION;");
         try {
-            let query = "UPDATE users SET username = ?, role = ?, shop_id = ?";
-            const params: any[] = [userData.username.toLowerCase(), userData.role, userData.shop_id];
-
-            if (userData.password) {
-                const password_hash = await hashPassword(userData.password);
-                query += ", password_hash = ?";
-                params.push(password_hash);
+            // Settle previous balances for the customer if they paid more than the current bill
+            let remainingPaidAmount = paidAmount - (total - previousBalanceDue);
+            if (activeCart.customerMobile && remainingPaidAmount > 0) {
+                const customerSalesWithBalance = salesHistory
+                    .filter(s => s.customerMobile === activeCart.customerMobile && s.balance_due > 0)
+                    .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                
+                for (const oldSale of customerSalesWithBalance) {
+                    if (remainingPaidAmount <= 0) break;
+                    const paymentForOldSale = Math.min(remainingPaidAmount, oldSale.balance_due);
+                    const newBalanceForOldSale = oldSale.balance_due - paymentForOldSale;
+                    
+                    db.run("UPDATE sales_history SET paid_amount = paid_amount + ?, balance_due = ? WHERE id = ?", [paymentForOldSale, newBalanceForOldSale, oldSale.id]);
+                    db.run("INSERT INTO payment_history (sale_id, date, amount_paid, payment_method) VALUES (?, ?, ?, ?)", [oldSale.id, new Date().toISOString(), paymentForOldSale, 'Cash']);
+                    
+                    remainingPaidAmount -= paymentForOldSale;
+                }
             }
-            query += " WHERE id = ?";
-            params.push(userData.id);
-            
-            db.run(query, params);
-            await saveDbToIndexedDB();
 
-            setUsers(prev => prev.map(u => u.id === userData.id ? { ...u, ...userData } : u));
-        } catch (e: any) {
-            alert('An error occurred while updating the user.');
-            console.error(e);
+            // Insert new sale record
+            db.run(
+                "INSERT INTO sales_history (id, shop_id, date, subtotal, discount, tax, total, paid_amount, balance_due, customerName, customerMobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [newSaleId, activeShopId, new Date().toISOString(), subtotal, activeCart.discount, activeCart.tax * subtotal / 100, total, paidAmount, balance, activeCart.customerName, activeCart.customerMobile]
+            );
+            
+            // Insert sale items and update stock
+            activeCart.items.forEach(item => {
+                db.run(
+                    "INSERT INTO sale_items (sale_id, productId, shop_id, description, descriptionTamil, quantity, price, isReturn, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [newSaleId, item.productId, activeShopId, item.description, item.descriptionTamil, item.quantity, item.price, item.isReturn ? 1 : 0, item.hsnCode]
+                );
+                
+                // Update product stock
+                const stockChange = item.isReturn ? item.quantity : -item.quantity;
+                db.run("UPDATE products SET stock = stock + ? WHERE id = ? AND shop_id = ?", [stockChange, item.productId, activeShopId]);
+            });
+
+            db.exec("COMMIT;");
+
+            saveDbToIndexedDB().then(() => {
+                loadShopData(activeShopId);
+                // Reset UI
+                setActiveCart(defaultCartState);
+                setPaidAmount(0);
+                setIsAmountPaidEdited(false);
+                setIsSaleConfirmationOpen(false);
+                setIsInvoicePreviewOpen(false);
+            });
+
+        } catch (error) {
+            db.exec("ROLLBACK;");
+            console.error("Failed to save sale:", error);
+            alert("An error occurred. The sale was not saved.");
         }
     };
     
-    const handleUserDelete = async (userId: number) => {
-        try {
-            db.run("DELETE FROM users WHERE id = ?", [userId]);
-            await saveDbToIndexedDB();
-            setUsers(prev => prev.filter(u => u.id !== userId));
-        } catch (e: any) {
-            alert('An error occurred while deleting the user.');
-            console.error(e);
-        }
-    };
-
-    // --- PAYMENT HANDLING ---
-    const handleAddPayment = async (saleId: string, amount: number, method: string) => {
-        if (!activeShop) return;
-        
-        const sale = activeShop.salesHistory.find(s => s.id === saleId);
+    const handleSettleDuePayment = (saleId: string, amount: number) => {
+        if (!db) return;
+        const sale = salesHistory.find(s => s.id === saleId);
         if (!sale) return;
 
         const newPaidAmount = sale.paid_amount + amount;
-        const newBalanceDue = sale.total - newPaidAmount;
+        const newBalanceDue = Math.max(0, sale.balance_due - amount);
+
+        db.run("UPDATE sales_history SET paid_amount = ?, balance_due = ? WHERE id = ?", [newPaidAmount, newBalanceDue, saleId]);
+        db.run("INSERT INTO payment_history (sale_id, date, amount_paid, payment_method) VALUES (?, ?, ?, ?)", [saleId, new Date().toISOString(), amount, 'Cash Settle']);
+        saveDbToIndexedDB().then(() => loadShopData(activeShopId!));
+    };
+
+    
+    const handleUpdateProductPriceInCart = (productId: number, newPrice: number, priceMode: 'b2b' | 'b2c') => {
+        if (!db || !activeShopId) return;
+        const fieldToUpdate = priceMode === 'b2b' ? 'b2bPrice' : 'b2cPrice';
+        db.run(`UPDATE products SET ${fieldToUpdate} = ? WHERE id = ? AND shop_id = ?`, [newPrice, productId, activeShopId]);
+        saveDbToIndexedDB().then(() => loadShopData(activeShopId));
+    };
+    
+    const handleUpdateProductDetailsInCart = (productId: number, field: keyof Product, value: string) => {
+        if (!db || !activeShopId || field !== 'description') return; // Only allow description edit for now
+        db.run(`UPDATE products SET ${field} = ? WHERE id = ? AND shop_id = ?`, [value, productId, activeShopId]);
+        saveDbToIndexedDB().then(() => loadShopData(activeShopId));
+    };
+
+    const handleAddNewProductFromSale = (description: string): Product | null => {
+        if (!description.trim() || !db || !activeShopId) return null;
+        
+        const shop = shops.find(s => s.id === activeShopId);
+        if (!shop) return null;
+        
+        const newProductId = shop.nextProductId;
+        const newProduct: Product = {
+            id: newProductId,
+            description: description.trim(),
+            descriptionTamil: '',
+            barcode: '',
+            b2bPrice: 0,
+            b2cPrice: 0,
+            stock: 100, // Default stock
+            category: '',
+            hsnCode: ''
+        };
 
         db.run(
-            `UPDATE sales_history SET paid_amount = ?, balance_due = ? WHERE id = ?`,
-            [newPaidAmount, newBalanceDue, saleId]
+            "INSERT INTO products (id, shop_id, description, b2bPrice, b2cPrice, stock) VALUES (?, ?, ?, ?, ?, ?)",
+            [newProduct.id, activeShopId, newProduct.description, newProduct.b2bPrice, newProduct.b2cPrice, newProduct.stock]
         );
-        db.run(
-            `INSERT INTO payment_history (sale_id, date, amount_paid, payment_method) VALUES (?, ?, ?, ?)`,
-            [saleId, new Date().toISOString(), amount, method]
-        );
-        await saveDbToIndexedDB();
-        
-        // Update state
-        const updatedShops = shops.map(s => {
-            if (s.id !== activeShop.id) return s;
-            return {
-                ...s,
-                salesHistory: s.salesHistory.map(sh => sh.id === saleId ? {
-                    ...sh,
-                    paid_amount: newPaidAmount,
-                    balance_due: newBalanceDue
-                } : sh)
-            };
+        db.run("UPDATE shops SET nextProductId = ? WHERE id = ?", [newProductId + 1, activeShopId]);
+        saveDbToIndexedDB().then(() => {
+            loadShopData(activeShopId);
+            loadShops();
         });
-        setShops(updatedShops);
-    };
-
-    const handlePrint = (sale: SaleRecord) => {
-        setSaleToPrint(sale);
-    };
-
-    useEffect(() => {
-        if (saleToPrint) {
-            // This effect runs after the component tree is updated.
-            // The timeout ensures the browser has painted the new DOM before the print dialog freezes interaction.
-            const timer = setTimeout(() => {
-                window.print();
-                // Reset after the print dialog is closed or cancelled by the user.
-                setSaleToPrint(null);
-            }, 100); 
-
-            return () => clearTimeout(timer); // Cleanup timer if component unmounts or saleToPrint changes again
-        }
-    }, [saleToPrint]);
-
-
-    useEffect(() => {
-        if (activeCart.customerMobile && activeCart.customerMobile.length > 5) {
-            const history = activeShop?.salesHistory || [];
-            const customerSales = history.filter(s => s.customerMobile === activeCart.customerMobile && s.balance_due > 0);
-            const balance = customerSales.reduce((acc, sale) => acc + sale.balance_due, 0);
-            
-            setPreviousBalancesDue(prev => {
-                const newBalances = [...prev];
-                newBalances[activeCartIndex] = balance;
-                return newBalances;
-            });
-        } else {
-             setPreviousBalancesDue(prev => {
-                const newBalances = [...prev];
-                newBalances[activeCartIndex] = 0;
-                return newBalances;
-            });
-        }
-    }, [activeCart.customerMobile, activeShop?.salesHistory, activeCartIndex]);
-
-
-    const renderActiveView = () => {
-        if (!activeShop) {
-            return (
-                <div style={{textAlign: 'center', padding: '2rem'}}>
-                    <h2>No Shop Selected</h2>
-                    {currentUser?.role === 'super_admin' && 
-                        <p>Please select a shop from the user menu or create a new one in the Shop Manager.</p>
-                    }
-                </div>
-            );
-        }
         
-        switch (activeView) {
+        return newProduct;
+    };
+    
+    // --- EXPENSE MANAGEMENT ---
+    const handleAddExpense = (expense: Omit<Expense, 'id'>) => {
+        if (!db || !activeShopId) return;
+        db.run(
+            "INSERT INTO expenses (shop_id, date, description, category, amount) VALUES (?, ?, ?, ?, ?)",
+            [expense.shop_id, expense.date, expense.description, expense.category, expense.amount]
+        );
+        saveDbToIndexedDB().then(() => loadShopData(activeShopId));
+    };
+
+    const handleDeleteExpense = (expenseId: number) => {
+        setConfirmation({
+            message: `Are you sure you want to delete this expense record?`,
+            onConfirm: () => {
+                if (!db) return;
+                db.run("DELETE FROM expenses WHERE id = ?", [expenseId]);
+                saveDbToIndexedDB().then(() => {
+                    loadShopData(activeShopId!);
+                    setIsConfirmationModalOpen(false);
+                });
+            }
+        });
+        setIsConfirmationModalOpen(true);
+    };
+    
+    const handleSaveBillSettings = (settings: BillSettings) => {
+        const settingsToSave = { ...settings, shopNameEdited: settings.shopName !== activeShop?.name };
+        localStorage.setItem(`billSettings_${activeShopId}`, JSON.stringify(settingsToSave));
+        setBillSettings(settingsToSave);
+        alert("Settings saved successfully!");
+    };
+    
+     const handlePrintInvoice = (saleToPrint: SaleRecord) => {
+        const saleWithPossiblePreviousBalance = {
+            ...saleToPrint,
+            // Find the balance due right before this sale was made
+            previousBalanceForPreview: salesHistory
+                .filter(s => s.customerMobile === saleToPrint.customerMobile && new Date(s.date) < new Date(saleToPrint.date))
+                .reduce((sum, s) => sum + s.balance_due, 0)
+        };
+        setPreviewSale(saleWithPossiblePreviousBalance);
+        setIsInvoicePreviewOpen(true);
+    };
+    
+    const exportProductsToPdf = (productsToExport: Product[]) => {
+        if (productsToExport.length === 0) {
+            alert("No products to export.");
+            return;
+        }
+
+        const tableBody = productsToExport.map(p => `
+            <tr>
+                <td style="border: 1px solid #ddd; padding: 8px;">${p.id}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${p.description}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${p.descriptionTamil || ''}</td>
+                <td style="border: 1px solid #ddd; padding: 8px; text-align: right;">${p.b2cPrice.toFixed(2)}</td>
+                <td style="border: 1px solid #ddd; padding: 8px; text-align: right;">${p.stock}</td>
+            </tr>
+        `).join('');
+
+        const table = `
+            <style>
+                body { font-family: sans-serif; }
+                table { width: 100%; border-collapse: collapse; }
+                th { background-color: #f2f2f2; }
+            </style>
+            <h1>Product List</h1>
+            <p>Date: ${new Date().toLocaleDateString()}</p>
+            <table border="1">
+                <thead>
+                    <tr>
+                        <th style="border: 1px solid #ddd; padding: 8px;">ID</th>
+                        <th style="border: 1px solid #ddd; padding: 8px;">Description</th>
+                        <th style="border: 1px solid #ddd; padding: 8px;">Tamil Desc.</th>
+                        <th style="border: 1px solid #ddd; padding: 8px; text-align: right;">Price</th>
+                        <th style="border: 1px solid #ddd; padding: 8px; text-align: right;">Stock</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${tableBody}
+                </tbody>
+            </table>
+        `;
+        
+        const date = new Date().toISOString().slice(0, 10);
+        html2pdf().from(table).set({
+            margin: 0.5,
+            filename: `product-list-${date}.pdf`,
+            jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
+        }).save();
+    };
+
+    const handleUpgradeRequest = () => {
+         setConfirmation({
+            message: `This is a PRO feature. Upgrade now to unlock multi-shop management, advanced reporting, AI forecasting, and unlimited AI-powered bulk product uploads!`,
+            onConfirm: () => {
+                setUserPlan('pro');
+                localStorage.setItem('userPlan', 'pro');
+                setIsConfirmationModalOpen(false);
+                alert("You've been upgraded to the Pro plan!");
+            }
+        });
+        setIsConfirmationModalOpen(true);
+    };
+    
+
+    const activeShop = shops.find(s => s.id === activeShopId);
+
+    // --- RENDER LOGIC ---
+    if (!dbReady) return <div>Loading Database...</div>;
+    
+    if (!isLoggedIn) return <LoginView onLoginSuccess={handleLoginSuccess} />;
+
+    if (isInitialSetup) return <InitialSetupModal onCreate={handleCreateShop} />;
+    
+    if (!activeShopId || !activeShop) return (
+        <div style={{textAlign: 'center'}}>
+            <p>Please select a shop to continue.</p>
+            <button style={styles.button} onClick={() => setIsShopManagerOpen(true)}>Open Shop Manager</button>
+            {isShopManagerOpen && <ShopManagerModal shops={shops} activeShopId={activeShopId} onSelect={handleSelectShop} onCreate={handleCreateShop} onClose={() => setIsShopManagerOpen(false)} userPlan={userPlan} onUpgrade={handleUpgradeRequest} />}
+        </div>
+    );
+
+    const renderView = () => {
+        switch (view) {
+            case 'products':
+                return <ProductsView 
+                            products={products} 
+                            onAdd={() => { setEditingProduct(null); setIsProductModalOpen(true); }} 
+                            onEdit={(p) => { setEditingProduct(p); setIsProductModalOpen(true); }} 
+                            onDelete={handleDeleteProduct}
+                            onBulkAdd={handleBulkAddFromFile}
+                            onBulkAddPdfs={() => setIsPdfUploadModalOpen(true)}
+                            onExportPdf={exportProductsToPdf}
+                            selectedProductIds={selectedProductIds}
+                            setSelectedProductIds={setSelectedProductIds}
+                            onDeleteSelected={handleDeleteSelectedProducts}
+                            isOnline={isOnline}
+                            aiUsage={{plan: userPlan, count: aiUsageCount}}
+                            onUpgrade={checkAndIncrementAiUsage}
+                            currentUser={currentUser}
+                        />;
+            case 'reports':
+                return <ReportsView salesHistory={salesHistory} onPrint={handlePrintInvoice} userPlan={userPlan} onUpgrade={handleUpgradeRequest} isOnline={isOnline} />;
+            case 'customers':
+                return <CustomersView customers={customers} salesHistory={salesHistory} onAdd={() => { setEditingCustomer(null); setIsCustomerModalOpen(true); }} onEdit={(c) => { setEditingCustomer(c); setIsCustomerModalOpen(true); }} onDelete={handleDeleteCustomer} currentUser={currentUser} />;
+            case 'expenses':
+                return <ExpensesView expenses={expenses} onAdd={handleAddExpense} onDelete={handleDeleteExpense} shopId={activeShopId} userPlan={userPlan} onUpgrade={checkAndIncrementAiUsage} />;
+            case 'balance_due':
+                return <BalanceDueView salesHistory={salesHistory} customers={customers} onSettlePayment={handleSettleDuePayment} />;
+            case 'settings':
+                return <SettingsView billSettings={billSettings} onSave={handleSaveBillSettings} onPreview={() => setIsBillSettingsPreviewOpen(true)} activeShopName={activeShop.name} onRenameShop={handleRenameShop} userPlan={userPlan} onUpgrade={handleUpgradeRequest} />;
             case 'sales':
+            default:
                 return <SalesView 
-                            products={activeShop.products}
+                            products={products} 
                             activeCart={activeCart}
-                            updateActiveCart={updateActiveCart}
-                            onPreview={() => setIsInvoiceModalOpen(true)}
+                            updateActiveCart={updateActiveCartState}
+                            onPreview={handlePreviewInvoice}
                             total={total}
                             paidAmount={paidAmount}
                             setPaidAmount={setPaidAmount}
-                            onAmountPaidEdit={handleAmountPaidEdit}
+                            onAmountPaidEdit={() => setIsAmountPaidEdited(true)}
                             previousBalanceDue={previousBalanceDue}
-                            onShowHistory={() => setIsHistoryModalOpen(true)}
+                            onShowHistory={() => { setHistoryMobile(activeCart.customerMobile); setIsHistoryModalOpen(true); }}
                             onSaveBackup={handleSaveBackup}
                             onRestoreBackup={handleRestoreBackup}
-                            onUpdateProductPrice={handleUpdateProductPrice}
-                            onUpdateProductDetails={handleUpdateProductDetails}
+                            onUpdateProductPrice={handleUpdateProductPriceInCart}
+                            onUpdateProductDetails={handleUpdateProductDetailsInCart}
                             onAddNewProduct={handleAddNewProductFromSale}
                             isOnline={isOnline}
                             viewMode={viewMode}
                             setViewMode={setViewMode}
                             currentUser={currentUser}
-                        />;
-            case 'products':
-                return <ProductsView 
-                            products={activeShop.products}
-                            onEdit={(p) => { setEditingProduct(p); setIsProductModalOpen(true); }}
-                            onDelete={(id) => { setProductIdsToDelete([id]); setIsConfirmModalOpen(true); }}
-                            onAdd={() => { setEditingProduct(null); setIsProductModalOpen(true); }}
-                            onBulkAdd={handleBulkAddFromFile}
-                            onBulkAddPdfs={() => setIsPdfUploadModalOpen(true)}
-                            selectedProductIds={selectedProductIds}
-                            setSelectedProductIds={setSelectedProductIds}
-                            onDeleteSelected={handleDeleteSelectedProducts}
-                            isOnline={isOnline}
-                            aiUsage={{plan: userPlan, count: aiUsage.count}}
-                            onUpgrade={checkAndIncrementAiUsage}
-                            currentUser={currentUser}
-                        />;
-            case 'reports':
-                return <ReportsView 
-                            salesHistory={activeShop.salesHistory} 
-                            onPrint={handlePrint}
-                            userPlan={userPlan}
-                            onUpgrade={handleUpgradeRequest}
-                            isOnline={isOnline}
-                        />;
-            case 'customers':
-                return <CustomersView 
-                            customers={customers} 
-                            salesHistory={activeShop.salesHistory}
-                            onAdd={() => { setEditingCustomer(null); setIsCustomerModalOpen(true); }}
-                            onEdit={(c) => { setEditingCustomer(c); setIsCustomerModalOpen(true); }}
-                            onDelete={handleDeleteCustomer}
-                            currentUser={currentUser}
-                        />;
-            case 'settings':
-                 return <SettingsView 
-                            userPlan={userPlan}
-                            onRequestUpgrade={handleUpgradeRequest}
-                            onDowngrade={handleDowngrade}
-                            isCloudSyncEnabled={isCloudSyncEnabled}
-                            onToggleCloudSync={toggleCloudSync}
-                            onManageUsers={() => setActiveView('users')}
-                            billSettings={billSettings}
-                            onUpdateBillSettings={handleUpdateBillSettings}
-                            onPreviewBill={() => setIsBillSettingsPreviewOpen(true)}
-                        />;
-            case 'users':
-                return <UsersView 
-                            currentUser={currentUser!} 
-                            users={users}
-                            shops={shops}
-                            onUserAdd={handleUserAdd}
-                            onUserUpdate={handleUserUpdate}
-                            onUserDelete={handleUserDelete}
-                        />;
-            case 'balance_due':
-                return <BalanceDueView 
-                            salesHistory={activeShop.salesHistory}
-                            onAddPayment={(saleId, amount, method) => {
-                                handleAddPayment(saleId, amount, method);
-                                // This view has its own payment modal, no need to close here
-                            }}
-                            onPrint={handlePrint}
-                        />;
-            default:
-                return null;
+                       />;
         }
     };
 
-    if (dbLoading) {
-        return <div>Loading Database...</div>;
-    }
-
-    if (!currentUser) {
-        return <LoginView onLoginSuccess={handleLoginSuccess} />;
-    }
-    
-    if (isInitialSetup) {
-        return <InitialSetupModal onCreate={handleCreateShop} />;
-    }
-
     return (
         <div style={styles.appContainer}>
-            <nav style={styles.nav}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-                    <h1 style={{ margin: 0, fontSize: '1.5rem' }}>POS</h1>
-                    <div style={styles.billSelector}>
-                        {[0, 1, 2].map(index => (
-                            <button
-                                key={index}
-                                onClick={() => setActiveCartIndex(index)}
-                                style={index === activeCartIndex ? { ...styles.billButton, ...styles.billButtonActive } : styles.billButton}
-                                disabled={!activeShop}
-                            >
-                                Bill {index + 1}
-                            </button>
-                        ))}
+            <header style={styles.header}>
+                <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
+                    <h1 style={styles.title}>Gemini POS</h1>
+                    <button style={styles.shopManagerButton} onClick={() => setIsShopManagerOpen(true)}>
+                        {activeShop.name} {userPlan === 'pro' ? ' (PRO)' : ''}
+                    </button>
+                </div>
+                 <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
+                    <DropdownNav activeView={view} onSelectView={setView} disabled={isInvoicePreviewOpen} currentUser={currentUser}/>
+                    <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                        <UserIcon />
+                        <span>{currentUser?.username} ({currentUser?.role})</span>
                     </div>
+                    <button onClick={handleLogout} style={styles.logoutButton}>Logout</button>
                 </div>
-                <DropdownNav 
-                    activeView={activeView} 
-                    onSelectView={setActiveView} 
-                    disabled={!activeShop}
-                    currentUser={currentUser}
-                />
-                <SessionDropdown
-                    currentUser={currentUser}
-                    activeShop={activeShop}
-                    syncStatus={syncStatus}
-                    isCloudSyncEnabled={isCloudSyncEnabled}
-                    userPlan={userPlan}
-                    onShopManagerClick={() => setIsShopManagerOpen(true)}
-                    onLogout={handleLogout}
-                />
-            </nav>
-
+            </header>
             <main style={styles.mainContent}>
-                {renderActiveView()}
+                {renderView()}
             </main>
-
-            {isProductModalOpen && (
-                <ProductFormModal 
-                    product={editingProduct} 
-                    onSave={handleSaveProduct} 
-                    onUpdate={handleUpdateProduct} 
-                    onClose={() => { setIsProductModalOpen(false); setEditingProduct(null); }} 
-                />
-            )}
-            
-            {isInvoiceModalOpen && (
-                <InvoicePreviewModal 
-                    sale={{
-                        items: activeCart.items,
-                        subtotal: subtotal,
-                        discount: activeCart.discount,
-                        tax: taxAmount,
-                        total: total,
-                        paid_amount: paidAmount,
-                        balance_due: total - paidAmount,
-                    }}
-                    billSettings={billSettings}
-                    customerName={activeCart.customerName}
-                    customerMobile={activeCart.customerMobile}
-                    language={activeCart.language}
-                    previousBalanceDue={previousBalanceDue}
-                    amountPaidEdited={amountPaidEdited}
-                    onFinalize={handleFinalizeSale}
-                    onClose={() => setIsInvoiceModalOpen(false)} 
-                />
-            )}
-
-            {isSaleConfirmModalOpen && (
-                <SaleConfirmationModal
-                    details={{
-                        previousBalance: previousBalanceDue,
-                        currentBill: total - previousBalanceDue,
-                        grandTotal: total,
-                        amountPaid: paidAmount,
-                        newBalance: total - paidAmount,
-                    }}
-                    onConfirm={handleSaleConfirmation}
-                    onCancel={() => setIsSaleConfirmModalOpen(false)}
-                />
-            )}
-
-            {saleToPrint && (
-                 <div className="printable-area">
-                    <InvoicePreviewModal 
-                        sale={saleToPrint}
-                        billSettings={billSettings}
-                        customerName={saleToPrint.customerName}
-                        customerMobile={saleToPrint.customerMobile}
-                        language={'english'} // default language for printing history
-                        previousBalanceDue={0} // Historical invoice doesn't show this
-                    />
-                </div>
-            )}
-            
-            {isHistoryModalOpen && activeShop && (
-                <HistoryModal 
-                    salesHistory={activeShop.salesHistory} 
-                    customerMobile={activeCart.customerMobile} 
-                    onClose={() => setIsHistoryModalOpen(false)}
-                />
-            )}
-
-            {isConfirmModalOpen && (
-                <ConfirmationModal 
-                    message={`Are you sure you want to delete ${productIdsToDelete.length} product(s)? This action cannot be undone.`}
-                    onConfirm={confirmDelete}
-                    onCancel={() => { setIsConfirmModalOpen(false); setProductIdsToDelete([]); }}
-                />
-            )}
-
-            {isGoProModalOpen && (
-                <GoProModal
-                    onClose={() => setIsGoProModalOpen(false)}
-                    onUpgrade={handleUpgrade}
-                />
-            )}
-            {isBulkAddModalOpen && (
-                <BulkAddModal 
-                    fileSrc={bulkAddFileSrc}
-                    fileType={bulkAddFileType}
-                    fileNames={bulkAddFileNames}
-                    initialProducts={bulkAddProducts}
-                    onSave={handleBulkAddProducts}
-                    onClose={() => setIsBulkAddModalOpen(false)}
-                    loading={isBulkAddLoading}
-                    error={bulkAddError}
-                />
-            )}
-             {isPdfUploadModalOpen && (
-                <PdfUploadModal
-                    onProcess={handleBulkAddFromPdfs}
-                    onClose={() => setIsPdfUploadModalOpen(false)}
-                />
-            )}
-
-            {isShopManagerOpen && currentUser.role === 'super_admin' && (
-                <ShopManagerModal
-                    shops={shops}
-                    activeShopId={activeShopId}
-                    onSelect={handleSelectShop}
-                    onCreate={handleCreateShop}
-                    onClose={() => setIsShopManagerOpen(false)}
-                    userPlan={userPlan}
-                    onUpgrade={handleUpgradeRequest}
-                />
-            )}
-
-             {isCustomerModalOpen && (
-                <CustomerFormModal
-                    customer={editingCustomer}
-                    onSave={handleSaveCustomer}
-                    onClose={() => { setIsCustomerModalOpen(false); setEditingCustomer(null); }}
-                />
-            )}
-            
-             {customerToDelete && (
-                <ConfirmationModal
-                    message={`Are you sure you want to delete customer "${customerToDelete.name}"? This action cannot be undone.`}
-                    onConfirm={confirmDeleteCustomer}
-                    onCancel={() => setCustomerToDelete(null)}
-                />
-            )}
-
-            {isBillSettingsPreviewOpen && (
-                 <InvoicePreviewModal
-                    isPreviewMode={true}
-                    sale={{
-                        id: 'PREVIEW-123',
-                        date: new Date().toISOString(),
-                        items: [
-                            {id: 1, productId: 101, description: 'Sample Product A', quantity: 2, price: 15.50, isReturn: false, hsnCode: '1234'},
-                            {id: 2, productId: 102, description: 'Sample Product B', quantity: 1, price: 50.00, isReturn: false, hsnCode: '5678'},
-                        ],
-                        subtotal: 81.00,
-                        discount: 5.00,
-                        tax: 8.10,
-                        total: 84.10,
-                        paid_amount: 85.00,
-                        balance_due: 0,
-                    }}
-                    billSettings={billSettings}
-                    customerName="John Doe"
-                    customerMobile="9876543210"
-                    language="english"
-                    previousBalanceDue={10.00}
-                    onClose={() => setIsBillSettingsPreviewOpen(false)}
-                />
-            )}
-            
-            {restoreProgress.visible && <RestoreProgressModal {...restoreProgress} />}
+            {isProductModalOpen && <ProductFormModal product={editingProduct} onSave={handleAddProduct} onUpdate={handleUpdateProduct} onClose={() => setIsProductModalOpen(false)} />}
+            {isCustomerModalOpen && <CustomerFormModal customer={editingCustomer} onSave={handleSaveCustomer} onClose={() => setIsCustomerModalOpen(false)} />}
+            {isConfirmationModalOpen && <ConfirmationModal message={confirmation.message} onConfirm={confirmation.onConfirm} onCancel={() => setIsConfirmationModalOpen(false)} />}
+            {isSaleConfirmationOpen && <SaleConfirmationModal details={saleConfirmationDetails} onConfirm={confirmAndSaveSale} onCancel={() => setIsSaleConfirmationOpen(false)} />}
+            {isHistoryModalOpen && <HistoryModal salesHistory={salesHistory} customerMobile={historyMobile} onClose={() => setIsHistoryModalOpen(false)} />}
+            {isInvoicePreviewOpen && <InvoicePreviewModal 
+                sale={previewSale} 
+                billSettings={billSettings}
+                customerName={previewSale.customerName || activeCart.customerName}
+                customerMobile={previewSale.customerMobile || activeCart.customerMobile}
+                onFinalize={handleFinalizeSale} 
+                onClose={() => setIsInvoicePreviewOpen(false)}
+                language={activeCart.language}
+                previousBalanceDue={previewSale.previousBalanceForPreview !== undefined ? previewSale.previousBalanceForPreview : previousBalanceDue}
+                amountPaidEdited={isAmountPaidEdited}
+            />}
+            {isPdfUploadModalOpen && <PdfUploadModal onProcess={handleProcessPdfs} onClose={() => setIsPdfUploadModalOpen(false)} />}
+            {isBulkAddModalOpen && <BulkAddModal 
+                fileSrc={bulkAddFileSrc}
+                fileType={bulkAddFileType}
+                fileNames={bulkAddPdfFileNames}
+                initialProducts={bulkAddProducts}
+                onSave={handleSaveBulkProducts}
+                onClose={() => setIsBulkAddModalOpen(false)}
+                loading={isBulkAddLoading}
+                error={bulkAddError}
+            />}
+            {isShopManagerOpen && <ShopManagerModal shops={shops} activeShopId={activeShopId} onSelect={handleSelectShop} onCreate={handleCreateShop} onClose={() => setIsShopManagerOpen(false)} userPlan={userPlan} onUpgrade={handleUpgradeRequest} />}
+            {isRestoreModalOpen && <RestoreProgressModal {...restoreProgress} />}
+            {isBillSettingsPreviewOpen && <InvoicePreviewModal
+                sale={{
+                    id: "SETTINGS-PREVIEW",
+                    date: new Date().toISOString(),
+                    items: [
+                        { id: 1, productId: 101, description: 'Sample Product A', descriptionTamil: 'மாதிரி தயாரிப்பு A', quantity: 2, price: 150.00, isReturn: false, hsnCode: '1234' },
+                        { id: 2, productId: 102, description: 'Sample Product B', descriptionTamil: 'மாதிரி தயாரிப்பு B', quantity: 1, price: 250.50, isReturn: false, hsnCode: '5678' },
+                        { id: 3, productId: 103, description: 'Item Returned', descriptionTamil: 'பொருள் திரும்பியது', quantity: 1, price: 100.00, isReturn: true, hsnCode: '9101' },
+                    ],
+                    subtotal: 450.50,
+                    discount: 20.00,
+                    tax: 22.53,
+                    total: 453.03, // Includes previous balance
+                    paid_amount: 400.00,
+                    balance_due: 53.03,
+                }}
+                billSettings={billSettings}
+                customerName="John Doe"
+                customerMobile="9876543210"
+                onClose={() => setIsBillSettingsPreviewOpen(false)}
+                language={activeCart.language}
+                previousBalanceDue={100.00} // Sample previous balance
+                amountPaidEdited={true}
+                isPreviewMode={true}
+            />}
         </div>
     );
 };
 
-const rootElement = document.getElementById('root');
-if (rootElement) {
-    const root = createRoot(rootElement);
-    root.render(<App />);
-}
+const styles: { [key: string]: React.CSSProperties } = {
+    appContainer: {
+        width: '100%',
+        maxWidth: '1600px',
+        minHeight: '90vh',
+        backgroundColor: 'var(--surface-color)',
+        borderRadius: '12px',
+        boxShadow: '0 8px 30px rgba(0,0,0,0.1)',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+    },
+    header: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '1rem 2rem',
+        borderBottom: '1px solid var(--border-color)',
+        backgroundColor: '#fff',
+        flexShrink: 0,
+    },
+    title: {
+        margin: 0,
+        fontSize: '1.75rem',
+        color: 'var(--primary-color)',
+    },
+    logoutButton: {
+        padding: '0.5rem 1rem',
+        border: 'none',
+        borderRadius: '8px',
+        backgroundColor: 'var(--danger-color)',
+        color: '#fff',
+        cursor: 'pointer',
+        fontWeight: '500',
+    },
+    shopManagerButton: {
+         padding: '0.5rem 1rem',
+        border: '1px solid var(--primary-color)',
+        borderRadius: '8px',
+        backgroundColor: 'transparent',
+        color: 'var(--primary-color)',
+        cursor: 'pointer',
+        fontWeight: '500',
+    },
+    mainContent: {
+        flex: 1,
+        padding: '1.5rem 2rem',
+        overflowY: 'auto',
+    },
+    viewContainer: {
+        width: '100%',
+    },
+    viewHeader: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '1.5rem',
+        gap: '1rem',
+        flexWrap: 'wrap',
+    },
+    table: {
+        width: '100%',
+        borderCollapse: 'collapse',
+        fontSize: '0.95rem'
+    },
+    th: {
+        padding: '0.75rem 1rem',
+        textAlign: 'left',
+        borderBottom: '2px solid var(--border-color)',
+        backgroundColor: '#f8f9fa',
+        fontWeight: 600,
+    },
+    td: {
+        padding: '0.75rem 1rem',
+        borderBottom: '1px solid var(--border-color)',
+        verticalAlign: 'middle',
+    },
+    input: {
+        padding: '0.6rem 0.8rem',
+        borderRadius: '6px',
+        border: '1px solid var(--border-color)',
+        fontSize: '1rem',
+    },
+    button: {
+        padding: '0.6rem 1.2rem',
+        border: 'none',
+        borderRadius: '8px',
+        backgroundColor: 'var(--primary-color)',
+        color: '#fff',
+        cursor: 'pointer',
+        fontSize: '1rem',
+        fontWeight: 500,
+    },
+    actionButton: {
+        padding: '0.25rem 0.5rem',
+        border: 'none',
+        borderRadius: '6px',
+        color: '#fff',
+        cursor: 'pointer',
+        fontSize: '0.85rem',
+        marginRight: '0.25rem',
+    },
+    emptyMessage: {
+        textAlign: 'center',
+        padding: '2rem',
+        color: 'var(--secondary-color)',
+    },
+    modalBackdrop: {
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 1000,
+    },
+    modalContent: {
+        backgroundColor: '#fff',
+        padding: '2rem',
+        borderRadius: '12px',
+        boxShadow: '0 5px 15px rgba(0,0,0,0.3)',
+        width: '90%',
+        maxWidth: '600px',
+        maxHeight: '90vh',
+        overflowY: 'auto',
+    },
+    modalActions: {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: '1rem',
+        marginTop: '2rem',
+    },
+    productForm: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.8rem',
+    },
+    label: {
+        fontWeight: 500,
+        marginBottom: '-0.2rem',
+    },
+    customerSection: {
+        display: 'flex',
+        gap: '1rem',
+        marginBottom: '1rem',
+    },
+    customerInput: {
+        padding: '0.75rem',
+        borderRadius: '8px',
+        border: '1px solid var(--border-color)',
+        fontSize: '1rem',
+        flex: 2,
+    },
+     countryCodeInput: {
+        padding: '0.75rem',
+        borderRadius: '8px 0 0 8px',
+        border: '1px solid var(--border-color)',
+        fontSize: '1rem',
+        flex: '0 0 70px',
+        textAlign: 'center',
+    },
+    mobileNumberInput: {
+        padding: '0.75rem',
+        borderRadius: '0 8px 8px 0',
+        border: '1px solid var(--border-color)',
+        borderLeft: 'none',
+        fontSize: '1rem',
+        flex: 1,
+    },
+    searchResults: {
+        position: 'absolute',
+        top: '100%',
+        left: 0,
+        right: 0,
+        backgroundColor: '#fff',
+        border: '1px solid var(--border-color)',
+        borderRadius: '0 0 8px 8px',
+        listStyle: 'none',
+        margin: 0,
+        padding: 0,
+        maxHeight: '300px',
+        overflowY: 'auto',
+        zIndex: 100,
+        boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+    },
+    searchResultItem: {
+        padding: '0.75rem 1rem',
+        cursor: 'pointer',
+    },
+    highlighted: {
+        backgroundColor: 'var(--primary-color)',
+        color: '#fff',
+    },
+    gridInput: {
+        width: '80px',
+        padding: '0.25rem',
+        borderRadius: '4px',
+        border: '1px solid var(--border-color)',
+    },
+     wideGridInput: {
+        width: '95%',
+        padding: '0.25rem',
+        borderRadius: '4px',
+        border: '1px solid var(--border-color)',
+        backgroundColor: 'transparent',
+    },
+    totalsSection: {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        alignItems: 'center',
+        gap: '1.5rem',
+        marginTop: '1.5rem',
+        paddingTop: '1rem',
+        borderTop: '1px solid var(--border-color)',
+    },
+    totalsInput: {
+        width: '100px',
+        padding: '0.5rem',
+        borderRadius: '6px',
+        border: '1px solid var(--border-color)',
+        textAlign: 'right',
+    },
+    grandTotal: {
+        textAlign: 'right',
+        paddingLeft: '1.5rem',
+        borderLeft: '2px solid var(--primary-color)',
+    },
+    priceModeSelector: {
+        display: 'inline-flex',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        overflow: 'hidden',
+    },
+    priceModeLabel: {
+        padding: '0.5rem 1rem',
+        cursor: 'pointer',
+        backgroundColor: '#fff',
+        color: 'var(--secondary-color)',
+        transition: 'background-color 0.2s, color 0.2s'
+    },
+    priceModeLabelChecked: {
+        backgroundColor: 'var(--primary-color)',
+        color: '#fff'
+    },
+    priceModeLabel_input: {
+        display: 'none',
+    },
+    voiceSearchButton: {
+        position: 'absolute',
+        right: '10px',
+        top: '50%',
+        transform: 'translateY(-50%)',
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: '8px'
+    },
+    barcodeScanButton: {
+        position: 'absolute',
+        right: '50px',
+        top: '50%',
+        transform: 'translateY(-50%)',
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: '8px'
+    },
+    confirmationDetails: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.5rem',
+        marginBottom: '1.5rem',
+        padding: '1rem',
+        backgroundColor: '#f8f9fa',
+        borderRadius: '8px',
+    },
+    confirmationRow: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        fontSize: '1.1rem',
+    },
+    reportFilters: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '1rem',
+    },
+    dateRangePicker: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.5rem',
+    },
+    reportSummary: {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        gap: '1.5rem',
+        marginBottom: '2rem',
+    },
+    summaryCard: {
+        padding: '1.5rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        backgroundColor: '#f8f9fa',
+    },
+    customerViewLayout: {
+        display: 'grid',
+        gridTemplateColumns: '300px 1fr',
+        gap: '2rem',
+        height: '75vh',
+    },
+    customerListPanel: {
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+    },
+    customerListItem: {
+        padding: '1rem',
+        borderBottom: '1px solid var(--border-color)',
+        cursor: 'pointer',
+    },
+     customerListItemActive: {
+        backgroundColor: 'var(--primary-color)',
+        color: '#fff',
+    },
+    customerDetailPanel: {
+        padding: '1rem',
+    },
+    customerDetailHeader: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        borderBottom: '1px solid var(--border-color)',
+        paddingBottom: '1rem',
+        marginBottom: '1rem',
+    },
+    purchaseHistoryItem: {
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        padding: '1rem',
+        marginBottom: '1rem',
+    },
+    dueTag: {
+        backgroundColor: 'var(--danger-color)',
+        color: '#fff',
+        padding: '0.2rem 0.5rem',
+        borderRadius: '4px',
+        fontSize: '0.8rem',
+        fontWeight: 'bold',
+    },
+    backupSection: {
+        marginTop: '2rem',
+        padding: '1.5rem',
+        border: '1px dashed var(--secondary-color)',
+        borderRadius: '8px',
+        backgroundColor: '#f8f9fa',
+        textAlign: 'center',
+    },
+    backupTitle: {
+        marginTop: 0,
+        color: 'var(--primary-color)',
+    },
+    backupDescription: {
+        color: 'var(--secondary-color)',
+        maxWidth: '600px',
+        margin: '0 auto 1.5rem auto',
+    },
+    backupActions: {
+        display: 'flex',
+        justifyContent: 'center',
+        gap: '1rem',
+    },
+    dropdownContainer: {
+        position: 'relative',
+        display: 'inline-block',
+    },
+    dropdownButton: {
+        padding: '0.5rem 1rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        backgroundColor: '#fff',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.5rem',
+        minWidth: '180px',
+        justifyContent: 'space-between',
+    },
+    dropdownMenu: {
+        position: 'absolute',
+        top: '100%',
+        left: 0,
+        backgroundColor: '#fff',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        listStyle: 'none',
+        margin: '0.5rem 0 0',
+        padding: '0.5rem 0',
+        minWidth: '180px',
+        zIndex: 10,
+        boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+    },
+    dropdownMenuItem: {
+        padding: '0.75rem 1rem',
+        cursor: 'pointer',
+    },
+    dropdownMenuItemActive: {
+        backgroundColor: 'var(--primary-color)',
+        color: '#fff',
+    },
+    shopListItem: {
+        padding: '1rem',
+        borderBottom: '1px solid var(--border-color)',
+        cursor: 'pointer',
+    },
+    shopListItemActive: {
+        backgroundColor: 'var(--primary-color)',
+        color: 'white',
+        fontWeight: 'bold',
+    },
+    reportTabs: {
+        display: 'flex',
+        borderBottom: '1px solid var(--border-color)',
+        marginBottom: '1.5rem',
+    },
+    reportTabButton: {
+        padding: '0.75rem 1.5rem',
+        border: 'none',
+        background: 'none',
+        cursor: 'pointer',
+        color: 'var(--secondary-color)',
+        fontSize: '1rem',
+        position: 'relative',
+        bottom: '-1px',
+    },
+    reportTabButtonActive: {
+        color: 'var(--primary-color)',
+        borderBottom: '3px solid var(--primary-color)',
+        fontWeight: 'bold',
+    },
+    proBadge: {
+        position: 'absolute',
+        top: '2px',
+        right: '2px',
+        backgroundColor: '#ffc107',
+        color: '#000',
+        padding: '2px 5px',
+        borderRadius: '4px',
+        fontSize: '0.7rem',
+        fontWeight: 'bold',
+    },
+    proBadgeSmall: {
+        position: 'absolute',
+        bottom: '-8px',
+        backgroundColor: '#007bff',
+        color: '#fff',
+        padding: '1px 4px',
+        borderRadius: '4px',
+        fontSize: '0.65rem',
+    },
+    proBadgeLarge: {
+        position: 'absolute',
+        top: '0',
+        right: '0',
+        backgroundColor: '#ffc107',
+        color: '#000',
+        padding: '0.25rem 0.5rem',
+        borderRadius: '0 8px 0 8px',
+        fontSize: '0.8rem',
+        fontWeight: 'bold',
+        cursor: 'pointer',
+    },
+    settingsCard: {
+        padding: '1.5rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        margin: '1rem 0',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '1rem',
+    },
+    checkboxGrid: {
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: '0.75rem',
+    },
+    checkboxLabel: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.5rem',
+    },
+    // Mobile View Styles
+    mobileSingleColumnLayout: {
+        width: '100%',
+        height: 'calc(100vh - 120px)', // Adjust based on header height
+        display: 'flex',
+        flexDirection: 'column',
+    },
+    mobileScrollableContent: {
+        flex: 1,
+        overflowY: 'auto',
+        padding: '1rem',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '1rem',
+    },
+    mobileBottomActionBar: {
+        flexShrink: 0,
+        padding: '1rem',
+        borderTop: '1px solid var(--border-color)',
+        backgroundColor: 'var(--surface-color)',
+    },
+    mobileFinalizeButton: {
+        width: '100%',
+        padding: '1rem',
+        fontSize: '1.2rem',
+        fontWeight: 'bold',
+        backgroundColor: 'var(--success-color)',
+        color: 'white',
+        border: 'none',
+        borderRadius: '8px',
+    },
+    mobileSection: {
+        backgroundColor: 'var(--surface-color)',
+        padding: '1rem',
+        borderRadius: '8px',
+        border: '1px solid var(--border-color)',
+    },
+    mobileSectionTitle: {
+        marginTop: 0,
+        marginBottom: '1rem',
+        color: 'var(--primary-color)',
+    },
+    mobileSettingsGroup: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '0.5rem',
+    },
+    mobileSettingsLabel: {
+        margin: 0,
+        fontWeight: 500,
+    },
+    mobileInput: {
+        width: '100%',
+        padding: '0.75rem',
+        borderRadius: '8px',
+        border: '1px solid var(--border-color)',
+        fontSize: '1rem',
+        boxSizing: 'border-box',
+    },
+    mobileButton: {
+        width: '100%',
+        padding: '0.75rem',
+        border: 'none',
+        borderRadius: '8px',
+        backgroundColor: 'var(--primary-color)',
+        color: '#fff',
+        cursor: 'pointer',
+        fontSize: '1rem',
+    },
+    mobileInputIconButton: {
+        position: 'absolute',
+        right: '0px',
+        top: '0px',
+        height: '100%',
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: '0 12px',
+    },
+    mobileInlineSearchResults: {
+        listStyle: 'none',
+        margin: '0.5rem 0 0',
+        padding: '0',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        maxHeight: '200px',
+        overflowY: 'auto',
+    },
+    mobileInlineSearchResultItem: {
+        padding: '0.75rem',
+        borderBottom: '1px solid var(--border-color)',
+        cursor: 'pointer',
+    },
+    mobileBillItemCard: {
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        padding: '0.75rem',
+        marginBottom: '0.75rem',
+    },
+    mobileBillItemCardReturn: {
+        backgroundColor: '#ffebee',
+    },
+    mobileBillItemInfo: {
+        flex: 1,
+    },
+    mobileBillItemControls: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginTop: '0.75rem',
+    },
+    mobileQuantityControls: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.75rem',
+    },
+    mobileRoundButton: {
+        width: '32px',
+        height: '32px',
+        borderRadius: '50%',
+        border: '1px solid var(--border-color)',
+        backgroundColor: '#fff',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+    },
+    mobilePaymentRow: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '0.75rem 0',
+    },
+    mobilePaymentInput: {
+        border: 'none',
+        borderBottom: '1px solid var(--border-color)',
+        textAlign: 'right',
+        fontWeight: 500,
+        fontSize: '1rem',
+        width: '100px',
+    },
+    mobileGrandTotal: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '1rem 0',
+        fontWeight: 'bold',
+        fontSize: '1.2rem',
+        borderTop: '2px solid var(--primary-color)',
+        marginTop: '0.5rem',
+    }
+};
+
+const root = createRoot(document.getElementById('root')!);
+root.render(<App />);
