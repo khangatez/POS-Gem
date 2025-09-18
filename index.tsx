@@ -1323,10 +1323,44 @@ const InvoicePreviewModal = ({
     };
 
     const downloadPdf = () => {
-        if (printAreaRef.current) {
-            const opt = getPdfOptions(billSettings);
-            html2pdf().from(printAreaRef.current).set(opt).save();
+        const printElement = printAreaRef.current;
+        if (!printElement) {
+            console.error("PDF generation failed: Invoice element not found.");
+            alert("Could not generate PDF. Please try again.");
+            return;
         }
+
+        // Combine base print styles with dynamic styles for a complete style block
+        const allStyles = `
+            ${getPrintStyles()}
+            body {
+                width: ${printElement.style.width || 'auto'};
+                font-size: ${printElement.style.fontSize || '12pt'};
+            }
+        `;
+
+        // Get the inner HTML of the invoice content
+        const invoiceHtmlContent = printElement.innerHTML;
+
+        // Construct a full, self-contained HTML document string. This is the key to reliability.
+        const htmlDocString = `
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <title>Invoice</title>
+                <style>${allStyles}</style>
+            </head>
+            <body>
+                ${invoiceHtmlContent}
+            </body>
+            </html>
+        `;
+        
+        const opt = getPdfOptions(billSettings);
+
+        // Generate PDF from the clean HTML string, not the live DOM element
+        html2pdf().from(htmlDocString).set(opt).save();
     };
 
     const getPrintStyles = () => `
