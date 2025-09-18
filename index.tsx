@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -16,6 +17,7 @@ const initDb = async () => {
         const SQL = await initSqlJs({
             locateFile: (file: string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}`
         });
+        // FIX: Replaced incorrect type UintArray with Uint8Array.
         const dbFile: Uint8Array | null = await getDbFromIndexedDB();
         db = dbFile ? new SQL.Database(dbFile) : new SQL.Database();
         // Ensure schema exists on every load
@@ -53,6 +55,7 @@ const saveDbToIndexedDB = async () => {
     });
 };
 
+// FIX: Replaced incorrect return type UintArray with Uint8Array.
 const getDbFromIndexedDB = (): Promise<Uint8Array | null> => {
     return new Promise((resolve) => {
         const request = indexedDB.open(DB_NAME_IDB, 1);
@@ -176,6 +179,7 @@ const hashPassword = async (password: string): Promise<string> => {
     const encoder = new TextEncoder();
     const data = encoder.encode(password);
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    // FIX: Replaced incorrect type UintArray with Uint8Array. This resolves the reported 'Cannot find name' error and likely the subsequent 'Expected 0 arguments' error as well.
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 };
@@ -1202,6 +1206,7 @@ interface BillSettings {
         showTagline: boolean;
         showFooterNotes: boolean;
     };
+    layout: 'default' | 'modern';
 }
 
 const defaultBillSettings: BillSettings = {
@@ -1223,6 +1228,7 @@ const defaultBillSettings: BillSettings = {
         showTagline: true,
         showFooterNotes: true,
     },
+    layout: 'default',
 };
 
 // --- INVOICE PREVIEW MODAL ---
@@ -1260,13 +1266,52 @@ const InvoicePreviewModal = ({
     const returnTotal = returnedItems.reduce((acc: number, item: SaleItem) => acc + item.quantity * item.price, 0);
     const roundedGrandTotal = Math.round(sale.total);
     const balanceDue = sale.balance_due;
-    const saleDate = isPreviewMode ? new Date() : new Date(sale.date);
+    const saleDate = new Date(sale.date);
 
     // Show detailed payment info if amount was edited, a balance exists, or it's a historical/detailed invoice
     const showPaymentDetails = billSettings.format !== 'simple' && (amountPaidEdited || balanceDue > 0 || !onFinalize);
 
     const handleWhatsAppClick = () => {
-        // ... (WhatsApp logic remains the same)
+        if (!phoneNumber) {
+            alert('Please enter a customer phone number to send the invoice via WhatsApp.');
+            return;
+        }
+
+        const cleanPhoneNumber = phoneNumber.replace(/[^0-9+]/g, '');
+        if (!cleanPhoneNumber) {
+            alert('Invalid phone number format.');
+            return;
+        }
+
+        const itemsText = purchasedItems.map((item: SaleItem) =>
+            `- ${language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description} (${item.quantity} x ₹${item.price.toFixed(1)}) = ₹${(item.quantity * item.price).toFixed(1)}`
+        ).join('\n');
+
+        const returnsText = returnedItems.length > 0 ?
+            '\n*Returned Items*:\n' + returnedItems.map((item: SaleItem) =>
+            `- ${language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description} (${item.quantity} x ₹${item.price.toFixed(1)}) = -₹${(item.quantity * item.price).toFixed(1)}`
+        ).join('\n') : '';
+
+        const messageParts = [
+            `*Invoice from ${billSettings.shopName}*`,
+            `-----------------------------------`,
+            `*Bill Date*: ${saleDate.toLocaleString()}`,
+            `*Customer*: ${customerName || 'Walk-in'}`,
+            `-----------------------------------`,
+            itemsText,
+            returnsText,
+            `-----------------------------------`,
+            `*Grand Total*: *₹${roundedGrandTotal.toFixed(2)}*`,
+            `*Amount Paid*: ₹${sale.paid_amount.toFixed(2)}`,
+            balanceDue > 0 ? `*Balance Due*: *₹${balanceDue.toFixed(2)}*` : `*Status*: Fully Paid`,
+            `-----------------------------------`,
+            billSettings.tagline || 'Thank you for your business!'
+        ];
+
+        const message = messageParts.filter(part => part).join('\n');
+        const encodedMessage = encodeURIComponent(message);
+        const url = `https://wa.me/${cleanPhoneNumber}?text=${encodedMessage}`;
+        window.open(url, '_blank', 'noopener,noreferrer');
     };
     
     const getPdfOptions = (settings: BillSettings) => {
@@ -1450,6 +1495,13 @@ const InvoicePreviewModal = ({
         </div>
     );
     
+    const renderCustomerDetails = () => (
+        <div style={{ margin: '0.5rem 0', borderBottom: '1px dashed #ccc', paddingBottom: '0.5rem' }}>
+            {customerName && <p style={{margin: '0.2rem 0'}}><b>Customer:</b> {customerName}</p>}
+            {customerMobile && <p style={{margin: '0.2rem 0'}}><b>Mobile:</b> {customerMobile}</p>}
+        </div>
+    );
+
     const renderTable = (items: SaleItem[], title: string, isReturn = false) => (
         <>
             {title && <h4 style={{ margin: '0.8rem 0 0.4rem 0', borderBottom: '1px solid #eee', paddingBottom: '0.2rem' }}>{title}</h4>}
@@ -1485,9 +1537,7 @@ const InvoicePreviewModal = ({
             <div className={`invoice-preview-content-wrapper`} style={{...styles.modalContent, maxWidth: 'none', width: 'auto', maxHeight: '90vh', overflowY: 'auto'}}>
                  <div ref={printAreaRef} id="invoice-to-print" className={invoiceSizeClass} style={invoiceDynamicStyle}>
                     {renderHeader()}
-                    
-                    {customerName && <p style={{margin: '0.2rem 0'}}><b>Customer:</b> {customerName}</p>}
-                    {customerMobile && <p style={{margin: '0.2rem 0'}}><b>Mobile:</b> {customerMobile}</p>}
+                    {billSettings.layout !== 'modern' && renderCustomerDetails()}
 
                     {purchasedItems.length > 0 && renderTable(purchasedItems, '')}
                     
@@ -1524,13 +1574,19 @@ const InvoicePreviewModal = ({
                     )}
 
                      <div style={{textAlign: 'center', marginTop: '1rem'}}>
+                        {billSettings.layout === 'modern' && (
+                            <>
+                                <hr style={{border: '1px dashed #ccc', margin: '0.5rem 0'}}/>
+                                {renderCustomerDetails()}
+                            </>
+                        )}
                         {billSettings.displayOptions.showTagline && billSettings.tagline && <p style={{margin: '0.2rem 0', fontWeight: 'bold'}}>{billSettings.tagline}</p>}
                         {billSettings.displayOptions.showFooterNotes && billSettings.footerNotes && <p style={{margin: '0.2rem 0', fontSize: '0.9em'}}>{billSettings.footerNotes}</p>}
                     </div>
                 </div>
                  <div className="invoice-actions no-print" style={{...styles.modalActions, marginTop: '1.5rem', flexWrap: 'wrap'}}>
-                    {!isPreviewMode && onWhatsApp && (
-                        <>
+                    {!isPreviewMode && (
+                        <div style={{display: 'flex', flexGrow: 1, gap: '0.5rem'}}>
                             <input
                                 type="tel"
                                 value={phoneNumber}
@@ -1539,7 +1595,7 @@ const InvoicePreviewModal = ({
                                 style={{...styles.input, marginRight: '0.5rem', flex: 1, minWidth: '150px'}}
                             />
                             <button onClick={handleWhatsAppClick} style={{...styles.button, backgroundColor: '#25D366'}}>WhatsApp</button>
-                        </>
+                        </div>
                     )}
                     <button onClick={printInvoice} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Print Bill</button>
                     <button onClick={downloadPdf} style={{...styles.button, backgroundColor: '#dc3545'}}>Download PDF</button>
@@ -3513,6 +3569,12 @@ const SettingsView = ({ billSettings, onSave, onPreview, activeShopName, onRenam
                         {isProFeature('format') && <span style={styles.proBadgeLarge} onClick={onUpgrade}>PRO</span>}
                     </div>
                     
+                    <label style={styles.label}>Invoice Layout</label>
+                    <select name="layout" value={settings.layout || 'default'} onChange={handleChange} style={styles.input}>
+                        <option value="default">Default (Customer details at top)</option>
+                        <option value="modern">Modern (Customer details at bottom)</option>
+                    </select>
+
                     <label style={styles.label}>Paper Size</label>
                     <select name="size" value={settings.size} onChange={handleChange} style={styles.input}>
                         <option value="3-inch">3-inch Thermal</option>
@@ -4757,16 +4819,17 @@ const styles: { [key: string]: React.CSSProperties } = {
         borderRadius: '8px 0 0 8px',
         border: '1px solid var(--border-color)',
         fontSize: '1rem',
-        flex: '0 0 70px',
+        flex: 0,
+        width: '70px',
+        borderRight: 'none',
         textAlign: 'center',
     },
     mobileNumberInput: {
         padding: '0.75rem',
         borderRadius: '0 8px 8px 0',
         border: '1px solid var(--border-color)',
-        borderLeft: 'none',
         fontSize: '1rem',
-        flex: 1,
+        flex: 1.5,
     },
     searchResults: {
         position: 'absolute',
@@ -4777,9 +4840,9 @@ const styles: { [key: string]: React.CSSProperties } = {
         border: '1px solid var(--border-color)',
         borderRadius: '0 0 8px 8px',
         listStyle: 'none',
-        margin: 0,
         padding: 0,
-        maxHeight: '300px',
+        margin: 0,
+        maxHeight: '250px',
         overflowY: 'auto',
         zIndex: 100,
         boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
@@ -4789,21 +4852,22 @@ const styles: { [key: string]: React.CSSProperties } = {
         cursor: 'pointer',
     },
     highlighted: {
-        backgroundColor: 'var(--primary-color)',
-        color: '#fff',
+        backgroundColor: 'var(--primary-color-light)',
     },
     gridInput: {
         width: '80px',
-        padding: '0.25rem',
+        padding: '0.4rem',
         borderRadius: '4px',
         border: '1px solid var(--border-color)',
+        fontSize: '0.9rem',
+        textAlign: 'right',
     },
      wideGridInput: {
-        width: '95%',
-        padding: '0.25rem',
+        width: '98%',
+        padding: '0.4rem',
         borderRadius: '4px',
         border: '1px solid var(--border-color)',
-        backgroundColor: 'transparent',
+        fontSize: '0.9rem',
     },
     totalsSection: {
         display: 'flex',
@@ -4811,8 +4875,9 @@ const styles: { [key: string]: React.CSSProperties } = {
         alignItems: 'center',
         gap: '1.5rem',
         marginTop: '1.5rem',
-        paddingTop: '1rem',
-        borderTop: '1px solid var(--border-color)',
+        padding: '1rem',
+        backgroundColor: '#f8f9fa',
+        borderRadius: '8px',
     },
     totalsInput: {
         width: '100px',
@@ -4820,14 +4885,14 @@ const styles: { [key: string]: React.CSSProperties } = {
         borderRadius: '6px',
         border: '1px solid var(--border-color)',
         textAlign: 'right',
+        fontSize: '1rem',
     },
     grandTotal: {
         textAlign: 'right',
-        paddingLeft: '1.5rem',
-        borderLeft: '2px solid var(--primary-color)',
+        marginLeft: '1rem'
     },
     priceModeSelector: {
-        display: 'inline-flex',
+        display: 'flex',
         border: '1px solid var(--border-color)',
         borderRadius: '8px',
         overflow: 'hidden',
@@ -4837,26 +4902,16 @@ const styles: { [key: string]: React.CSSProperties } = {
         cursor: 'pointer',
         backgroundColor: '#fff',
         color: 'var(--secondary-color)',
-        transition: 'background-color 0.2s, color 0.2s'
+        transition: 'background-color 0.2s, color 0.2s',
     },
     priceModeLabelChecked: {
         backgroundColor: 'var(--primary-color)',
-        color: '#fff'
+        color: '#fff',
     },
     priceModeLabel_input: {
         display: 'none',
     },
     voiceSearchButton: {
-        position: 'absolute',
-        right: '10px',
-        top: '50%',
-        transform: 'translateY(-50%)',
-        background: 'none',
-        border: 'none',
-        cursor: 'pointer',
-        padding: '8px'
-    },
-    barcodeScanButton: {
         position: 'absolute',
         right: '50px',
         top: '50%',
@@ -4864,21 +4919,51 @@ const styles: { [key: string]: React.CSSProperties } = {
         background: 'none',
         border: 'none',
         cursor: 'pointer',
-        padding: '8px'
+        padding: '0.5rem',
+        display: 'flex',
+        alignItems: 'center',
+    },
+     barcodeScanButton: {
+        position: 'absolute',
+        right: '10px',
+        top: '50%',
+        transform: 'translateY(-50%)',
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: '0.5rem',
+        display: 'flex',
+        alignItems: 'center',
     },
     confirmationDetails: {
         display: 'flex',
         flexDirection: 'column',
         gap: '0.5rem',
-        marginBottom: '1.5rem',
-        padding: '1rem',
-        backgroundColor: '#f8f9fa',
-        borderRadius: '8px',
+        marginBottom: '1rem',
     },
     confirmationRow: {
         display: 'flex',
         justifyContent: 'space-between',
-        fontSize: '1.1rem',
+    },
+    backupSection: {
+        marginTop: '2rem',
+        padding: '1.5rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        backgroundColor: '#f8f9fa',
+    },
+    backupTitle: {
+        marginTop: 0,
+        color: 'var(--primary-color)',
+    },
+    backupDescription: {
+        color: 'var(--secondary-color)',
+        maxWidth: '600px',
+    },
+    backupActions: {
+        display: 'flex',
+        gap: '1rem',
+        marginTop: '1rem',
     },
     reportFilters: {
         display: 'flex',
@@ -4893,39 +4978,86 @@ const styles: { [key: string]: React.CSSProperties } = {
     reportSummary: {
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '1.5rem',
+        gap: '1rem',
         marginBottom: '2rem',
     },
     summaryCard: {
         padding: '1.5rem',
         border: '1px solid var(--border-color)',
         borderRadius: '8px',
-        backgroundColor: '#f8f9fa',
+        textAlign: 'center',
+    },
+    reportTabs: {
+        display: 'flex',
+        borderBottom: '1px solid var(--border-color)',
+        marginBottom: '1rem',
+    },
+    reportTabButton: {
+        padding: '0.75rem 1.5rem',
+        border: 'none',
+        background: 'none',
+        cursor: 'pointer',
+        fontSize: '1rem',
+        color: 'var(--secondary-color)',
+        borderBottom: '3px solid transparent',
+        marginBottom: '-1px'
+    },
+    reportTabButtonActive: {
+        color: 'var(--primary-color)',
+        borderBottomColor: 'var(--primary-color)',
+        fontWeight: 'bold',
+    },
+    proBadge: {
+        position: 'absolute',
+        top: '0px',
+        right: '0px',
+        backgroundColor: '#ffc107',
+        color: 'black',
+        padding: '2px 5px',
+        borderRadius: '4px',
+        fontSize: '0.7rem',
+        fontWeight: 'bold',
+    },
+     proBadgeSmall: {
+        position: 'absolute',
+        bottom: '-8px',
+        backgroundColor: '#ffc107',
+        color: 'black',
+        padding: '1px 4px',
+        borderRadius: '4px',
+        fontSize: '0.6rem',
+        fontWeight: 'bold',
+        whiteSpace: 'nowrap',
     },
     customerViewLayout: {
         display: 'grid',
         gridTemplateColumns: '300px 1fr',
-        gap: '2rem',
-        height: '75vh',
+        gap: '1.5rem',
+        height: 'calc(100vh - 220px)',
     },
     customerListPanel: {
         border: '1px solid var(--border-color)',
         borderRadius: '8px',
         overflow: 'hidden',
         display: 'flex',
-        flexDirection: 'column',
+        flexDirection: 'column'
     },
     customerListItem: {
         padding: '1rem',
-        borderBottom: '1px solid var(--border-color)',
         cursor: 'pointer',
+        borderBottom: '1px solid #f0f0f0',
+        transition: 'background-color 0.2s',
     },
-     customerListItemActive: {
-        backgroundColor: 'var(--primary-color)',
-        color: '#fff',
+    customerListItemActive: {
+        backgroundColor: 'var(--primary-color-light)',
+        fontWeight: 'bold',
+        borderLeft: '4px solid var(--primary-color)',
+        paddingLeft: 'calc(1rem - 4px)',
     },
     customerDetailPanel: {
-        padding: '1rem',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        padding: '1.5rem',
     },
     customerDetailHeader: {
         display: 'flex',
@@ -4936,40 +5068,48 @@ const styles: { [key: string]: React.CSSProperties } = {
         marginBottom: '1rem',
     },
     purchaseHistoryItem: {
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
+        border: '1px solid #f0f0f0',
+        borderRadius: '6px',
         padding: '1rem',
         marginBottom: '1rem',
     },
     dueTag: {
         backgroundColor: 'var(--danger-color)',
-        color: '#fff',
-        padding: '0.2rem 0.5rem',
+        color: 'white',
+        padding: '2px 6px',
         borderRadius: '4px',
         fontSize: '0.8rem',
         fontWeight: 'bold',
     },
-    backupSection: {
-        marginTop: '2rem',
+    settingsCard: {
         padding: '1.5rem',
-        border: '1px dashed var(--secondary-color)',
+        border: '1px solid var(--border-color)',
         borderRadius: '8px',
-        backgroundColor: '#f8f9fa',
-        textAlign: 'center',
+        backgroundColor: '#fff',
+        marginBottom: '1.5rem',
     },
-    backupTitle: {
-        marginTop: 0,
-        color: 'var(--primary-color)',
+    checkboxGrid: {
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: '0.75rem',
     },
-    backupDescription: {
-        color: 'var(--secondary-color)',
-        maxWidth: '600px',
-        margin: '0 auto 1.5rem auto',
-    },
-    backupActions: {
+    checkboxLabel: {
         display: 'flex',
-        justifyContent: 'center',
-        gap: '1rem',
+        alignItems: 'center',
+        gap: '0.5rem',
+        cursor: 'pointer',
+    },
+    proBadgeLarge: {
+        position: 'absolute',
+        top: '0',
+        right: '0',
+        backgroundColor: '#ffc107',
+        color: 'black',
+        padding: '0.25rem 0.5rem',
+        borderRadius: '0 8px 0 8px',
+        fontSize: '0.8rem',
+        fontWeight: 'bold',
+        cursor: 'pointer',
     },
     dropdownContainer: {
         position: 'relative',
@@ -4991,146 +5131,60 @@ const styles: { [key: string]: React.CSSProperties } = {
         position: 'absolute',
         top: '100%',
         left: 0,
-        backgroundColor: '#fff',
+        right: 0,
+        backgroundColor: 'white',
         border: '1px solid var(--border-color)',
         borderRadius: '8px',
         listStyle: 'none',
-        margin: '0.5rem 0 0',
         padding: '0.5rem 0',
-        minWidth: '180px',
+        margin: '0.25rem 0 0 0',
         zIndex: 10,
-        boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
     },
     dropdownMenuItem: {
         padding: '0.75rem 1rem',
         cursor: 'pointer',
     },
     dropdownMenuItemActive: {
-        backgroundColor: 'var(--primary-color)',
-        color: '#fff',
+        backgroundColor: 'var(--primary-color-light)',
+        fontWeight: 'bold',
     },
     shopListItem: {
-        padding: '1rem',
+        padding: '0.75rem 1rem',
         borderBottom: '1px solid var(--border-color)',
         cursor: 'pointer',
     },
     shopListItemActive: {
-        backgroundColor: 'var(--primary-color)',
-        color: 'white',
+        backgroundColor: 'var(--primary-color-light)',
         fontWeight: 'bold',
     },
-    reportTabs: {
-        display: 'flex',
-        borderBottom: '1px solid var(--border-color)',
-        marginBottom: '1.5rem',
-    },
-    reportTabButton: {
-        padding: '0.75rem 1.5rem',
-        border: 'none',
-        background: 'none',
-        cursor: 'pointer',
-        color: 'var(--secondary-color)',
-        fontSize: '1rem',
-        position: 'relative',
-        bottom: '-1px',
-    },
-    reportTabButtonActive: {
-        color: 'var(--primary-color)',
-        borderBottom: '3px solid var(--primary-color)',
-        fontWeight: 'bold',
-    },
-    proBadge: {
-        position: 'absolute',
-        top: '2px',
-        right: '2px',
-        backgroundColor: '#ffc107',
-        color: '#000',
-        padding: '2px 5px',
-        borderRadius: '4px',
-        fontSize: '0.7rem',
-        fontWeight: 'bold',
-    },
-    proBadgeSmall: {
-        position: 'absolute',
-        bottom: '-8px',
-        backgroundColor: '#007bff',
-        color: '#fff',
-        padding: '1px 4px',
-        borderRadius: '4px',
-        fontSize: '0.65rem',
-    },
-    proBadgeLarge: {
-        position: 'absolute',
-        top: '0',
-        right: '0',
-        backgroundColor: '#ffc107',
-        color: '#000',
-        padding: '0.25rem 0.5rem',
-        borderRadius: '0 8px 0 8px',
-        fontSize: '0.8rem',
-        fontWeight: 'bold',
-        cursor: 'pointer',
-    },
-    settingsCard: {
-        padding: '1.5rem',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        margin: '1rem 0',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '1rem',
-    },
-    checkboxGrid: {
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
-        gap: '0.75rem',
-    },
-    checkboxLabel: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem',
-    },
-    // Mobile View Styles
+    // --- MOBILE VIEW STYLES ---
     mobileSingleColumnLayout: {
-        width: '100%',
-        height: 'calc(100vh - 120px)', // Adjust based on header height
         display: 'flex',
         flexDirection: 'column',
+        height: 'calc(100vh - 150px)', // Adjust for header and padding
+        width: '100%',
+        maxWidth: '500px',
+        margin: '0 auto',
     },
     mobileScrollableContent: {
         flex: 1,
         overflowY: 'auto',
-        padding: '1rem',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '1rem',
-    },
-    mobileBottomActionBar: {
-        flexShrink: 0,
-        padding: '1rem',
-        borderTop: '1px solid var(--border-color)',
-        backgroundColor: 'var(--surface-color)',
-    },
-    mobileFinalizeButton: {
-        width: '100%',
-        padding: '1rem',
-        fontSize: '1.2rem',
-        fontWeight: 'bold',
-        backgroundColor: 'var(--success-color)',
-        color: 'white',
-        border: 'none',
-        borderRadius: '8px',
+        padding: '0.5rem',
     },
     mobileSection: {
-        backgroundColor: 'var(--surface-color)',
+        backgroundColor: '#fff',
+        borderRadius: '12px',
         padding: '1rem',
-        borderRadius: '8px',
+        marginBottom: '1rem',
         border: '1px solid var(--border-color)',
     },
     mobileSectionTitle: {
         marginTop: 0,
         marginBottom: '1rem',
-        color: 'var(--primary-color)',
+        fontSize: '1.1rem',
+        borderBottom: '1px solid var(--border-color)',
+        paddingBottom: '0.5rem',
     },
     mobileSettingsGroup: {
         display: 'flex',
@@ -5140,7 +5194,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     },
     mobileSettingsLabel: {
         margin: 0,
-        fontWeight: 500,
+        color: 'var(--secondary-color)',
     },
     mobileInput: {
         width: '100%',
@@ -5148,7 +5202,18 @@ const styles: { [key: string]: React.CSSProperties } = {
         borderRadius: '8px',
         border: '1px solid var(--border-color)',
         fontSize: '1rem',
+        marginBottom: '0.5rem',
         boxSizing: 'border-box',
+    },
+    mobileInputIconButton: {
+        position: 'absolute',
+        right: '5px',
+        top: '50%',
+        transform: 'translateY(-50%)',
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: '0.5rem',
     },
     mobileButton: {
         width: '100%',
@@ -5157,23 +5222,13 @@ const styles: { [key: string]: React.CSSProperties } = {
         borderRadius: '8px',
         backgroundColor: 'var(--primary-color)',
         color: '#fff',
-        cursor: 'pointer',
         fontSize: '1rem',
-    },
-    mobileInputIconButton: {
-        position: 'absolute',
-        right: '0px',
-        top: '0px',
-        height: '100%',
-        background: 'none',
-        border: 'none',
-        cursor: 'pointer',
-        padding: '0 12px',
+        fontWeight: 500,
     },
     mobileInlineSearchResults: {
         listStyle: 'none',
-        margin: '0.5rem 0 0',
-        padding: '0',
+        padding: 0,
+        margin: '0.5rem 0',
         border: '1px solid var(--border-color)',
         borderRadius: '8px',
         maxHeight: '200px',
@@ -5187,20 +5242,20 @@ const styles: { [key: string]: React.CSSProperties } = {
     mobileBillItemCard: {
         border: '1px solid var(--border-color)',
         borderRadius: '8px',
-        padding: '0.75rem',
-        marginBottom: '0.75rem',
+        padding: '1rem',
+        marginBottom: '0.5rem',
     },
     mobileBillItemCardReturn: {
         backgroundColor: '#ffebee',
+        borderColor: 'var(--danger-color)',
     },
     mobileBillItemInfo: {
-        flex: 1,
+        marginBottom: '0.75rem',
     },
     mobileBillItemControls: {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginTop: '0.75rem',
     },
     mobileQuantityControls: {
         display: 'flex',
@@ -5208,8 +5263,8 @@ const styles: { [key: string]: React.CSSProperties } = {
         gap: '0.75rem',
     },
     mobileRoundButton: {
-        width: '32px',
-        height: '32px',
+        width: '36px',
+        height: '36px',
         borderRadius: '50%',
         border: '1px solid var(--border-color)',
         backgroundColor: '#fff',
@@ -5221,27 +5276,40 @@ const styles: { [key: string]: React.CSSProperties } = {
     mobilePaymentRow: {
         display: 'flex',
         justifyContent: 'space-between',
-        alignItems: 'center',
         padding: '0.75rem 0',
     },
     mobilePaymentInput: {
+        width: '100px',
         border: 'none',
         borderBottom: '1px solid var(--border-color)',
         textAlign: 'right',
-        fontWeight: 500,
         fontSize: '1rem',
-        width: '100px',
     },
     mobileGrandTotal: {
         display: 'flex',
         justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '1rem 0',
+        padding: '0.75rem 0',
         fontWeight: 'bold',
         fontSize: '1.2rem',
-        borderTop: '2px solid var(--primary-color)',
+        borderTop: '2px solid var(--border-color)',
         marginTop: '0.5rem',
-    }
+    },
+    mobileBottomActionBar: {
+        padding: '1rem',
+        backgroundColor: '#fff',
+        borderTop: '1px solid var(--border-color)',
+        boxShadow: '0 -2px 10px rgba(0,0,0,0.05)',
+    },
+    mobileFinalizeButton: {
+        width: '100%',
+        padding: '1rem',
+        border: 'none',
+        borderRadius: '8px',
+        backgroundColor: 'var(--success-color)',
+        color: '#fff',
+        fontSize: '1.1rem',
+        fontWeight: 'bold',
+    },
 };
 
 const root = createRoot(document.getElementById('root')!);
