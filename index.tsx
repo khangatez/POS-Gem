@@ -1586,7 +1586,7 @@ const ProductsView = ({ products, onEdit, onDelete, onAdd, onBulkAdd, onBulkAddP
             return (
                 p.description.toLowerCase().includes(query) ||
                 (p.descriptionTamil && p.descriptionTamil.toLowerCase().includes(query)) ||
-                p.barcode.toLowerCase().includes(query)
+                (p.barcode || '').toLowerCase().includes(query)
             );
         });
         
@@ -3027,20 +3027,20 @@ const SalesView = ({
         }
     };
 
+    const filterProducts = useCallback((term: string) => {
+        if (!term) return [];
+        const lowerTerm = term.toLowerCase();
+        return products.filter(p => 
+            p.description.toLowerCase().includes(lowerTerm) || 
+            (p.descriptionTamil && p.descriptionTamil.toLowerCase().includes(lowerTerm)) ||
+            (p.barcode || '').toLowerCase().includes(lowerTerm)
+        );
+    }, [products]);
+
     const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const term = e.target.value;
         setSearchTerm(term);
-        if (term) {
-            setSearchResults(
-                products.filter(p => 
-                    p.description.toLowerCase().includes(term.toLowerCase()) || 
-                    (p.descriptionTamil && p.descriptionTamil.toLowerCase().includes(term.toLowerCase())) ||
-                    p.barcode.toLowerCase().includes(term.toLowerCase())
-                )
-            );
-        } else {
-            setSearchResults([]);
-        }
+        setSearchResults(filterProducts(term));
         setHighlightedIndex(-1);
     };
     
@@ -3201,13 +3201,7 @@ const SalesView = ({
             const speechResult = event.results[0][0].transcript;
             const term = speechResult;
             setSearchTerm(term);
-             setSearchResults(
-                products.filter(p => 
-                    p.description.toLowerCase().includes(term.toLowerCase()) || 
-                    (p.descriptionTamil && p.descriptionTamil.toLowerCase().includes(term.toLowerCase())) ||
-                    p.barcode.toLowerCase().includes(term.toLowerCase())
-                )
-            );
+            setSearchResults(filterProducts(term));
         };
 
         recognition.onspeechend = () => {
