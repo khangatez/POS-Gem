@@ -2065,27 +2065,42 @@ const InvoicePreviewModal = ({
         }
     };
     
-    const invoiceSizeClass = `invoice-size-${billSettings.size}`;
-
     const getInvoiceDynamicStyles = (): React.CSSProperties => {
-        const style: React.CSSProperties = {};
-        if (billSettings.size === 'custom') {
-            style.width = billSettings.customWidth;
-        }
-
+        const style: React.CSSProperties = {
+            backgroundColor: 'white',
+            color: 'black',
+            boxSizing: 'border-box',
+        };
         switch (billSettings.size) {
             case '3-inch':
+                style.width = '76mm';
                 style.fontSize = '9pt';
+                style.padding = '3mm';
                 break;
             case '4-inch':
+                style.width = '101mm';
                 style.fontSize = '10pt';
+                style.padding = '4mm';
                 break;
             case 'A5':
+                style.width = '148mm';
                 style.fontSize = '10pt';
+                style.padding = '10mm';
                 break;
             case 'A4':
-            default:
+                style.width = '210mm';
                 style.fontSize = '12pt';
+                style.padding = '10mm';
+                break;
+            case 'custom':
+                style.width = billSettings.customWidth;
+                style.fontSize = '10pt';
+                style.padding = '5mm';
+                break;
+            default:
+                style.width = '210mm';
+                style.fontSize = '12pt';
+                style.padding = '10mm';
                 break;
         }
         return style;
@@ -2142,57 +2157,91 @@ const InvoicePreviewModal = ({
 
     return (
         <div className="invoice-preview-backdrop" style={styles.modalBackdrop}>
-            <div className={`invoice-preview-content-wrapper`} style={{...styles.modalContent, maxWidth: 'none', width: 'auto', maxHeight: '90vh', overflowY: 'auto'}}>
-                 <div ref={printAreaRef} id="invoice-to-print" className={invoiceSizeClass} style={invoiceDynamicStyle}>
-                    {renderHeader()}
-                    {billSettings.layout !== 'modern' && renderCustomerDetails()}
+            <div className="invoice-preview-content-wrapper" style={{
+                ...styles.modalContent,
+                maxWidth: '95vw',
+                width: 'auto',
+                display: 'flex',
+                flexDirection: 'column',
+                maxHeight: '90vh',
+                padding: 0,
+            }}>
+                <div style={{
+                    flex: '1 1 auto',
+                    overflowY: 'auto',
+                    padding: '1.5rem',
+                    backgroundColor: 'var(--background-color)',
+                    textAlign: 'center'
+                }}>
+                    <div
+                        ref={printAreaRef}
+                        id="invoice-to-print"
+                        className={`invoice-size-${billSettings.size}`}
+                        style={{
+                            ...invoiceDynamicStyle,
+                            boxShadow: '0 0 10px rgba(0,0,0,0.15)',
+                            display: 'inline-block',
+                            textAlign: 'left',
+                            margin: '0 auto'
+                        }}
+                    >
+                        {renderHeader()}
+                        {billSettings.layout !== 'modern' && renderCustomerDetails()}
 
-                    {purchasedItems.length > 0 && renderTable(purchasedItems, '')}
-                    
-                    {returnedItems.length > 0 && (
-                        <>
-                            {renderTable(returnedItems, 'Returned Items', true)}
-                            <div style={{textAlign: 'right', borderTop: '1px solid #eee', paddingTop: '4px', marginTop: '4px'}}>
-                                <p style={{margin: '2px 0', color: 'var(--danger-color)'}}><b>Total Returns: </b><b>-₹{returnTotal.toFixed(1)}</b></p>
-                            </div>
-                        </>
-                    )}
-
-                    <hr style={{border: '1px dashed #ccc', margin: '0.5rem 0'}}/>
-
-                    <div style={{textAlign: 'right'}}>
-                        {billSettings.format !== 'simple' && (
+                        {purchasedItems.length > 0 && renderTable(purchasedItems, '')}
+                        
+                        {returnedItems.length > 0 && (
                             <>
-                                {sale.discount > 0 && <p style={{margin: '2px 0'}}><b>Discount: </b><b>-₹{sale.discount.toFixed(1)}</b></p>}
-                                {sale.tax > 0 && <p style={{margin: '2px 0'}}><b>Tax: </b><b>₹{sale.tax.toFixed(1)}</b></p>}
-                                {previousBalanceDue > 0 && <p style={{margin: '2px 0'}}><b>Previous Balance: </b><b>₹{previousBalanceDue.toFixed(2)}</b></p>}
+                                {renderTable(returnedItems, 'Returned Items', true)}
+                                <div style={{textAlign: 'right', borderTop: '1px solid #eee', paddingTop: '4px', marginTop: '4px'}}>
+                                    <p style={{margin: '2px 0', color: 'var(--danger-color)'}}><b>Total Returns: </b><b>-₹{returnTotal.toFixed(1)}</b></p>
+                                </div>
                             </>
                         )}
-                        <p style={{margin: '2px 0', fontSize: '1.2em'}}><b>Grand Total: </b><b>₹{roundedGrandTotal.toFixed(2)}</b></p>
-                    </div>
-                    
-                    {showPaymentDetails && (
-                         <>
-                            <hr style={{border: '1px solid #ccc', margin: '0.5rem 0'}}/>
-                            <div style={{textAlign: 'right'}}>
-                                <p style={{margin: '2px 0'}}><b>Amount Paid: </b><b>₹{(sale.paid_amount).toFixed(2)}</b></p>
-                                {balanceDue > 0 && <p style={{margin: '2px 0', color: 'var(--danger-color)', fontSize: '1.2em'}}><b>Balance Due: </b><b>₹{balanceDue.toFixed(2)}</b></p>}
-                            </div>
-                        </>
-                    )}
 
-                     <div style={{textAlign: 'center', marginTop: '1rem'}}>
-                        {billSettings.layout === 'modern' && (
-                            <>
-                                <hr style={{border: '1px dashed #ccc', margin: '0.5rem 0'}}/>
-                                {renderCustomerDetails()}
+                        <hr style={{border: '1px dashed #ccc', margin: '0.5rem 0'}}/>
+
+                        <div style={{textAlign: 'right'}}>
+                            {billSettings.format !== 'simple' && (
+                                <>
+                                    {sale.discount > 0 && <p style={{margin: '2px 0'}}><b>Discount: </b><b>-₹{sale.discount.toFixed(1)}</b></p>}
+                                    {sale.tax > 0 && <p style={{margin: '2px 0'}}><b>Tax: </b><b>₹{sale.tax.toFixed(1)}</b></p>}
+                                    {previousBalanceDue > 0 && <p style={{margin: '2px 0'}}><b>Previous Balance: </b><b>₹{previousBalanceDue.toFixed(2)}</b></p>}
+                                </>
+                            )}
+                            <p style={{margin: '2px 0', fontSize: '1.2em'}}><b>Grand Total: </b><b>₹{roundedGrandTotal.toFixed(2)}</b></p>
+                        </div>
+                        
+                        {showPaymentDetails && (
+                             <>
+                                <hr style={{border: '1px solid #ccc', margin: '0.5rem 0'}}/>
+                                <div style={{textAlign: 'right'}}>
+                                    <p style={{margin: '2px 0'}}><b>Amount Paid: </b><b>₹{(sale.paid_amount).toFixed(2)}</b></p>
+                                    {balanceDue > 0 && <p style={{margin: '2px 0', color: 'var(--danger-color)', fontSize: '1.2em'}}><b>Balance Due: </b><b>₹{balanceDue.toFixed(2)}</b></p>}
+                                </div>
                             </>
                         )}
-                        {billSettings.displayOptions.showTagline && billSettings.tagline && <p style={{margin: '0.2rem 0', fontWeight: 'bold'}}>{billSettings.tagline}</p>}
-                        {billSettings.displayOptions.showFooterNotes && billSettings.footerNotes && <p style={{margin: '0.2rem 0', fontSize: '0.9em'}}>{billSettings.footerNotes}</p>}
+
+                         <div style={{textAlign: 'center', marginTop: '1rem'}}>
+                            {billSettings.layout === 'modern' && (
+                                <>
+                                    <hr style={{border: '1px dashed #ccc', margin: '0.5rem 0'}}/>
+                                    {renderCustomerDetails()}
+                                </>
+                            )}
+                            {billSettings.displayOptions.showTagline && billSettings.tagline && <p style={{margin: '0.2rem 0', fontWeight: 'bold'}}>{billSettings.tagline}</p>}
+                            {billSettings.displayOptions.showFooterNotes && billSettings.footerNotes && <p style={{margin: '0.2rem 0', fontSize: '0.9em'}}>{billSettings.footerNotes}</p>}
+                        </div>
                     </div>
                 </div>
-                 <div className="invoice-actions no-print" style={{...styles.modalActions, marginTop: '1.5rem', flexWrap: 'wrap'}}>
+
+                 <div className="invoice-actions no-print" style={{
+                    ...styles.modalActions,
+                    marginTop: 0,
+                    padding: '1rem 1.5rem',
+                    flexShrink: 0,
+                    borderTop: '1px solid var(--border-color)'
+                 }}>
                     {onFinalize ? (
                         <>
                             <button onClick={onClose} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Back</button>
@@ -3122,35 +3171,37 @@ const SalesView = ({
     };
 
     const handleSearchKeyDown = (e: React.KeyboardEvent) => {
-        const hasResults = searchResults.length > 0;
-        const canAddNew = searchTerm.trim() !== '' && !hasResults && currentUser?.role !== 'cashier';
-
-        if (!hasResults && !canAddNew) return;
-
-        const itemCount = hasResults ? searchResults.length : (canAddNew ? 1 : 0);
-        if (itemCount === 0) return;
-
-        if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            setHighlightedIndex(prev => (prev + 1) % itemCount);
-        } else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            setHighlightedIndex(prev => (prev - 1 + itemCount) % itemCount);
-        } else if (e.key === 'Enter') {
-            e.preventDefault();
-            if (highlightedIndex > -1) {
-                if (hasResults) {
-                    handleAddToSale(searchResults[highlightedIndex]);
+        const canAddNew = searchTerm.trim() !== '' && searchResults.length === 0 && currentUser?.role !== 'cashier';
+        const itemCount = searchResults.length + (canAddNew ? 1 : 0);
+    
+        if (itemCount === 0) {
+            return; // Nothing to navigate
+        }
+    
+        switch (e.key) {
+            case 'ArrowDown':
+                e.preventDefault();
+                setHighlightedIndex(prev => (prev + 1) % itemCount);
+                break;
+            case 'ArrowUp':
+                e.preventDefault();
+                setHighlightedIndex(prev => (prev - 1 + itemCount) % itemCount);
+                break;
+            case 'Enter':
+                e.preventDefault();
+                // If nothing is highlighted, default to the first item.
+                const selectedIndex = highlightedIndex === -1 ? 0 : highlightedIndex;
+    
+                if (selectedIndex < searchResults.length) {
+                    // An existing product is selected
+                    handleAddToSale(searchResults[selectedIndex]);
                 } else if (canAddNew) {
+                    // The "Add new" option is selected
                     handleCreateAndAddProduct();
                 }
-            } else { // Default to the first (and possibly only) option
-                 if (hasResults) {
-                     handleAddToSale(searchResults[0]);
-                 } else if (canAddNew) {
-                     handleCreateAndAddProduct();
-                 }
-            }
+                break;
+            default:
+                break;
         }
     };
 
@@ -3315,7 +3366,7 @@ const SalesView = ({
                                 </li>
                             ))}
                             {searchResults.length === 0 && searchTerm.trim() !== '' && currentUser?.role !== 'cashier' && (
-                                <li onClick={handleCreateAndAddProduct} style={highlightedIndex === 0 ? {...styles.searchResultItem, ...styles.highlighted} : styles.searchResultItem} onMouseEnter={() => setHighlightedIndex(0)} >
+                                <li onClick={handleCreateAndAddProduct} style={highlightedIndex === searchResults.length ? {...styles.searchResultItem, ...styles.highlighted} : styles.searchResultItem} onMouseEnter={() => setHighlightedIndex(searchResults.length)} >
                                     + Add "<strong>{searchTerm}</strong>" as a new product
                                 </li>
                             )}
@@ -4703,248 +4754,297 @@ const App = () => {
         });
         setIsConfirmationModalOpen(true);
     };
-    
+
     // --- EXPENSE MANAGEMENT ---
-    const handleAddExpense = (expenseData: Omit<Expense, 'id'>) => {
+    const handleExpenseAdd = (expenseData: Omit<Expense, 'id'>) => {
         if (!db || !activeShopId) return;
         db.run(
             "INSERT INTO expenses (shop_id, date, description, category, amount) VALUES (?, ?, ?, ?, ?)",
             [expenseData.shop_id, expenseData.date, expenseData.description, expenseData.category, expenseData.amount]
         );
-        saveDbToIndexedDB().then(() => {
-            loadShopData(activeShopId);
-        });
+        saveDbToIndexedDB().then(() => loadShopData(activeShopId));
     };
 
-    const handleDeleteExpense = (expenseId: number) => {
-        if (!db) return;
+    const handleExpenseDelete = (expenseId: number) => {
+        if (!db || !activeShopId) return;
         setConfirmation({
-            message: 'Are you sure you want to delete this expense record?',
+            message: `Are you sure you want to delete this expense record? This cannot be undone.`,
             onConfirm: () => {
-                db.run("DELETE FROM expenses WHERE id = ?", [expenseId]);
+                db.run("DELETE FROM expenses WHERE id = ? AND shop_id = ?", [expenseId, activeShopId]);
                 saveDbToIndexedDB().then(() => {
-                    loadShopData(activeShopId!);
+                    loadShopData(activeShopId);
                     setIsConfirmationModalOpen(false);
                 });
             }
         });
         setIsConfirmationModalOpen(true);
     };
-    
-    // --- SALES & CART MANAGEMENT ---
-    const updateCartState = (updates: Partial<CartState>) => {
-        setActiveCart(prev => ({ ...prev, ...updates }));
-    };
+
+    // --- SALES LOGIC & CALCULATIONS ---
+    const { total, subtotal, totalTax } = useMemo(() => {
+        const purchasedItems = activeCart.items.filter(item => !item.isReturn);
+        const returnedItems = activeCart.items.filter(item => item.isReturn);
+
+        const purchaseTotal = purchasedItems.reduce((acc, item) => acc + item.quantity * item.price, 0);
+        const returnTotal = returnedItems.reduce((acc, item) => acc + item.quantity * item.price, 0);
+
+        const sub = purchaseTotal - returnTotal;
+        const taxAmount = (sub - activeCart.discount) * (activeCart.tax / 100);
+        const finalTotal = sub - activeCart.discount + taxAmount;
+
+        return { total: finalTotal, subtotal: sub, totalTax: taxAmount };
+    }, [activeCart]);
 
     const previousBalanceDue = useMemo(() => {
         if (!activeCart.customerMobile) return 0;
         const customerSales = salesHistory.filter(s => s.customerMobile === activeCart.customerMobile);
-        // Sum up balance_due for all sales of this customer, but exclude the current (unsaved) sale if it were ever to be in history
-        return customerSales.reduce((sum, s) => sum + s.balance_due, 0);
+        return customerSales.reduce((acc, sale) => acc + (sale.balance_due || 0), 0);
     }, [activeCart.customerMobile, salesHistory]);
 
-    const subtotal = useMemo(() => {
-        return activeCart.items.reduce((acc, item) => {
-            const itemTotal = item.quantity * item.price;
-            return acc + (item.isReturn ? -itemTotal : itemTotal);
-        }, 0);
-    }, [activeCart.items]);
+    const grandTotalWithBalance = total + previousBalanceDue;
 
-    const total = useMemo(() => {
-        const taxAmount = subtotal * (activeCart.tax / 100);
-        const totalWithTaxAndDiscount = subtotal - activeCart.discount + taxAmount;
-        return totalWithTaxAndDiscount + previousBalanceDue;
-    }, [subtotal, activeCart.discount, activeCart.tax, previousBalanceDue]);
-    
     useEffect(() => {
         if (!isAmountPaidEdited) {
-            setPaidAmount(Math.max(0, Math.round(total)));
+            setPaidAmount(Math.max(0, grandTotalWithBalance));
         }
-    }, [total, isAmountPaidEdited]);
+    }, [total, previousBalanceDue, isAmountPaidEdited]);
 
-    const handlePreviewSale = () => {
-        const saleData = {
+    const updateActiveCart = (updates: Partial<CartState>) => {
+        setActiveCart(prev => ({ ...prev, ...updates }));
+    };
+
+    const handlePreviewInvoice = () => {
+        const saleDataForPreview = {
             id: 'PREVIEW-' + Date.now(),
             date: new Date().toISOString(),
             items: activeCart.items,
             subtotal: subtotal,
             discount: activeCart.discount,
-            tax: subtotal * (activeCart.tax / 100),
-            total: total - previousBalanceDue, // The sale's own total without previous due
+            tax: totalTax,
+            total: total,
             paid_amount: paidAmount,
-            balance_due: total - paidAmount, // The final balance including previous due
-            customerName: activeCart.customerName,
+            balance_due: Math.max(0, grandTotalWithBalance - paidAmount),
+            customerName: activeCart.customerName || 'Walk-in Customer',
             customerMobile: activeCart.customerMobile,
+            previousBalanceDue: previousBalanceDue, // Pass previous balance for display
         };
-        setPreviewSale(saleData);
-        setIsPreviewingNewSale(true); // Flag this is a new sale being previewed
+        setPreviewSale(saleDataForPreview);
         setIsInvoicePreviewOpen(true);
+        setIsPreviewingNewSale(true); // Indicate this is for a new, unfinalized sale
     };
+    
+    const handleRePrintInvoice = (sale: SaleRecord) => {
+        // Find if this customer had a balance *before* this sale
+        const salesBeforeThisOne = salesHistory
+            .filter(s => s.customerMobile === sale.customerMobile && new Date(s.date) < new Date(sale.date))
+            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        
+        // This is a simplified calculation; a true "point-in-time" balance is complex.
+        // For reprint, we'll show the balance that was due *on* this specific invoice.
+        const totalPaidOnThisInvoice = sqlResultToObjects(db.exec("SELECT SUM(amount_paid) as total FROM payment_history WHERE sale_id = ?", [sale.id]))[0]?.total || 0;
+        const effectiveTotal = sale.total; // The bill total at the time of sale
+        
+        const previousBalanceForThisSale = Math.max(0, effectiveTotal - totalPaidOnThisInvoice);
+        
+        const saleForDisplay = {
+            ...sale,
+            isFinalized: true,
+            previousBalanceDue: 0 // For reprints, we show the state of *that* bill
+        };
+
+        setPreviewSale(saleForDisplay);
+        setIsInvoicePreviewOpen(true);
+        setIsPreviewingNewSale(false);
+    };
+
 
     const handleFinalizeSale = async () => {
         if (!db || !activeShopId) return;
-        if (activeCart.items.length === 0 && previousBalanceDue <= 0) return;
+        if (activeCart.items.length === 0 && previousBalanceDue <= 0) {
+            alert("Cannot finalize an empty sale.");
+            return;
+        }
 
-        const saleId = `${activeShopId}-${Date.now()}`;
-        const finalTotalForThisSale = total - previousBalanceDue;
-        const finalBalanceDue = total - paidAmount;
-
+        const newSaleId = `SALE-${activeShopId}-${Date.now()}`;
+        const saleDate = new Date().toISOString();
+        
+        let remainingPaidAmount = paidAmount;
+        
         db.exec("BEGIN TRANSACTION;");
         try {
-            db.run(
-                "INSERT INTO sales_history (id, shop_id, date, subtotal, discount, tax, total, paid_amount, balance_due, customerName, customerMobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [saleId, activeShopId, new Date().toISOString(), subtotal, activeCart.discount, (subtotal * activeCart.tax / 100), finalTotalForThisSale, paidAmount, finalBalanceDue, activeCart.customerName, activeCart.customerMobile]
-            );
+            // Settle previous balances first
+            if (previousBalanceDue > 0 && remainingPaidAmount > 0 && activeCart.customerMobile) {
+                const dueSales = salesHistory
+                    .filter(s => s.customerMobile === activeCart.customerMobile && s.balance_due > 0.01)
+                    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-            for (const item of activeCart.items) {
-                db.run(
-                    "INSERT INTO sale_items (sale_id, productId, shop_id, description, descriptionTamil, quantity, price, isReturn, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    [saleId, item.productId, activeShopId, item.description, item.descriptionTamil, item.quantity, item.price, item.isReturn ? 1 : 0, item.hsnCode]
+                for (const oldSale of dueSales) {
+                    if (remainingPaidAmount <= 0) break;
+                    
+                    const paymentForThisSale = Math.min(remainingPaidAmount, oldSale.balance_due);
+                    const newPaidAmount = oldSale.paid_amount + paymentForThisSale;
+                    const newBalanceDue = oldSale.balance_due - paymentForThisSale;
+                    
+                    db.run(
+                        "UPDATE sales_history SET paid_amount = ?, balance_due = ? WHERE id = ?",
+                        [newPaidAmount, newBalanceDue, oldSale.id]
+                    );
+                    db.run(
+                        "INSERT INTO payment_history (sale_id, date, amount_paid, payment_method) VALUES (?, ?, ?, ?)",
+                        [oldSale.id, saleDate, paymentForThisSale, 'cash']
+                    );
+                    remainingPaidAmount -= paymentForThisSale;
+                }
+            }
+            
+            const currentBillPaidAmount = Math.max(0, Math.min(total, remainingPaidAmount));
+            const balanceDueForThisSale = Math.max(0, total - currentBillPaidAmount);
+
+            // Only create a new sale if there are items in the cart
+            if (activeCart.items.length > 0) {
+                 db.run(
+                    "INSERT INTO sales_history (id, shop_id, date, subtotal, discount, tax, total, paid_amount, balance_due, customerName, customerMobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [newSaleId, activeShopId, saleDate, subtotal, activeCart.discount, totalTax, total, currentBillPaidAmount, balanceDueForThisSale, activeCart.customerName, activeCart.customerMobile]
                 );
-                const stockChange = item.isReturn ? item.quantity : -item.quantity;
-                db.run("UPDATE products SET stock = stock + ? WHERE id = ? AND shop_id = ?", [stockChange, item.productId, activeShopId]);
-            }
-            
-            if (activeCart.customerMobile && previousBalanceDue > 0) {
-                 db.run("UPDATE sales_history SET balance_due = 0 WHERE customerMobile = ? AND balance_due > 0 AND id != ?", [activeCart.customerMobile, saleId]);
+
+                for (const item of activeCart.items) {
+                    db.run(
+                        "INSERT INTO sale_items (sale_id, productId, shop_id, description, descriptionTamil, quantity, price, isReturn, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        [newSaleId, item.productId, activeShopId, item.description, item.descriptionTamil, item.quantity, item.price, item.isReturn ? 1 : 0, item.hsnCode]
+                    );
+                    
+                    const stockChange = item.isReturn ? item.quantity : -item.quantity;
+                    db.run(
+                        "UPDATE products SET stock = stock + ? WHERE id = ? AND shop_id = ?",
+                        [stockChange, item.productId, activeShopId]
+                    );
+                }
             }
 
+            if (activeCart.customerMobile && activeCart.customerName) {
+                const existingCustomer = customers.find(c => c.mobile === activeCart.customerMobile);
+                if (!existingCustomer) {
+                    db.run("INSERT INTO customers (name, mobile) VALUES (?, ?)", [activeCart.customerName, activeCart.customerMobile]);
+                }
+            }
+            
             db.exec("COMMIT;");
-            
             await saveDbToIndexedDB();
-            
+
             loadShopData(activeShopId);
-            
-            const finalizedSale = {
-                ...previewSale, // Keep the preview data
-                id: saleId,
-                balance_due: finalBalanceDue,
+            const finalSaleRecord = {
+                ...previewSale,
+                id: newSaleId,
+                paid_amount: paidAmount, // Show total paid by user in this transaction
+                balance_due: Math.max(0, grandTotalWithBalance - paidAmount),
                 isFinalized: true
             };
-            setPreviewSale(finalizedSale);
-            setIsPreviewingNewSale(false);
+            setPreviewSale(finalSaleRecord);
+            setIsPreviewingNewSale(false); 
             
             setActiveCart(defaultCartState);
             setPaidAmount(0);
             setIsAmountPaidEdited(false);
 
-        } catch (e) {
+        } catch (err) {
             db.exec("ROLLBACK;");
-            console.error("Transaction failed:", e);
+            console.error("An error occurred during the sale. The transaction has been rolled back.", err);
             alert("An error occurred during the sale. The transaction has been rolled back.");
+            setIsInvoicePreviewOpen(false); // Close preview on error
         }
     };
-
-    const handleCloseInvoicePreview = () => {
-        setIsInvoicePreviewOpen(false);
-        setPreviewSale(null);
-    };
-
-    const handleSettlePayment = (saleId: string, amount: number) => {
+    
+    const handleSettleBalanceDue = (saleId: string, amount: number) => {
         if (!db || !activeShopId) return;
-        const saleToUpdate = salesHistory.find(s => s.id === saleId);
-        if (!saleToUpdate) return;
-        
-        const newBalance = saleToUpdate.balance_due - amount;
-        
-        db.run("UPDATE sales_history SET balance_due = ?, paid_amount = paid_amount + ? WHERE id = ?", [newBalance, amount, saleId]);
-        db.run("INSERT INTO payment_history (sale_id, date, amount_paid, payment_method) VALUES (?, ?, ?, ?)", [saleId, new Date().toISOString(), amount, 'cash']);
-        
+        const sale = salesHistory.find(s => s.id === saleId);
+        if (!sale || amount <= 0) return;
+
+        const payment = Math.min(amount, sale.balance_due);
+        const newPaid = sale.paid_amount + payment;
+        const newBalance = sale.balance_due - payment;
+
+        db.run(
+            "UPDATE sales_history SET paid_amount = ?, balance_due = ? WHERE id = ?",
+            [newPaid, newBalance, saleId]
+        );
+         db.run(
+            "INSERT INTO payment_history (sale_id, date, amount_paid, payment_method) VALUES (?, ?, ?, ?)",
+            [saleId, new Date().toISOString(), payment, 'cash']
+        );
         saveDbToIndexedDB().then(() => {
             loadShopData(activeShopId);
-            alert(`Payment of ₹${amount.toFixed(2)} received.`);
+            alert(`₹${payment.toFixed(2)} paid for invoice ${saleId}.`);
         });
     };
-
-    const handleUpdateProductPriceInCart = (productId: number, newPrice: number, priceMode: 'b2b' | 'b2c') => {
+    
+    // --- UI HANDLERS & HELPERS ---
+    const handleShowHistory = () => {
+        if (!activeCart.customerMobile) {
+            alert("Please enter a customer mobile number to see their history.");
+            return;
+        }
+        setHistoryMobile(activeCart.customerMobile);
+        setIsHistoryModalOpen(true);
+    };
+    
+    const handleUpdateProductPriceFromSale = (productId: number, newPrice: number, priceMode: 'b2b' | 'b2c') => {
         if (!db || !activeShopId) return;
         const fieldToUpdate = priceMode === 'b2b' ? 'b2bPrice' : 'b2cPrice';
-        db.run(`UPDATE products SET ${fieldToUpdate} = ? WHERE id = ? AND shop_id = ?`, [newPrice, productId, activeShopId]);
+        db.run(
+            `UPDATE products SET ${fieldToUpdate} = ? WHERE id = ? AND shop_id = ?`,
+            [newPrice, productId, activeShopId]
+        );
         saveDbToIndexedDB().then(() => loadShopData(activeShopId));
     };
 
-    const handleUpdateProductDetailsInCart = (productId: number, field: keyof Product, value: string) => {
-         if (!db || !activeShopId) return;
-         if (field === 'description') {
-            db.run(`UPDATE products SET description = ? WHERE id = ? AND shop_id = ?`, [value, productId, activeShopId]);
-            saveDbToIndexedDB().then(() => loadShopData(activeShopId));
-         }
+    const handleUpdateProductDetailsFromSale = (productId: number, field: 'description' | 'descriptionTamil', value: string) => {
+        if (!db || !activeShopId) return;
+        db.run(
+            `UPDATE products SET ${field} = ? WHERE id = ? AND shop_id = ?`,
+            [value, productId, activeShopId]
+        );
+        saveDbToIndexedDB().then(() => loadShopData(activeShopId));
     };
     
     const handleAddNewProductFromSale = (description: string): Product | null => {
         if (!db || !activeShop) return null;
         
-        const newProductData: Omit<Product, 'id'> = {
+        const newProductId = activeShop.nextProductId;
+        const newProduct: Omit<Product, 'id'> = {
             description: description,
             descriptionTamil: '',
             barcode: '',
             b2bPrice: 0,
             b2cPrice: 0,
-            stock: 0,
+            stock: 1, // Start with 1 so it can be sold immediately
             category: 'Uncategorized',
             hsnCode: ''
         };
 
-        const newProductId = activeShop.nextProductId;
         db.run(
             "INSERT INTO products (id, shop_id, description, b2bPrice, b2cPrice, stock, category) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [newProductId, activeShopId, newProductData.description, 0, 0, 0, 'Uncategorized']
+            [newProductId, activeShopId, newProduct.description, newProduct.b2bPrice, newProduct.b2cPrice, newProduct.stock, newProduct.category]
         );
         db.run("UPDATE shops SET nextProductId = ? WHERE id = ?", [newProductId + 1, activeShopId]);
-        
-        const newProduct: Product = { ...newProductData, id: newProductId };
+        saveDbToIndexedDB().then(() => {
+            loadShopData(activeShopId!);
+            loadShops();
+        });
 
-        saveDbToIndexedDB();
-        setProducts(prev => [...prev, newProduct]);
-        loadShops();
-        
-        return newProduct;
+        return { ...newProduct, id: newProductId };
     };
-    
-    // --- SETTINGS ---
-    const handleSaveSettings = (newSettings: BillSettings) => {
-        if (!activeShopId) return;
-        const updatedSettings = {...newSettings, shopNameEdited: newSettings.shopName !== activeShop?.name};
-        localStorage.setItem(`billSettings_${activeShopId}`, JSON.stringify(updatedSettings));
-        setBillSettings(updatedSettings);
-        alert("Settings saved successfully!");
-    };
-    
-    const handlePreviewBillInSettings = () => {
-        const sampleItem: SaleItem = { id: 1, productId: 1, description: "Sample Product", quantity: 2, price: 150, isReturn: false, hsnCode: '1234' };
-        const sampleReturnItem: SaleItem = { id: 2, productId: 2, description: "Returned Item", quantity: 1, price: 50, isReturn: true, hsnCode: '5678' };
-        const sampleSale = {
-            id: 'SAMPLE',
-            date: new Date().toISOString(),
-            items: [sampleItem, sampleReturnItem],
-            subtotal: 250,
-            discount: 10,
-            tax: 24, // Represents tax value, not percentage
-            total: 264,
-            paid_amount: 300,
-            balance_due: 0,
-            customerName: "John Doe",
-            customerMobile: "9876543210",
-        };
-        setPreviewSale(sampleSale);
-        setIsBillSettingsPreviewOpen(true);
-    };
-    
-    // --- BACKUP & RESTORE ---
+
     const handleSaveBackup = async () => {
-        if (!db) return alert("Database not ready.");
-        try {
-            const data = db.export();
-            const blob = new Blob([data]);
-            const a = document.createElement("a");
-            a.href = window.URL.createObjectURL(blob);
-            a.download = `pos_gem_backup_${new Date().toISOString().slice(0, 10)}.db`;
-            a.click();
-            window.URL.revokeObjectURL(a.href);
-        } catch (e) {
-            console.error("Save backup failed:", e);
-            alert("Failed to save backup.");
-        }
+        if (!db) return;
+        const data = db.export();
+        const blob = new Blob([data]);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const date = new Date().toISOString().slice(0, 10);
+        a.download = `pos-backup-${date}.sqlite`;
+        a.click();
+        URL.revokeObjectURL(url);
     };
 
     const handleRestoreBackup = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -4952,155 +5052,352 @@ const App = () => {
         if (!file) return;
 
         setConfirmation({
-            message: "This will overwrite all current data. Are you sure you want to restore from this backup?",
-            onConfirm: async () => {
-                setIsConfirmationModalOpen(false);
-                setIsRestoreModalOpen(true);
-                setRestoreProgress({ percentage: 0, eta: '...', message: 'Reading file...' });
-
+            message: "Restoring from a backup will completely overwrite all current data. Are you sure you want to proceed?",
+            onConfirm: () => {
                 const reader = new FileReader();
-                reader.onload = async (e) => {
+                reader.onload = async () => {
+                    const arrayBuffer = reader.result as ArrayBuffer;
+                    const uInt8Array = new Uint8Array(arrayBuffer);
+                    
                     try {
+                        setIsRestoreModalOpen(true);
+                        setRestoreProgress({ percentage: 0, eta: '...', message: 'Saving current state...'});
+                        await saveDbToIndexedDB(); // Save current just in case
+                        
+                        setRestoreProgress({ percentage: 25, eta: '...', message: 'Applying new database...'});
                         const SQL = await initSqlJs({ locateFile: (f: string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${f}` });
-                        const Uints = new Uint8Array(e.target?.result as ArrayBuffer);
-                        setRestoreProgress({ percentage: 50, eta: 'a few seconds', message: 'Validating...' });
-                        db = new SQL.Database(Uints);
-                        setRestoreProgress({ percentage: 75, eta: 'almost done', message: 'Saving...' });
+                        db = new SQL.Database(uInt8Array);
+                        
+                        setRestoreProgress({ percentage: 75, eta: '...', message: 'Finalizing restore...'});
                         await saveDbToIndexedDB();
-                        setRestoreProgress({ percentage: 100, eta: 'done', message: 'Restore complete!' });
+                        
+                        setRestoreProgress({ percentage: 100, eta: '0s', message: 'Restore complete!'});
                         setTimeout(() => window.location.reload(), 1500);
-                    } catch (err) {
-                        console.error("Restore failed:", err);
-                        alert("Failed to restore backup.");
+
+                    } catch (error) {
+                        alert("Failed to restore database. The file might be corrupted.");
+                        console.error(error);
                         setIsRestoreModalOpen(false);
                     }
                 };
                 reader.readAsArrayBuffer(file);
+                setIsConfirmationModalOpen(false);
             }
         });
         setIsConfirmationModalOpen(true);
+        // Reset file input to allow re-selection
         event.target.value = '';
     };
-
-    // --- AI & PRO PLAN ---
+    
+    const handleUpgrade = () => {
+        if (userPlan === 'pro') return true; // Already pro
+        
+        if (window.confirm("This is a Pro feature. Upgrade now for multi-shop support, advanced reports, AI forecasting, and more?")) {
+            setUserPlan('pro');
+            localStorage.setItem('userPlan', 'pro');
+            alert("Congratulations! You've been upgraded to the Pro plan.");
+            return true;
+        }
+        return false;
+    };
+    
     const incrementAiUsage = () => {
         const newCount = aiUsageCount + 1;
         setAiUsageCount(newCount);
         localStorage.setItem('aiUsageCount', String(newCount));
     };
-
-    const handleUpgrade = (checkOnly = false) => {
+    
+    const canUseAiFeature = () => {
         if (userPlan === 'pro') return true;
-        const canUse = aiUsageCount < 3;
-        if (!canUse) {
-            alert("You've used all free AI credits. Upgrade to Pro for unlimited access!");
-            return false;
+        if (aiUsageCount < 3) return true;
+        
+        if (window.confirm("You've used all your free AI credits. Upgrade to Pro for unlimited AI-powered bulk adding and sales forecasting?")) {
+            setUserPlan('pro');
+            localStorage.setItem('userPlan', 'pro');
+            alert("Congratulations! You've been upgraded to the Pro plan.");
+            return true;
         }
-        if (checkOnly) return true;
-        return true;
+        return false;
     };
     
-    // --- UI & MODAL TRIGGERS ---
-    const openProductModal = (product: Product | null = null) => {
-        setEditingProduct(product);
-        setIsProductModalOpen(true);
+    // FIX: Add missing handleBulkAdd and related functions to resolve 'Cannot find name' error and implement bulk add functionality.
+    // --- BULK ADD & AI FEATURES ---
+    const handleBulkAdd = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        if (!canUseAiFeature()) {
+            event.target.value = ''; // Reset file input
+            return;
+        }
+
+        const file = event.target.files?.[0];
+        if (!file || !activeShopId) {
+            event.target.value = '';
+            return;
+        }
+
+        const fileReader = new FileReader();
+        fileReader.onload = async (e) => {
+            const imageBase64 = (e.target?.result as string).split(',')[1];
+            setBulkAddFileSrc(e.target?.result as string);
+            setBulkAddFileType('image');
+            setIsBulkAddModalOpen(true);
+            setIsBulkAddLoading(true);
+            setBulkAddError(null);
+            setBulkAddProducts([]); // Clear previous products
+
+            try {
+                incrementAiUsage();
+                const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+                const imagePart = {
+                    inlineData: {
+                        mimeType: file.type,
+                        data: imageBase64,
+                    },
+                };
+                const textPart = {
+                    text: "Analyze this image of a product list. Extract the following details for each product: description, description in Tamil (if available), category, B2B price, B2C price, and stock quantity. Ensure prices and stock are numbers. Return the result as a JSON array of objects.",
+                };
+
+                const responseSchema = {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            description: { type: Type.STRING },
+                            descriptionTamil: { type: Type.STRING },
+                            category: { type: Type.STRING },
+                            b2bPrice: { type: Type.NUMBER },
+                            b2cPrice: { type: Type.NUMBER },
+                            stock: { type: Type.NUMBER },
+                        },
+                    },
+                };
+
+                const response = await ai.models.generateContent({
+                    model: "gemini-2.5-flash",
+                    contents: { parts: [imagePart, textPart] },
+                    config: {
+                        responseMimeType: "application/json",
+                        responseSchema: responseSchema,
+                    },
+                });
+
+                const jsonStr = response.text.trim();
+                const parsedProducts = JSON.parse(jsonStr);
+
+                const productsWithDefaults: EditableProduct[] = parsedProducts.map((p: any) => ({
+                    description: p.description || '',
+                    descriptionTamil: p.descriptionTamil || '',
+                    barcode: '',
+                    b2bPrice: p.b2bPrice || 0,
+                    b2cPrice: p.b2cPrice || 0,
+                    stock: p.stock || 0,
+                    category: p.category || '',
+                    hsnCode: '',
+                }));
+
+                setBulkAddProducts(productsWithDefaults);
+            } catch (error: any) {
+                console.error("AI processing failed:", error);
+                setBulkAddError("Failed to analyze the image with AI. The image might be unclear or in an unsupported format. Please try again with a clearer image.");
+            } finally {
+                setIsBulkAddLoading(false);
+            }
+        };
+        fileReader.readAsDataURL(file);
+        event.target.value = ''; // Reset file input to allow re-selection of the same file
     };
 
-    const openCustomerModal = (customer: Customer | null = null) => {
-        setEditingCustomer(customer);
-        setIsCustomerModalOpen(true);
+    const handleProcessPdfs = async (b2bFile: File, b2cFile: File) => {
+        if (!canUseAiFeature()) {
+            setIsPdfUploadModalOpen(false);
+            return;
+        }
+
+        if (!b2bFile || !b2cFile || !activeShopId) return;
+
+        setIsPdfUploadModalOpen(false);
+        setBulkAddFileType('dual-pdf');
+        setBulkAddPdfFileNames({ b2b: b2bFile.name, b2c: b2cFile.name });
+        setIsBulkAddModalOpen(true);
+        setIsBulkAddLoading(true);
+        setBulkAddError(null);
+        setBulkAddProducts([]);
+
+        const fileToBase64 = (file: File): Promise<string> => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve((reader.result as string).split(',')[1]);
+                reader.onerror = error => reject(error);
+                reader.readAsDataURL(file);
+            });
+        };
+
+        try {
+            incrementAiUsage();
+            const [b2bBase64, b2cBase64] = await Promise.all([fileToBase64(b2bFile), fileToBase64(b2cFile)]);
+
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            
+            const b2bPart = { inlineData: { mimeType: 'application/pdf', data: b2bBase64 } };
+            const b2cPart = { inlineData: { mimeType: 'application/pdf', data: b2cBase64 } };
+            
+            const prompt = `
+                You are provided with two PDF files containing product price lists.
+                PDF 1 is the B2B (Business-to-Business) price list.
+                PDF 2 is the B2C (Business-to-Consumer) price list.
+
+                Your task is to:
+                1.  Extract product information from both PDFs.
+                2.  Match products between the two lists, likely by product name or code.
+                3.  For each unique product, create a single JSON object.
+                4.  Each object must contain: 'description', 'b2bPrice' (from PDF 1), and 'b2cPrice' (from PDF 2).
+                5.  Also extract 'descriptionTamil' and 'category' if available.
+                6.  If a product exists in one list but not the other, include it with a price of 0 for the missing list.
+                7.  Return a single JSON array of these merged product objects. Ensure prices are numbers.
+            `;
+
+            const responseSchema = {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        description: { type: Type.STRING },
+                        descriptionTamil: { type: Type.STRING },
+                        category: { type: Type.STRING },
+                        b2bPrice: { type: Type.NUMBER },
+                        b2cPrice: { type: Type.NUMBER },
+                    },
+                },
+            };
+
+            const response = await ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: { parts: [
+                    { text: prompt },
+                    b2bPart,
+                    b2cPart
+                ]},
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: responseSchema,
+                },
+            });
+            
+            const jsonStr = response.text.trim();
+            const parsedProducts = JSON.parse(jsonStr);
+             const productsWithDefaults: EditableProduct[] = parsedProducts.map((p: any) => ({
+                description: p.description || '',
+                descriptionTamil: p.descriptionTamil || '',
+                barcode: '',
+                b2bPrice: p.b2bPrice || 0,
+                b2cPrice: p.b2cPrice || 0,
+                stock: 0,
+                category: p.category || '',
+                hsnCode: '',
+            }));
+            setBulkAddProducts(productsWithDefaults);
+        } catch (error: any) {
+            console.error("AI PDF processing failed:", error);
+            setBulkAddError("Failed to analyze the PDFs with AI. Ensure they are text-based PDFs and not scanned images. Please try again.");
+        } finally {
+            setIsBulkAddLoading(false);
+        }
     };
     
-    const renderView = () => {
-        if (!activeShopId) {
-             return <div style={{textAlign: 'center', padding: '4rem'}}><h2>No Active Shop</h2><p>Please select or create a shop to begin.</p></div>;
+    const handleBulkSaveProducts = (productsToSave: EditableProduct[]) => {
+        if (!db || !activeShop) return;
+        
+        let nextId = activeShop.nextProductId;
+        db.exec("BEGIN TRANSACTION;");
+        try {
+            const stmt = db.prepare("INSERT INTO products (id, shop_id, description, descriptionTamil, barcode, b2bPrice, b2cPrice, stock, category, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            for (const p of productsToSave) {
+                stmt.run([nextId, activeShopId, p.description, p.descriptionTamil, p.barcode, p.b2bPrice, p.b2cPrice, p.stock, p.category, p.hsnCode]);
+                nextId++;
+            }
+            stmt.free();
+            db.run("UPDATE shops SET nextProductId = ? WHERE id = ?", [nextId, activeShopId]);
+            db.exec("COMMIT;");
+        } catch (e) {
+            db.exec("ROLLBACK;");
+            console.error("Bulk save transaction failed", e);
+            alert("An error occurred while saving the products. The operation has been rolled back.");
+            return;
         }
-        switch (view) {
-            case 'products':
-                return <ProductsView 
-                            products={products}
-                            onAdd={() => openProductModal(null)}
-                            onEdit={openProductModal}
-                            onDelete={handleDeleteProduct}
-                            selectedProductIds={selectedProductIds}
-                            setSelectedProductIds={setSelectedProductIds}
-                            onDeleteSelected={handleDeleteSelectedProducts}
-                            isOnline={isOnline}
-                            aiUsage={{plan: userPlan, count: aiUsageCount}}
-                            onUpgrade={() => handleUpgrade(true)}
-                            onBulkAdd={() => alert("Bulk add from image coming soon!")}
-                            onBulkAddPdfs={() => alert("Bulk add from PDF coming soon!")}
-                            onExportPdf={() => alert("PDF export coming soon!")}
-                            currentUser={currentUser}
-                        />;
-            case 'customers':
-                return <CustomersView 
-                            customers={customers}
-                            salesHistory={salesHistory}
-                            onAdd={() => openCustomerModal(null)}
-                            onEdit={openCustomerModal}
-                            onDelete={handleDeleteCustomer}
-                            currentUser={currentUser}
-                        />;
-            case 'reports':
-                return <ReportsView 
-                            salesHistory={salesHistory}
-                            onPrint={(sale) => { setPreviewSale(sale); setIsInvoicePreviewOpen(true); }}
-                            userPlan={userPlan}
-                            onUpgrade={() => handleUpgrade(true)}
-                            isOnline={isOnline}
-                        />;
-            case 'expenses':
-                return <ExpensesView
-                            expenses={expenses}
-                            onAdd={handleAddExpense}
-                            onDelete={handleDeleteExpense}
-                            shopId={activeShopId}
-                            userPlan={userPlan}
-                            onUpgrade={() => handleUpgrade(true)}
-                        />;
-            case 'balance_due':
-                return <BalanceDueView 
-                            salesHistory={salesHistory} 
-                            customers={customers} 
-                            onSettlePayment={handleSettlePayment} 
-                        />;
-            case 'settings':
-                return <SettingsView 
-                            billSettings={billSettings}
-                            onSave={handleSaveSettings}
-                            onPreview={handlePreviewBillInSettings}
-                            activeShopName={activeShop?.name || ''}
-                            onRenameShop={handleRenameShopInSettings}
-                            userPlan={userPlan}
-                            onUpgrade={() => handleUpgrade(true)}
-                        />;
-            case 'sales':
-            default:
-                return <SalesView
-                            products={products}
-                            activeCart={activeCart}
-                            updateActiveCart={updateCartState}
-                            onPreview={handlePreviewSale}
-                            total={total}
-                            paidAmount={paidAmount}
-                            setPaidAmount={setPaidAmount}
-                            onAmountPaidEdit={() => setIsAmountPaidEdited(true)}
-                            previousBalanceDue={previousBalanceDue}
-                            onShowHistory={() => {setHistoryMobile(activeCart.customerMobile); setIsHistoryModalOpen(true);}}
-                            onSaveBackup={handleSaveBackup}
-                            onRestoreBackup={handleRestoreBackup}
-                            onUpdateProductPrice={handleUpdateProductPriceInCart}
-                            onUpdateProductDetails={handleUpdateProductDetailsInCart}
-                            onAddNewProduct={handleAddNewProductFromSale}
-                            isOnline={isOnline}
-                            viewMode={viewMode}
-                            setViewMode={setViewMode}
-                            currentUser={currentUser}
-                        />;
-        }
+
+        saveDbToIndexedDB().then(() => {
+            loadShopData(activeShopId!);
+            loadShops();
+            setIsBulkAddModalOpen(false);
+            alert(`${productsToSave.length} products have been successfully added to your inventory.`);
+        });
     };
     
+    const handleExportPdf = (productsToExport: Product[]) => {
+        if (productsToExport.length === 0) {
+            alert("No products to export.");
+            return;
+        }
+
+        const productRows = productsToExport.map(p => `
+            <tr>
+                <td>${p.id}</td>
+                <td>${p.description}</td>
+                <td>${p.barcode || 'N/A'}</td>
+                <td>${p.b2cPrice.toFixed(2)}</td>
+                <td>${p.stock}</td>
+            </tr>
+        `).join('');
+
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+                    table { width: 100%; border-collapse: collapse; }
+                    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                    th { background-color: #f2f2f2; }
+                </style>
+            </head>
+            <body>
+                <h1>Product List - ${activeShop?.name || ''}</h1>
+                <p>Date: ${new Date().toLocaleDateString()}</p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Description</th>
+                            <th>Barcode</th>
+                            <th>Price</th>
+                            <th>Stock</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${productRows}
+                    </tbody>
+                </table>
+            </body>
+            </html>
+        `;
+
+        html2pdf().from(htmlContent).set({
+            margin: 0.5,
+            filename: `product-list-${new Date().toISOString().slice(0,10)}.pdf`,
+            jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
+        }).save();
+    };
+    
+    const handleSaveSettings = (settings: BillSettings) => {
+        if (!activeShopId) return;
+        const updatedSettings = { ...settings, shopNameEdited: settings.shopName !== activeShop?.name };
+        localStorage.setItem(`billSettings_${activeShopId}`, JSON.stringify(updatedSettings));
+        setBillSettings(updatedSettings);
+        alert("Settings saved successfully!");
+    };
+    
+    // --- RENDER LOGIC ---
     if (!dbReady) {
         return <div>Loading Database...</div>;
     }
@@ -5108,23 +5405,136 @@ const App = () => {
     if (!isLoggedIn) {
         return <LoginView onLoginSuccess={handleLoginSuccess} />;
     }
-    
+
     if (isInitialSetup) {
         return <InitialSetupModal onCreate={handleCreateShop} />;
     }
+    
+    if (!activeShopId) {
+        return (
+            <div>
+                <h2>No Shop Selected</h2>
+                <p>Please select a shop to continue or create a new one.</p>
+                <button onClick={() => setIsShopManagerOpen(true)} style={styles.button}>Open Shop Manager</button>
+                {isShopManagerOpen && activeShopId && (
+                    <ShopManagerModal 
+                        shops={shops}
+                        activeShopId={activeShopId}
+                        onSelect={handleSelectShop}
+                        onCreate={handleCreateShop}
+                        onRename={renameShop}
+                        onDelete={handleDeleteShop}
+                        onClose={() => setIsShopManagerOpen(false)}
+                        userPlan={userPlan}
+                        onUpgrade={handleUpgrade}
+                    />
+                )}
+            </div>
+        );
+    }
+
+    const renderView = () => {
+        switch (view) {
+            case 'products':
+                return <ProductsView 
+                    products={products}
+                    onAdd={() => { setEditingProduct(null); setIsProductModalOpen(true); }}
+                    onEdit={(p) => { setEditingProduct(p); setIsProductModalOpen(true); }}
+                    onDelete={handleDeleteProduct}
+                    onBulkAdd={handleBulkAdd}
+                    onBulkAddPdfs={() => setIsPdfUploadModalOpen(true)}
+                    onExportPdf={handleExportPdf}
+                    selectedProductIds={selectedProductIds}
+                    setSelectedProductIds={setSelectedProductIds}
+                    onDeleteSelected={handleDeleteSelectedProducts}
+                    isOnline={isOnline}
+                    aiUsage={{ plan: userPlan, count: aiUsageCount }}
+                    onUpgrade={handleUpgrade}
+                    currentUser={currentUser}
+                />;
+            case 'reports':
+                return <ReportsView 
+                    salesHistory={salesHistory} 
+                    onPrint={handleRePrintInvoice} 
+                    userPlan={userPlan} 
+                    onUpgrade={handleUpgrade} 
+                    isOnline={isOnline}
+                />;
+            case 'customers':
+                return <CustomersView 
+                    customers={customers} 
+                    salesHistory={salesHistory}
+                    onAdd={() => { setEditingCustomer(null); setIsCustomerModalOpen(true); }}
+                    onEdit={(c) => { setEditingCustomer(c); setIsCustomerModalOpen(true); }}
+                    onDelete={handleDeleteCustomer}
+                    currentUser={currentUser}
+                />;
+            case 'expenses':
+                return <ExpensesView
+                    expenses={expenses}
+                    onAdd={handleExpenseAdd}
+                    onDelete={handleExpenseDelete}
+                    shopId={activeShopId}
+                    userPlan={userPlan}
+                    onUpgrade={handleUpgrade}
+                 />;
+            case 'balance_due':
+                 return <BalanceDueView
+                    salesHistory={salesHistory}
+                    customers={customers}
+                    onSettlePayment={handleSettleBalanceDue}
+                  />;
+            case 'settings':
+                return <SettingsView 
+                    billSettings={billSettings}
+                    onSave={handleSaveSettings}
+                    onPreview={() => setIsBillSettingsPreviewOpen(true)}
+                    activeShopName={activeShop?.name || ''}
+                    onRenameShop={handleRenameShopInSettings}
+                    userPlan={userPlan}
+                    onUpgrade={handleUpgrade}
+                />;
+            case 'sales':
+            default:
+                return <SalesView
+                    products={products}
+                    activeCart={activeCart}
+                    updateActiveCart={updateActiveCart}
+                    onPreview={handlePreviewInvoice}
+                    total={grandTotalWithBalance}
+                    paidAmount={paidAmount}
+                    setPaidAmount={setPaidAmount}
+                    onAmountPaidEdit={() => setIsAmountPaidEdited(true)}
+                    previousBalanceDue={previousBalanceDue}
+                    onShowHistory={handleShowHistory}
+                    onSaveBackup={handleSaveBackup}
+                    onRestoreBackup={handleRestoreBackup}
+                    onUpdateProductPrice={handleUpdateProductPriceFromSale}
+                    onUpdateProductDetails={handleUpdateProductDetailsFromSale}
+                    onAddNewProduct={handleAddNewProductFromSale}
+                    isOnline={isOnline}
+                    viewMode={viewMode}
+                    setViewMode={setViewMode}
+                    currentUser={currentUser}
+                />;
+        }
+    };
 
     return (
         <div style={styles.appContainer}>
             <header style={styles.header}>
-                <h1 style={styles.title}>{activeShop?.name || 'POS'}</h1>
-                <div style={{display: 'flex', gap: '1rem', alignItems: 'center'}}>
-                    <DropdownNav activeView={view} onSelectView={setView} disabled={!activeShopId} currentUser={currentUser} />
-                     {currentUser?.role === 'super_admin' && (
-                        <button onClick={() => setIsShopManagerOpen(true)} style={styles.shopManagerButton}>Manage Shops</button>
+                <h1 style={styles.title}>{activeShop?.name || 'POS System'}</h1>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <DropdownNav activeView={view} onSelectView={setView} disabled={isInitialSetup || !activeShopId} currentUser={currentUser} />
+                    {currentUser?.role === 'super_admin' && (
+                        <button onClick={() => setIsShopManagerOpen(true)} style={styles.shopManagerButton} disabled={isInitialSetup}>
+                            Shop Manager
+                        </button>
                     )}
-                    <span style={{color: 'var(--secondary-color)'}}>|</span>
-                    <UserIcon color="var(--secondary-color)" />
-                    <span style={{fontWeight: 500}}>{currentUser?.username}</span>
+                    <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                        <UserIcon />
+                        <span>{currentUser?.username} ({currentUser?.role.replace('_', ' ')})</span>
+                    </div>
                     <button onClick={handleLogout} style={styles.logoutButton}>Logout</button>
                 </div>
             </header>
@@ -5136,31 +5546,89 @@ const App = () => {
             {isCustomerModalOpen && <CustomerFormModal customer={editingCustomer} onSave={editingCustomer ? (data) => handleUpdateCustomer({...editingCustomer, ...data}) : handleAddCustomer} onClose={() => setIsCustomerModalOpen(false)} />}
             {isConfirmationModalOpen && <ConfirmationModal message={confirmation.message} onConfirm={confirmation.onConfirm} onCancel={() => setIsConfirmationModalOpen(false)} />}
             {isHistoryModalOpen && <HistoryModal salesHistory={salesHistory} customerMobile={historyMobile} onClose={() => setIsHistoryModalOpen(false)} />}
-            {isShopManagerOpen && <ShopManagerModal shops={shops} activeShopId={activeShopId} onSelect={handleSelectShop} onCreate={handleCreateShop} onRename={renameShop} onDelete={handleDeleteShop} onClose={() => setIsShopManagerOpen(false)} userPlan={userPlan} onUpgrade={() => handleUpgrade(true)} />}
-            {isRestoreModalOpen && <RestoreProgressModal {...restoreProgress} />}
-            {isBulkAddModalOpen && <BulkAddModal fileSrc={bulkAddFileSrc} fileType={bulkAddFileType} fileNames={bulkAddPdfFileNames} initialProducts={bulkAddProducts} onSave={() => {}} onClose={() => setIsBulkAddModalOpen(false)} loading={isBulkAddLoading} error={bulkAddError} />}
-            {isPdfUploadModalOpen && <PdfUploadModal onProcess={() => {}} onClose={() => setIsPdfUploadModalOpen(false)} />}
-            {isBillSettingsPreviewOpen && <InvoicePreviewModal sale={previewSale} billSettings={billSettings} customerName={previewSale.customerName} customerMobile={previewSale.customerMobile} onClose={() => setIsBillSettingsPreviewOpen(false)} language="english" previousBalanceDue={0} isPreviewMode={true} />}
-
+            
             {isInvoicePreviewOpen && previewSale && (
                 <InvoicePreviewModal 
                     sale={previewSale}
                     billSettings={billSettings}
                     customerName={previewSale.customerName}
                     customerMobile={previewSale.customerMobile}
-                    onFinalize={isPreviewingNewSale ? handleFinalizeSale : undefined}
-                    onClose={handleCloseInvoicePreview}
                     language={activeCart.language}
-                    previousBalanceDue={previewSale.previousBalanceForPreview || 0}
+                    onFinalize={isPreviewingNewSale ? handleFinalizeSale : undefined}
+                    onClose={() => { 
+                        setIsInvoicePreviewOpen(false); 
+                        if (previewSale.isFinalized) { // After a sale is finalized, clear the preview
+                            setPreviewSale(null);
+                        }
+                    }}
+                    previousBalanceDue={previewSale.previousBalanceDue || 0}
                     amountPaidEdited={isAmountPaidEdited}
                 />
             )}
+            
+            {isBulkAddModalOpen && (
+                <BulkAddModal
+                    fileSrc={bulkAddFileSrc}
+                    fileType={bulkAddFileType}
+                    fileNames={bulkAddPdfFileNames}
+                    initialProducts={bulkAddProducts}
+                    onSave={handleBulkSaveProducts}
+                    onClose={() => setIsBulkAddModalOpen(false)}
+                    loading={isBulkAddLoading}
+                    error={bulkAddError}
+                />
+            )}
+
+            {isPdfUploadModalOpen && <PdfUploadModal onProcess={handleProcessPdfs} onClose={() => setIsPdfUploadModalOpen(false)} />}
+            
+            {isShopManagerOpen && activeShopId && (
+                <ShopManagerModal 
+                    shops={shops}
+                    activeShopId={activeShopId}
+                    onSelect={handleSelectShop}
+                    onCreate={handleCreateShop}
+                    onRename={renameShop}
+                    onDelete={handleDeleteShop}
+                    onClose={() => setIsShopManagerOpen(false)}
+                    userPlan={userPlan}
+                    onUpgrade={handleUpgrade}
+                />
+            )}
+            
+            {isRestoreModalOpen && (
+                <RestoreProgressModal 
+                    percentage={restoreProgress.percentage}
+                    eta={restoreProgress.eta}
+                    message={restoreProgress.message}
+                />
+            )}
+            
+            {isBillSettingsPreviewOpen && (
+                 <InvoicePreviewModal
+                    sale={{ // Dummy sale data for preview
+                        items: [
+                            {id: 1, productId: 1, description: 'Sample Product 1', quantity: 2, price: 10.00, isReturn: false},
+                            {id: 2, productId: 2, description: 'Another Item', quantity: 1, price: 25.50, isReturn: false},
+                            {id: 3, productId: 3, description: 'Returned Good', quantity: 1, price: 15.00, isReturn: true},
+                        ],
+                        total: 30.50,
+                        paid_amount: 30.50,
+                        balance_due: 0,
+                        date: new Date().toISOString()
+                    }}
+                    billSettings={billSettings}
+                    customerName="John Doe"
+                    customerMobile="9876543210"
+                    language="english"
+                    previousBalanceDue={100.00}
+                    onClose={() => setIsBillSettingsPreviewOpen(false)}
+                    isPreviewMode={true}
+                 />
+            )}
+
         </div>
     );
 };
 
-const container = document.getElementById('root');
-if (container) {
-    const root = createRoot(container);
-    root.render(<App />);
-}
+const root = createRoot(document.getElementById('root')!);
+root.render(<App />);
