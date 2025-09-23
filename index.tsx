@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -1839,201 +1840,81 @@ const defaultBillSettings: BillSettings = {
     layout: 'default',
 };
 
-// --- INVOICE PREVIEW MODAL ---
-const InvoicePreviewModal = ({ 
-    sale, 
-    billSettings,
-    customerName, 
-    customerMobile, 
-    onFinalize, 
-    onClose, 
-    onWhatsApp, 
-    language, 
-    previousBalanceDue, 
-    amountPaidEdited,
+// --- NEW INVOICE PREVIEW MODAL ---
+// FIX: Added explicit prop types to make 'onFinalize' optional, resolving a TypeScript error where the component was being invoked without it.
+const InvoicePreviewModal = ({
+    sale,
+    onFinalize,
+    onClose,
     isPreviewMode = false,
 }: {
     sale: any;
-    billSettings: BillSettings;
-    customerName?: string;
-    customerMobile?: string;
     onFinalize?: () => void;
-    onClose?: () => void;
-    onWhatsApp?: (number: string) => void;
-    language: 'english' | 'tamil';
-    previousBalanceDue: number;
-    amountPaidEdited?: boolean;
+    onClose: () => void;
     isPreviewMode?: boolean;
 }) => {
-    const [phoneNumber, setPhoneNumber] = useState(customerMobile || '');
+    const [whatsAppNumber, setWhatsAppNumber] = useState(sale.customerMobile || '');
+    const [printSettings, setPrintSettings] = useState({
+        paperSize: '4-inch',
+        fontSize: 'medium',
+        fontStyle: 'monospace',
+        margins: { top: 20, right: 20, bottom: 20, left: 20 },
+        offsets: { x: 0, y: 0 },
+    });
     const printAreaRef = useRef<HTMLDivElement>(null);
-
-    const purchasedItems = sale.items.filter((item: SaleItem) => !item.isReturn);
-    const returnedItems = sale.items.filter((item: SaleItem) => item.isReturn);
-    
-    const returnTotal = returnedItems.reduce((acc: number, item: SaleItem) => acc + item.quantity * item.price, 0);
-    const roundedGrandTotal = Math.round(sale.total + previousBalanceDue);
-    const balanceDue = sale.balance_due;
     const saleDate = new Date(sale.date);
 
-    // Show detailed payment info if amount was edited, a balance exists, or it's a historical/detailed invoice
-    const showPaymentDetails = billSettings.format !== 'simple' && (amountPaidEdited || balanceDue > 0 || !onFinalize);
+    const handleSettingChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
+        const { name, value } = e.target;
+        setPrintSettings(prev => ({ ...prev, [name]: value }));
+    };
 
-    const handleWhatsAppClick = () => {
-        if (!phoneNumber) {
-            alert('Please enter a customer phone number to send the invoice via WhatsApp.');
-            return;
-        }
-
-        const cleanPhoneNumber = phoneNumber.replace(/[^0-9+]/g, '');
-        if (!cleanPhoneNumber) {
-            alert('Invalid phone number format.');
-            return;
-        }
-
-        const itemsText = purchasedItems.map((item: SaleItem) =>
-            `- ${language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description} (${item.quantity} x ₹${item.price.toFixed(1)}) = ₹${(item.quantity * item.price).toFixed(1)}`
-        ).join('\n');
-
-        const returnsText = returnedItems.length > 0 ?
-            '\n*Returned Items*:\n' + returnedItems.map((item: SaleItem) =>
-            `- ${language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description} (${item.quantity} x ₹${item.price.toFixed(1)}) = -₹${(item.quantity * item.price).toFixed(1)}`
-        ).join('\n') : '';
-
-        const messageParts = [
-            `*Invoice from ${billSettings.shopName}*`,
-            `-----------------------------------`,
-            `*Bill Date*: ${saleDate.toLocaleString()}`,
-            `*Customer*: ${customerName || 'Walk-in'}`,
-            `-----------------------------------`,
-            itemsText,
-            returnsText,
-            `-----------------------------------`,
-            `*Grand Total*: *₹${roundedGrandTotal.toFixed(2)}*`,
-            `*Amount Paid*: ₹${sale.paid_amount.toFixed(2)}`,
-            balanceDue > 0 ? `*Balance Due*: *₹${balanceDue.toFixed(2)}*` : `*Status*: Fully Paid`,
-            `-----------------------------------`,
-            billSettings.tagline || 'Thank you for your business!'
-        ];
-
-        const message = messageParts.filter(part => part).join('\n');
-        const encodedMessage = encodeURIComponent(message);
-        const url = `https://wa.me/${cleanPhoneNumber}?text=${encodedMessage}`;
-        window.open(url, '_blank', 'noopener,noreferrer');
+    const handleMarginChange = (side: 'top' | 'right' | 'bottom' | 'left', value: string) => {
+        setPrintSettings(prev => ({
+            ...prev,
+            margins: { ...prev.margins, [side]: parseInt(value) || 0 }
+        }));
     };
     
-    const getPdfOptions = (settings: BillSettings) => {
-        const options: any = {
-            margin: [0.2, 0.2, 0.2, 0.2], // top, left, bottom, right
-            filename: `invoice-${sale.id || 'preview'}.pdf`,
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true, logging: false },
-            jsPDF: { unit: 'in', orientation: 'portrait' }
+    const handleOffsetChange = (axis: 'x' | 'y', value: string) => {
+        setPrintSettings(prev => ({
+            ...prev,
+            offsets: { ...prev.offsets, [axis]: parseInt(value) || 0 }
+        }));
+    };
+    
+    const getPrintableStyles = (): React.CSSProperties => {
+        const styles: React.CSSProperties = {
+            backgroundColor: 'white',
+            color: 'black',
+            padding: `${printSettings.margins.top}px ${printSettings.margins.right}px ${printSettings.margins.bottom}px ${printSettings.margins.left}px`,
+            transform: `translate(${printSettings.offsets.x}px, ${printSettings.offsets.y}px)`,
+            fontFamily: printSettings.fontStyle,
+            boxSizing: 'border-box',
         };
 
-        switch (settings.size) {
-            case 'A4':
-                options.jsPDF.format = 'a4';
-                options.margin = [0.5, 0.5, 0.5, 0.5];
-                break;
-            case 'A5':
-                options.jsPDF.format = 'a5';
-                options.margin = [0.4, 0.4, 0.4, 0.4];
-                break;
-            case '3-inch':
-                options.jsPDF.format = [3, 11]; // Width: 3in, Height: arbitrary large
-                options.margin = [0.1, 0.1, 0.1, 0.1];
-                break;
-            case '4-inch':
-                options.jsPDF.format = [4, 11]; // Width: 4in
-                options.margin = [0.15, 0.15, 0.15, 0.15];
-                break;
-            case 'custom':
-                const widthStr = settings.customWidth || '80mm';
-                const widthValue = parseFloat(widthStr);
-                let widthInInches = 3.15; // Default to 80mm
-
-                if (!isNaN(widthValue)) {
-                    if (widthStr.includes('mm')) {
-                        widthInInches = widthValue / 25.4;
-                    } else if (widthStr.includes('cm')) {
-                        widthInInches = widthValue / 2.54;
-                    } else if (widthStr.includes('in')) {
-                        widthInInches = widthValue;
-                    } else {
-                        // assume mm if no unit is provided
-                        widthInInches = widthValue / 25.4;
-                    }
-                }
-                options.jsPDF.format = [widthInInches, 11];
-                options.margin = [0.1, 0.1, 0.1, 0.1];
-                break;
-            default:
-                options.jsPDF.format = 'letter';
-                break;
-        }
-        return options;
-    };
-
-    const downloadPdf = () => {
-        const printElement = printAreaRef.current;
-        if (!printElement) {
-            console.error("PDF generation failed: Invoice element not found.");
-            alert("Could not generate PDF. Please try again.");
-            return;
+        switch (printSettings.paperSize) {
+            case '3-inch': styles.width = '76mm'; break;
+            case '4-inch': styles.width = '101mm'; break;
+            case 'A4': styles.width = '210mm'; break;
+            case 'A5': styles.width = '148mm'; break;
         }
 
-        // Combine base print styles with dynamic styles for a complete style block
-        const allStyles = `
-            ${getPrintStyles()}
-            body {
-                width: ${printElement.style.width || 'auto'};
-                font-size: ${printElement.style.fontSize || '12pt'};
-            }
-        `;
-
-        // Get the inner HTML of the invoice content
-        const invoiceHtmlContent = printElement.innerHTML;
-
-        // Construct a full, self-contained HTML document string. This is the key to reliability.
-        const htmlDocString = `
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <title>Invoice</title>
-                <style>${allStyles}</style>
-            </head>
-            <body>
-                ${invoiceHtmlContent}
-            </body>
-            </html>
-        `;
+        switch (printSettings.fontSize) {
+            case 'small': styles.fontSize = '12px'; break;
+            case 'medium': styles.fontSize = '14px'; break;
+            case 'large': styles.fontSize = '16px'; break;
+        }
         
-        const opt = getPdfOptions(billSettings);
-
-        // Generate PDF from the clean HTML string, not the live DOM element
-        html2pdf().from(htmlDocString).set(opt).save();
+        return styles;
     };
-
-    const getPrintStyles = () => `
-        body { font-family: sans-serif, 'Segoe UI', Roboto, Helvetica, Arial; margin: 0; }
-        table { width: 100%; border-collapse: collapse; font-size: inherit; }
-        th, td { padding: 4px 2px; border: none; }
-        th { text-align: left; }
-        td { vertical-align: top; }
-        hr { border: 0; border-top: 1px dashed #888; margin: 0.5rem 0; }
-        h2, h4, p { margin: 0.2rem 0; }
-        .invoice-size-3-inch { font-size: 9pt; }
-        .invoice-size-4-inch { font-size: 10pt; }
-        .invoice-size-A5 { font-size: 10pt; }
-        .invoice-size-A4 { font-size: 12pt; }
-    `;
 
     const printInvoice = () => {
         if (!printAreaRef.current) return;
-        const invoiceHtml = printAreaRef.current.outerHTML;
-
+        
+        const content = printAreaRef.current.innerHTML;
+        const styles = getPrintableStyles();
+        
         const iframe = document.createElement('iframe');
         iframe.style.position = 'absolute';
         iframe.style.width = '0';
@@ -2047,9 +1928,20 @@ const InvoicePreviewModal = ({
             doc.write(`
                 <html>
                     <head><title>Print Invoice</title>
-                        <style>${getPrintStyles()}</style>
+                        <style>
+                            body { 
+                                font-family: ${styles.fontFamily};
+                                font-size: ${styles.fontSize};
+                                width: ${styles.width};
+                                margin: 0;
+                            }
+                            table { width: 100%; border-collapse: collapse; }
+                            th, td { text-align: left; padding: 4px 2px; }
+                            hr { border: none; border-top: 1px dashed black; }
+                            .text-right { text-align: right; }
+                        </style>
                     </head>
-                    <body>${invoiceHtml}</body>
+                    <body>${content}</body>
                 </html>
             `);
             doc.close();
@@ -2058,218 +1950,137 @@ const InvoicePreviewModal = ({
                 iframe.contentWindow?.focus();
                 iframe.contentWindow?.print();
                 document.body.removeChild(iframe);
-            }, 500); // Timeout to ensure content is fully rendered
-        } else {
-            document.body.removeChild(iframe);
-            alert("Could not open print window. Please check your browser's popup settings.");
+            }, 500);
         }
     };
     
-    const getInvoiceDynamicStyles = (): React.CSSProperties => {
-        const style: React.CSSProperties = {
-            backgroundColor: 'white',
-            color: 'black',
-            boxSizing: 'border-box',
-        };
-        switch (billSettings.size) {
-            case '3-inch':
-                style.width = '76mm';
-                style.fontSize = '9pt';
-                style.padding = '3mm';
-                break;
-            case '4-inch':
-                style.width = '101mm';
-                style.fontSize = '10pt';
-                style.padding = '4mm';
-                break;
-            case 'A5':
-                style.width = '148mm';
-                style.fontSize = '10pt';
-                style.padding = '10mm';
-                break;
-            case 'A4':
-                style.width = '210mm';
-                style.fontSize = '12pt';
-                style.padding = '10mm';
-                break;
-            case 'custom':
-                style.width = billSettings.customWidth;
-                style.fontSize = '10pt';
-                style.padding = '5mm';
-                break;
-            default:
-                style.width = '210mm';
-                style.fontSize = '12pt';
-                style.padding = '10mm';
-                break;
-        }
-        return style;
+    const saveAsPdf = () => {
+        const element = printAreaRef.current;
+        if (!element) return;
+        
+        html2pdf(element, {
+            margin: 0,
+            filename: `invoice-${sale.id || Date.now()}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { unit: 'mm', format: printSettings.paperSize === 'A4' ? 'a4' : 'letter', orientation: 'portrait' }
+        });
     };
-
-    const invoiceDynamicStyle = getInvoiceDynamicStyles();
-
-    const renderHeader = () => (
-        <div style={{textAlign: 'center', marginBottom: '0.5rem'}}>
-            {billSettings.displayOptions.showLogo && billSettings.logo && <img src={billSettings.logo} alt="Shop Logo" style={{maxWidth: '150px', maxHeight: '80px', marginBottom: '0.5rem'}} />}
-            <h2 style={{margin: '0'}}>{billSettings.displayOptions.showShopName && billSettings.shopNameEdited ? billSettings.shopName : 'Invoice'}</h2>
-            {billSettings.displayOptions.showShopAddress && <p style={{margin: '0.2rem 0'}}>{billSettings.shopAddress}</p>}
-            {billSettings.displayOptions.showGstin && billSettings.format === 'gst' && billSettings.gstin && <p style={{margin: '0.2rem 0'}}>GSTIN: {billSettings.gstin}</p>}
-            <p style={{margin: '0.2rem 0'}}>Date: {saleDate.toLocaleString()}</p>
-        </div>
-    );
     
-    const renderCustomerDetails = () => (
-        <div style={{ margin: '0.5rem 0', borderBottom: '1px dashed #ccc', paddingBottom: '0.5rem' }}>
-            {customerName && <p style={{margin: '0.2rem 0'}}><b>Customer:</b> {customerName}</p>}
-            {customerMobile && <p style={{margin: '0.2rem 0'}}><b>Mobile:</b> {customerMobile}</p>}
-        </div>
-    );
-
-    const renderTable = (items: SaleItem[], title: string, isReturn = false) => (
-        <>
-            {title && <h4 style={{ margin: '0.8rem 0 0.4rem 0', borderBottom: '1px solid #eee', paddingBottom: '0.2rem' }}>{title}</h4>}
-            <table style={{...styles.table, fontSize: 'inherit', width: '100%', borderCollapse: 'collapse'}}>
-                <thead>
-                    <tr>
-                        <th style={{...styles.th, textAlign: 'left', padding: '2px'}}>Item</th>
-                        {billSettings.format === 'gst' && <th style={{...styles.th, textAlign: 'left', padding: '2px'}}>HSN</th>}
-                        <th style={{...styles.th, textAlign: 'right', padding: '2px'}}>Qty</th>
-                        <th style={{...styles.th, textAlign: 'right', padding: '2px'}}>Price</th>
-                        <th style={{...styles.th, textAlign: 'right', padding: '2px'}}>Total</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {items.map((item, index) => (
-                        <tr key={item.id} style={isReturn ? {color: 'var(--danger-color)'} : {}}>
-                            <td style={{...styles.td, padding: '2px', fontWeight: 'bold'}}>
-                                {language === 'tamil' && item.descriptionTamil ? item.descriptionTamil : item.description}
-                            </td>
-                            {billSettings.format === 'gst' && <td style={{...styles.td, padding: '2px'}}>{item.hsnCode || ''}</td>}
-                            <td style={{...styles.td, textAlign: 'right', padding: '2px'}}>{item.quantity}</td>
-                            <td style={{...styles.td, textAlign: 'right', padding: '2px'}}>{item.price.toFixed(1)}</td>
-                            <td style={{...styles.td, textAlign: 'right', padding: '2px', fontWeight: 'bold'}}>{(item.quantity * item.price).toFixed(1)}</td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </>
-    );
-
     return (
-        <div className="invoice-preview-backdrop" style={styles.modalBackdrop}>
-            <div className="invoice-preview-content-wrapper" style={{
-                ...styles.modalContent,
-                maxWidth: '95vw',
-                width: 'auto',
+        <div style={styles.modalBackdrop}>
+            <div style={{
+                backgroundColor: 'var(--background-color)',
+                width: '95vw',
+                height: '95vh',
+                borderRadius: '12px',
                 display: 'flex',
                 flexDirection: 'column',
-                maxHeight: '90vh',
-                padding: 0,
+                overflow: 'hidden'
             }}>
-                <div style={{
-                    flex: '1 1 auto',
-                    overflowY: 'auto',
-                    padding: '1.5rem',
-                    backgroundColor: 'var(--background-color)',
-                    textAlign: 'center'
-                }}>
-                    <div
-                        ref={printAreaRef}
-                        id="invoice-to-print"
-                        className={`invoice-size-${billSettings.size}`}
-                        style={{
-                            ...invoiceDynamicStyle,
-                            boxShadow: '0 0 10px rgba(0,0,0,0.15)',
-                            display: 'inline-block',
-                            textAlign: 'left',
-                            margin: '0 auto'
-                        }}
-                    >
-                        {renderHeader()}
-                        {billSettings.layout !== 'modern' && renderCustomerDetails()}
-
-                        {purchasedItems.length > 0 && renderTable(purchasedItems, '')}
-                        
-                        {returnedItems.length > 0 && (
-                            <>
-                                {renderTable(returnedItems, 'Returned Items', true)}
-                                <div style={{textAlign: 'right', borderTop: '1px solid #eee', paddingTop: '4px', marginTop: '4px'}}>
-                                    <p style={{margin: '2px 0', color: 'var(--danger-color)'}}><b>Total Returns: </b><b>-₹{returnTotal.toFixed(1)}</b></p>
-                                </div>
-                            </>
-                        )}
-
-                        <hr style={{border: '1px dashed #ccc', margin: '0.5rem 0'}}/>
-
-                        <div style={{textAlign: 'right'}}>
-                            {billSettings.format !== 'simple' && (
-                                <>
-                                    {sale.discount > 0 && <p style={{margin: '2px 0'}}><b>Discount: </b><b>-₹{sale.discount.toFixed(1)}</b></p>}
-                                    {sale.tax > 0 && <p style={{margin: '2px 0'}}><b>Tax: </b><b>₹{sale.tax.toFixed(1)}</b></p>}
-                                    {previousBalanceDue > 0 && <p style={{margin: '2px 0'}}><b>Previous Balance: </b><b>₹{previousBalanceDue.toFixed(2)}</b></p>}
-                                </>
-                            )}
-                            <p style={{margin: '2px 0', fontSize: '1.2em'}}><b>Grand Total: </b><b>₹{roundedGrandTotal.toFixed(2)}</b></p>
+                <div style={{ flex: 1, overflowY: 'auto', padding: '2rem', display: 'flex', justifyContent: 'center' }}>
+                    <div ref={printAreaRef} style={{...getPrintableStyles(), boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minHeight: '100px'}}>
+                        <div style={{ textAlign: 'center', paddingBottom: '10px' }}>
+                            <h2 style={{ margin: 0 }}>Invoice</h2>
+                            <p style={{ margin: '5px 0' }}>Date: {saleDate.toLocaleString()}</p>
                         </div>
-                        
-                        {showPaymentDetails && (
-                             <>
-                                <hr style={{border: '1px solid #ccc', margin: '0.5rem 0'}}/>
-                                <div style={{textAlign: 'right'}}>
-                                    <p style={{margin: '2px 0'}}><b>Amount Paid: </b><b>₹{(sale.paid_amount).toFixed(2)}</b></p>
-                                    {balanceDue > 0 && <p style={{margin: '2px 0', color: 'var(--danger-color)', fontSize: '1.2em'}}><b>Balance Due: </b><b>₹{balanceDue.toFixed(2)}</b></p>}
+                        <hr style={{ border: 'none', borderTop: '1px dashed black' }} />
+                        <table style={{ width: '100%', borderCollapse: 'collapse', margin: '10px 0' }}>
+                            <thead>
+                                <tr>
+                                    <th style={{ padding: '5px 0' }}>S.No</th>
+                                    <th style={{ padding: '5px 0' }}>Item</th>
+                                    <th style={{ padding: '5px 0', textAlign: 'right' }}>Qty</th>
+                                    <th style={{ padding: '5px 0', textAlign: 'right' }}>Price</th>
+                                    <th style={{ padding: '5px 0', textAlign: 'right' }}>Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sale.items.map((item: SaleItem, index: number) => (
+                                    <tr key={item.id}>
+                                        <td>{index + 1}</td>
+                                        <td>{item.description}</td>
+                                        <td style={{ textAlign: 'right' }}>{item.quantity}</td>
+                                        <td style={{ textAlign: 'right' }}>{item.price.toFixed(2)}</td>
+                                        <td style={{ textAlign: 'right' }}>{(item.quantity * item.price).toFixed(2)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                        <hr style={{ border: 'none', borderTop: '1px dashed black' }} />
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
+                            <div style={{ minWidth: '150px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span>Grand Total</span>
+                                    <strong>₹{sale.total.toFixed(2)}</strong>
                                 </div>
-                            </>
-                        )}
-
-                         <div style={{textAlign: 'center', marginTop: '1rem'}}>
-                            {billSettings.layout === 'modern' && (
-                                <>
-                                    <hr style={{border: '1px dashed #ccc', margin: '0.5rem 0'}}/>
-                                    {renderCustomerDetails()}
-                                </>
-                            )}
-                            {billSettings.displayOptions.showTagline && billSettings.tagline && <p style={{margin: '0.2rem 0', fontWeight: 'bold'}}>{billSettings.tagline}</p>}
-                            {billSettings.displayOptions.showFooterNotes && billSettings.footerNotes && <p style={{margin: '0.2rem 0', fontSize: '0.9em'}}>{billSettings.footerNotes}</p>}
+                            </div>
                         </div>
+                         <p style={{ textAlign: 'center', marginTop: '20px' }}>Thank you for your business!</p>
                     </div>
                 </div>
 
-                 <div className="invoice-actions no-print" style={{
-                    ...styles.modalActions,
-                    marginTop: 0,
-                    padding: '1rem 1.5rem',
-                    flexShrink: 0,
-                    borderTop: '1px solid var(--border-color)'
-                 }}>
-                    {onFinalize ? (
-                        <>
-                            <button onClick={onClose} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Back</button>
-                            <button onClick={onFinalize} style={{...styles.button, backgroundColor: 'var(--success-color)'}}>Finalize Sale</button>
-                        </>
-                    ) : (
-                        <>
-                            {!isPreviewMode && (
-                                <div style={{display: 'flex', flexGrow: 1, gap: '0.5rem'}}>
-                                    <input
-                                        type="tel"
-                                        value={phoneNumber}
-                                        onChange={(e) => setPhoneNumber(e.target.value)}
-                                        placeholder="Customer Phone for WhatsApp"
-                                        style={{...styles.input, marginRight: '0.5rem', flex: 1, minWidth: '150px'}}
-                                    />
-                                    <button onClick={handleWhatsAppClick} style={{...styles.button, backgroundColor: '#25D366'}}>WhatsApp</button>
-                                </div>
-                            )}
-                            <button onClick={printInvoice} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Print Bill</button>
-                            <button onClick={downloadPdf} style={{...styles.button, backgroundColor: '#dc3545'}}>Download PDF</button>
-                            {onClose && (
-                                <button onClick={onClose} style={{...styles.button, backgroundColor: sale.isFinalized ? 'var(--primary-color)' : 'var(--secondary-color)'}}>
-                                    {sale.isFinalized ? 'New Sale' : 'Close'}
-                                </button>
-                            )}
-                        </>
-                    )}
+                <div style={{ flexShrink: 0, backgroundColor: 'var(--surface-color)', padding: '1rem', borderTop: '1px solid var(--border-color)', boxShadow: '0 -2px 8px rgba(0,0,0,0.05)' }}>
+                    {/* Actions Row */}
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1rem' }}>
+                        <button onClick={printInvoice} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Print</button>
+                        <button onClick={saveAsPdf} style={{...styles.button, backgroundColor: 'var(--danger-color)'}}>Save as PDF</button>
+                        <input type="tel" value={whatsAppNumber} onChange={e => setWhatsAppNumber(e.target.value)} placeholder="WhatsApp Number" style={{ ...styles.input, flex: 1 }} />
+                        <button style={{...styles.button, backgroundColor: '#25D366'}}>Send</button>
+                    </div>
+                    {/* Settings Row */}
+                     <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <label>Paper Size</label>
+                            <select name="paperSize" value={printSettings.paperSize} onChange={handleSettingChange} style={{...styles.input, width: 'auto'}}>
+                                <option value="4-inch">4 Inch</option>
+                                <option value="3-inch">3 Inch</option>
+                                <option value="A4">A4</option>
+                                <option value="A5">A5</option>
+                            </select>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <label>Font Size</label>
+                            <select name="fontSize" value={printSettings.fontSize} onChange={handleSettingChange} style={{...styles.input, width: 'auto'}}>
+                                <option value="small">Small</option>
+                                <option value="medium">Medium</option>
+                                <option value="large">Large</option>
+                            </select>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <label>Font Style</label>
+                            <select name="fontStyle" value={printSettings.fontStyle} onChange={handleSettingChange} style={{...styles.input, width: 'auto'}}>
+                                <option value="monospace">Monospace</option>
+                                <option value="sans-serif">Sans-serif</option>
+                                <option value="serif">Serif</option>
+                            </select>
+                        </div>
+                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <label>Margins (px)</label>
+                            <input type="number" value={printSettings.margins.top} onChange={e => handleMarginChange('top', e.target.value)} style={{ ...styles.input, width: '60px' }} title="Top" />
+                            <input type="number" value={printSettings.margins.right} onChange={e => handleMarginChange('right', e.target.value)} style={{ ...styles.input, width: '60px' }} title="Right" />
+                             <input type="number" value={printSettings.margins.bottom} onChange={e => handleMarginChange('bottom', e.target.value)} style={{ ...styles.input, width: '60px' }} title="Bottom" />
+                             <input type="number" value={printSettings.margins.left} onChange={e => handleMarginChange('left', e.target.value)} style={{ ...styles.input, width: '60px' }} title="Left" />
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <label>Offsets (px)</label>
+                            <input type="number" value={printSettings.offsets.x} onChange={e => handleOffsetChange('x', e.target.value)} style={{ ...styles.input, width: '60px' }} title="Horizontal" />
+                            <input type="number" value={printSettings.offsets.y} onChange={e => handleOffsetChange('y', e.target.value)} style={{ ...styles.input, width: '60px' }} title="Vertical" />
+                        </div>
+                    </div>
+                    {/* Final Actions Row */}
+                     <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+                        {onFinalize ? (
+                            <>
+                                <button onClick={onFinalize} style={{...styles.button, backgroundColor: 'var(--success-color)', flex: 1}}>Complete Sale</button>
+                                <button onClick={onClose} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Back to Edit Sale</button>
+                            </>
+                        ) : (
+                            <button onClick={onClose} style={{...styles.button, backgroundColor: 'var(--secondary-color)', width: '100%'}}>
+                                {isPreviewMode ? 'Close Preview' : 'New Sale'}
+                            </button>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>
@@ -4910,7 +4721,7 @@ const App = () => {
         const saleForPreview = {
             ...activeCart,
             date: new Date().toISOString(),
-            total,
+            total: roundedGrandTotal, // Use the final rounded total for preview
             subtotal,
             paid_amount: finalPaidAmount,
             balance_due: balanceDue,
@@ -5499,22 +5310,11 @@ const App = () => {
             {isHistoryModalOpen && <HistoryModal salesHistory={salesHistory} customerMobile={historyMobile} onClose={() => setIsHistoryModalOpen(false)} />}
             {isInvoicePreviewOpen && <InvoicePreviewModal 
                 sale={previewSale} 
-                billSettings={billSettings}
-                customerName={previewSale.customerName}
-                customerMobile={previewSale.customerMobile}
                 onFinalize={isPreviewingNewSale ? handleFinalizeSale : undefined} 
                 onClose={() => setIsInvoicePreviewOpen(false)}
-                language={activeCart.language}
-                previousBalanceDue={previewSale.previousBalanceForPreview || 0}
-                amountPaidEdited={isAmountPaidEdited}
             />}
             {isBillSettingsPreviewOpen && <InvoicePreviewModal
                 sale={previewSale}
-                billSettings={billSettings}
-                customerName={previewSale.customerName}
-                customerMobile={previewSale.customerMobile}
-                language={'english'}
-                previousBalanceDue={0}
                 onClose={() => setIsBillSettingsPreviewOpen(false)}
                 isPreviewMode={true}
             />}
