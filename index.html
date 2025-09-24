@@ -47,6 +47,23 @@
             transform: none;
         }
 
+        /* Custom Scrollbar Styles - Enhanced for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent; /* Makes it seamless inside dropdowns */
+        }
+        ::-webkit-scrollbar-thumb {
+            background-color: var(--border-color); /* A more subtle, lighter gray */
+            border-radius: 3px;
+            transition: background-color 0.2s ease;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background-color: var(--secondary-color); /* Darkens on hover for better feedback */
+        }
+
     </style>
 <script type="importmap">
 {
