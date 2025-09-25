@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -1861,7 +1862,49 @@ const InvoicePreviewModal = ({
         offsets: { x: 0, y: 0 },
     });
     const printAreaRef = useRef<HTMLDivElement>(null);
+    const tableRef = useRef<HTMLTableElement>(null);
+    const [columnWidths, setColumnWidths] = useState<number[]>([]);
     const saleDate = new Date(sale.date);
+    
+    useEffect(() => {
+        if (tableRef.current && columnWidths.length === 0) {
+            // FIX: Specified the element type for querySelectorAll to ensure offsetWidth is available.
+            const ths = Array.from(tableRef.current.querySelectorAll<HTMLTableCellElement>('thead th'));
+            const initialWidths = ths.map(th => th.offsetWidth);
+            if (initialWidths.length > 0 && initialWidths.every(w => w > 0)) {
+                setColumnWidths(initialWidths);
+            }
+        }
+    }, [sale, columnWidths.length]);
+
+    const handleMouseDown = (e: React.MouseEvent, index: number) => {
+        e.preventDefault();
+        const startX = e.clientX;
+        // FIX: Specified the element type for querySelectorAll to ensure offsetWidth is available.
+        const startWidth = columnWidths[index] || (tableRef.current!.querySelectorAll<HTMLTableCellElement>('thead th')[index]).offsetWidth;
+
+        const handleMouseMove = (moveEvent: MouseEvent) => {
+            const deltaX = moveEvent.clientX - startX;
+            const newWidth = startWidth + deltaX;
+            setColumnWidths(prevWidths => {
+                const newWidths = [...prevWidths];
+                newWidths[index] = Math.max(40, newWidth); // Minimum width
+                return newWidths;
+            });
+        };
+
+        const handleMouseUp = () => {
+            document.body.style.cursor = 'default';
+            document.body.style.userSelect = 'auto';
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+    };
 
     const handleSettingChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
         const { name, value } = e.target;
@@ -1913,6 +1956,17 @@ const InvoicePreviewModal = ({
         
         const content = printAreaRef.current.innerHTML;
         const styles = getPrintableStyles();
+
+        let columnStyles = '';
+        if (columnWidths.length > 0) {
+            const totalWidth = columnWidths.reduce((sum, w) => sum + w, 0);
+            if (totalWidth > 0) {
+                columnStyles = columnWidths.map((width, i) => {
+                    const percentage = (width / totalWidth) * 100;
+                    return `table th:nth-child(${i + 1}), table td:nth-child(${i + 1}) { width: ${percentage}%; }`;
+                }).join('\n');
+            }
+        }
         
         const iframe = document.createElement('iframe');
         iframe.style.position = 'absolute';
@@ -1934,10 +1988,11 @@ const InvoicePreviewModal = ({
                                 width: ${styles.width};
                                 margin: 0;
                             }
-                            table { width: 100%; border-collapse: collapse; }
-                            th, td { text-align: left; padding: 4px 2px; }
+                            table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+                            th, td { text-align: left; padding: 4px 2px; word-wrap: break-word; }
                             hr { border: none; border-top: 1px dashed black; }
                             .text-right { text-align: right; }
+                            ${columnStyles}
                         </style>
                     </head>
                     <body>${content}</body>
@@ -1966,6 +2021,14 @@ const InvoicePreviewModal = ({
         });
     };
     
+    const headers = [
+        { label: 'S.No', align: 'left' as const },
+        { label: 'Item', align: 'left' as const },
+        { label: 'Qty', align: 'right' as const },
+        { label: 'Price', align: 'right' as const },
+        { label: 'Total', align: 'right' as const },
+    ];
+    
     return (
         <div style={styles.modalBackdrop}>
             <div style={{
@@ -1984,24 +2047,36 @@ const InvoicePreviewModal = ({
                             <p style={{ margin: '5px 0' }}>Date: {saleDate.toLocaleString()}</p>
                         </div>
                         <hr style={{ border: 'none', borderTop: '1px dashed black' }} />
-                        <table style={{ width: '100%', borderCollapse: 'collapse', margin: '10px 0' }}>
+                        <table ref={tableRef} style={{ width: '100%', borderCollapse: 'collapse', margin: '10px 0', tableLayout: 'fixed' }}>
+                            <colgroup>
+                               {columnWidths.map((width, i) => <col key={i} style={{ width: width ? `${width}px` : undefined }} />)}
+                            </colgroup>
                             <thead>
                                 <tr>
-                                    <th style={{ padding: '5px 0' }}>S.No</th>
-                                    <th style={{ padding: '5px 0' }}>Item</th>
-                                    <th style={{ padding: '5px 0', textAlign: 'right' }}>Qty</th>
-                                    <th style={{ padding: '5px 0', textAlign: 'right' }}>Price</th>
-                                    <th style={{ padding: '5px 0', textAlign: 'right' }}>Total</th>
+                                    {headers.map((header, i) => (
+                                        <th key={header.label} style={{ padding: '5px 2px', textAlign: header.align, position: 'relative' }}>
+                                            {header.label}
+                                            {i < headers.length - 1 && (
+                                                <div
+                                                    onMouseDown={e => handleMouseDown(e, i)}
+                                                    style={{
+                                                        position: 'absolute', top: 0, right: -3, bottom: 0, width: '6px',
+                                                        cursor: 'col-resize', zIndex: 2
+                                                    }}
+                                                />
+                                            )}
+                                        </th>
+                                    ))}
                                 </tr>
                             </thead>
                             <tbody>
                                 {sale.items.map((item: SaleItem, index: number) => (
                                     <tr key={item.id}>
-                                        <td>{index + 1}</td>
-                                        <td>{item.description}</td>
-                                        <td style={{ textAlign: 'right' }}>{item.quantity}</td>
-                                        <td style={{ textAlign: 'right' }}>{item.price.toFixed(2)}</td>
-                                        <td style={{ textAlign: 'right' }}>{(item.quantity * item.price).toFixed(2)}</td>
+                                        <td style={{textAlign: headers[0].align, padding: '4px 2px'}}>{index + 1}</td>
+                                        <td style={{textAlign: headers[1].align, padding: '4px 2px'}}>{item.description}</td>
+                                        <td style={{textAlign: headers[2].align, padding: '4px 2px'}}>{item.quantity}</td>
+                                        <td style={{textAlign: headers[3].align, padding: '4px 2px'}}>{item.price.toFixed(2)}</td>
+                                        <td style={{textAlign: headers[4].align, padding: '4px 2px'}}>{(item.quantity * item.price).toFixed(2)}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -2026,6 +2101,7 @@ const InvoicePreviewModal = ({
                         <button onClick={saveAsPdf} style={{...styles.button, backgroundColor: 'var(--danger-color)'}}>Save as PDF</button>
                         <input type="tel" value={whatsAppNumber} onChange={e => setWhatsAppNumber(e.target.value)} placeholder="WhatsApp Number" style={{ ...styles.input, flex: 1 }} />
                         <button style={{...styles.button, backgroundColor: '#25D366'}}>Send</button>
+                        <button onClick={() => setColumnWidths([])} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}} title="Reset column widths to default">Reset Layout</button>
                     </div>
                     {/* Settings Row */}
                      <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -5063,7 +5139,7 @@ const App = () => {
                 - Extract the description, B2B price from the first file, and B2C price from the second file.
                 - Some products might exist in one list but not the other. Handle these cases gracefully.
                 - Default stock to 0.
-                Respond ONLY with a JSON array matching the specified schema.
+                Respond ONLY with a JSON array of objects.
             `;
 
             const response = await ai.models.generateContent({
@@ -5073,9 +5149,9 @@ const App = () => {
                         { text: prompt },
                         { inlineData: { mimeType: 'application/pdf', data: uint8ArrayToBase64(b2bData) } },
                         { inlineData: { mimeType: 'application/pdf', data: uint8ArrayToBase64(b2cData) } },
-                    ],
+                    ]
                 },
-                 config: {
+                config: {
                     responseMimeType: "application/json",
                     responseSchema: {
                         type: Type.ARRAY,
@@ -5096,293 +5172,339 @@ const App = () => {
                 description: item.description || '',
                 descriptionTamil: '',
                 barcode: '',
-                b2bPrice: item.b2bPrice || 0,
-                b2cPrice: item.b2cPrice || 0,
+                b2bPrice: item.b2bPrice || item.b2cPrice || 0,
+                b2cPrice: item.b2cPrice || item.b2bPrice || 0,
                 stock: 0,
                 category: '',
                 hsnCode: '',
             }));
+
             setBulkAddProducts(newProducts);
 
         } catch (error: any) {
             console.error("Error processing PDFs:", error);
-            setBulkAddError(error.message || "Failed to analyze PDFs with AI. Please ensure they are text-based and not scanned images.");
+            setBulkAddError(error.message || "Failed to analyze PDFs with AI. Please ensure the files are valid and try again.");
         } finally {
             setIsBulkAddLoading(false);
         }
     };
     
-    const handleBulkAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleBulkAddFromFile = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (!file) return;
-        
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            setBulkAddFileSrc(event.target?.result as string);
-            setBulkAddFileType('image');
+        if (file) {
             setIsBulkAddModalOpen(true);
+            const fileUrl = URL.createObjectURL(file);
+            setBulkAddFileSrc(fileUrl);
+            setBulkAddFileType('image');
             processImageForProducts(file);
-        };
-        reader.readAsDataURL(file);
+        }
         e.target.value = ''; // Reset file input
     };
     
-    const handleProcessPdfs = (b2bFile: File, b2cFile: File) => {
+    const handleBulkAddFromPdfs = (b2bFile: File, b2cFile: File) => {
         setIsPdfUploadModalOpen(false);
-        setBulkAddFileSrc(null);
+        setIsBulkAddModalOpen(true);
         setBulkAddFileType('dual-pdf');
         setBulkAddPdfFileNames({ b2b: b2bFile.name, b2c: b2cFile.name });
-        setIsBulkAddModalOpen(true);
         processPdfsForProducts(b2bFile, b2cFile);
     };
 
-    const handleSaveBulkProducts = (newProducts: EditableProduct[]) => {
-        if (!db || !activeShop) return;
+    const handleSaveBulkProducts = (productsToSave: EditableProduct[]) => {
+        if (!db || !activeShop) {
+            alert("Database or active shop not found.");
+            return;
+        }
 
         let nextId = activeShop.nextProductId;
         db.exec("BEGIN TRANSACTION;");
         try {
             const stmt = db.prepare("INSERT INTO products (id, shop_id, description, descriptionTamil, barcode, b2bPrice, b2cPrice, stock, category, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            newProducts.forEach(p => {
+            productsToSave.forEach(p => {
                 stmt.run([nextId++, activeShopId, p.description, p.descriptionTamil, p.barcode, p.b2bPrice, p.b2cPrice, p.stock, p.category, p.hsnCode]);
             });
             stmt.free();
             db.run("UPDATE shops SET nextProductId = ? WHERE id = ?", [nextId, activeShopId]);
             db.exec("COMMIT;");
-
-            saveDbToIndexedDB().then(() => {
-                loadShopData(activeShopId!);
-                loadShops();
-                setIsBulkAddModalOpen(false);
-            });
-        } catch (e) {
+        } catch (err) {
             db.exec("ROLLBACK;");
-            console.error("Bulk add transaction failed:", e);
-            alert("An error occurred while saving products. The operation has been rolled back.");
+            console.error("Bulk add transaction failed:", err);
+            alert("An error occurred during bulk import. The transaction has been rolled back.");
+            return;
         }
+
+        saveDbToIndexedDB().then(() => {
+            loadShopData(activeShopId!);
+            loadShops();
+            setIsBulkAddModalOpen(false);
+            setBulkAddProducts([]);
+        });
     };
 
-    const handleExportPdf = (productsToExport: Product[]) => {
-        const productRows = productsToExport.map(p => `
+    // --- PDF EXPORT ---
+    const handleExportProductsPdf = (productsToExport: Product[]) => {
+        if (productsToExport.length === 0) {
+            alert("No products to export.");
+            return;
+        }
+
+        const date = new Date().toLocaleDateString();
+        const shopName = activeShop?.name || 'Inventory';
+
+        const tableBody = productsToExport.map(p => `
             <tr>
                 <td>${p.id}</td>
                 <td>${p.description}</td>
-                <td>${p.barcode || ''}</td>
                 <td>${p.b2bPrice.toFixed(2)}</td>
                 <td>${p.b2cPrice.toFixed(2)}</td>
                 <td>${p.stock}</td>
+                <td>${p.barcode || ''}</td>
             </tr>
         `).join('');
 
         const htmlContent = `
+            <!DOCTYPE html>
             <html>
-                <head>
-                    <title>Product List</title>
-                    <style>
-                        body { font-family: sans-serif; }
-                        table { width: 100%; border-collapse: collapse; }
-                        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-                        th { background-color: #f2f2f2; }
-                    </style>
-                </head>
-                <body>
-                    <h2>Product List - ${activeShop?.name || ''}</h2>
-                    <p>Exported on: ${new Date().toLocaleDateString()}</p>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Description</th>
-                                <th>Barcode</th>
-                                <th>B2B Price</th>
-                                <th>B2C Price</th>
-                                <th>Stock</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${productRows}
-                        </tbody>
-                    </table>
-                </body>
+            <head>
+                <style>
+                    body { font-family: sans-serif; }
+                    table { width: 100%; border-collapse: collapse; }
+                    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                    th { background-color: #f2f2f2; }
+                    h1, h2 { text-align: center; }
+                </style>
+            </head>
+            <body>
+                <h1>Product Price List</h1>
+                <h2>${shopName} - ${date}</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Description</th>
+                            <th>B2B Price</th>
+                            <th>B2C Price</th>
+                            <th>Stock</th>
+                            <th>Barcode</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableBody}
+                    </tbody>
+                </table>
+            </body>
             </html>
         `;
 
         html2pdf(htmlContent, {
             margin: 10,
-            filename: `products_${activeShop?.name}_${new Date().toISOString().slice(0,10)}.pdf`,
+            filename: `product_list_${shopName}_${new Date().toISOString().slice(0, 10)}.pdf`,
             image: { type: 'jpeg', quality: 0.98 },
             html2canvas: { scale: 2 },
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
         });
     };
+    
+    // --- BILL SETTINGS MANAGEMENT ---
+    const handleSaveBillSettings = (settings: BillSettings) => {
+        if (!activeShopId) return;
+        
+        // Track if user explicitly edits shop name
+        const hasShopNameBeenEdited = settings.shopName !== activeShop?.name;
+        const settingsToSave = { ...settings, shopNameEdited: hasShopNameBeenEdited };
 
-    const handleSaveSettings = (settings: BillSettings) => {
-        const shopNameIsCustom = settings.shopName !== activeShop?.name;
-        const settingsToSave = { ...settings, shopNameEdited: shopNameIsCustom };
-
-        localStorage.setItem(`billSettings_${activeShopId}`, JSON.stringify(settingsToSave));
         setBillSettings(settingsToSave);
+        localStorage.setItem(`billSettings_${activeShopId}`, JSON.stringify(settingsToSave));
         alert("Settings saved successfully!");
     };
     
-    const handlePreviewBillSettings = () => {
-        setIsBillSettingsPreviewOpen(true);
-        
-        // Create a dummy sale object for preview
+    const handleBillSettingsPreview = () => {
         const dummySale = {
             id: 'PREVIEW-123',
             date: new Date().toISOString(),
-            items: [
-                { id: 1, productId: 101, description: 'Sample Product A', quantity: 2, price: 25.50, isReturn: false },
-                { id: 2, productId: 102, description: 'Sample Product B', quantity: 1, price: 150.00, isReturn: false },
-            ],
-            subtotal: 201.00,
-            discount: 10.00,
-            tax: 5,
-            total: (201.00 - 10.00) * 1.05,
             customerName: 'John Doe',
             customerMobile: '9876543210',
-            paid_amount: 200,
-            balance_due: ((201.00 - 10.00) * 1.05) - 200,
+            items: [
+                { id: 1, productId: 101, description: 'Sample Product A', quantity: 2, price: 150.00, isReturn: false },
+                { id: 2, productId: 102, description: 'Another Item B', quantity: 1, price: 275.50, isReturn: false },
+                { id: 3, productId: 103, description: 'Product with a much longer name to test wrapping', quantity: 3, price: 80.25, isReturn: false },
+            ],
+            subtotal: 816.25,
+            discount: 16.25,
+            tax: 5, // 5%
+            total: 840.00,
+            paid_amount: 850.00,
+            balance_due: 0,
         };
         setPreviewSale(dummySale);
+        setIsBillSettingsPreviewOpen(true);
     };
 
+    // --- RENDER LOGIC ---
     if (!dbReady) {
-        return <div style={{...styles.appContainer, justifyContent: 'center', alignItems: 'center'}}><h2>Initializing Database...</h2></div>;
+        return <div style={{display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh'}}><h2>Loading Database...</h2></div>;
     }
 
     if (!isLoggedIn) {
         return <LoginView onLoginSuccess={handleLoginSuccess} />;
     }
-
+    
     if (isInitialSetup) {
         return <InitialSetupModal onCreate={handleCreateShop} />;
     }
 
+    if (!activeShop) {
+        return (
+            <div style={styles.appContainer}>
+                <div style={styles.header}>
+                    <h1 style={styles.title}>Gem POS</h1>
+                    <div>
+                         <button onClick={() => setIsShopManagerOpen(true)} style={styles.shopManagerButton}>Manage Shops</button>
+                         <button onClick={handleLogout} style={{...styles.logoutButton, marginLeft: '1rem'}}>Logout</button>
+                    </div>
+                </div>
+                <div style={styles.mainContent}>
+                     <div style={{textAlign: 'center', padding: '4rem 1rem'}}>
+                         <h2>No Shop Selected</h2>
+                         <p>Please create or select a shop to begin.</p>
+                         <button onClick={() => setIsShopManagerOpen(true)} style={styles.button}>Open Shop Manager</button>
+                    </div>
+                </div>
+                 {isShopManagerOpen && <ShopManagerModal shops={shops} activeShopId={activeShopId} onSelect={handleSelectShop} onCreate={handleCreateShop} onRename={renameShop} onDelete={handleDeleteShop} onClose={() => setIsShopManagerOpen(false)} userPlan={userPlan} onUpgrade={() => { handleUpgrade(); setIsShopManagerOpen(false); }} />}
+            </div>
+        );
+    }
+    
+    const renderView = () => {
+        switch (view) {
+            case 'products':
+                return <ProductsView 
+                            products={products}
+                            onAdd={() => { setEditingProduct(null); setIsProductModalOpen(true); }}
+                            onEdit={(p) => { setEditingProduct(p); setIsProductModalOpen(true); }}
+                            onDelete={handleDeleteProduct}
+                            onBulkAdd={handleBulkAddFromFile}
+                            onBulkAddPdfs={() => setIsPdfUploadModalOpen(true)}
+                            onExportPdf={handleExportProductsPdf}
+                            selectedProductIds={selectedProductIds}
+                            setSelectedProductIds={setSelectedProductIds}
+                            onDeleteSelected={handleDeleteSelectedProducts}
+                            isOnline={isOnline}
+                            aiUsage={{ plan: userPlan, count: aiUsageCount }}
+                            onUpgrade={handleUpgrade}
+                            currentUser={currentUser}
+                        />;
+            case 'reports':
+                return <ReportsView salesHistory={salesHistory} onPrint={handlePrintHistoricalSale} userPlan={userPlan} onUpgrade={handleUpgrade} isOnline={isOnline} />;
+            case 'customers':
+                return <CustomersView 
+                            customers={customers} 
+                            salesHistory={salesHistory} 
+                            onAdd={() => { setEditingCustomer(null); setIsCustomerModalOpen(true); }}
+                            onEdit={(c) => { setEditingCustomer(c); setIsCustomerModalOpen(true); }}
+                            onDelete={handleDeleteCustomer}
+                            currentUser={currentUser}
+                        />;
+            case 'expenses':
+                return <ExpensesView expenses={expenses} onAdd={handleExpenseAdd} onDelete={handleExpenseDelete} shopId={activeShopId!} userPlan={userPlan} onUpgrade={handleUpgrade} />;
+            case 'balance_due':
+                return <BalanceDueView salesHistory={salesHistory} customers={customers} onSettlePayment={handleSettlePayment} />;
+            case 'settings':
+                return <SettingsView 
+                            billSettings={billSettings} 
+                            onSave={handleSaveBillSettings} 
+                            onPreview={handleBillSettingsPreview} 
+                            activeShopName={activeShop.name}
+                            onRenameShop={handleRenameShopInSettings}
+                            userPlan={userPlan}
+                            onUpgrade={handleUpgrade}
+                        />;
+            case 'sales':
+            default:
+                return <SalesView 
+                            products={products}
+                            activeCart={activeCart}
+                            updateActiveCart={updateActiveCart}
+                            onPreview={handlePreviewSale}
+                            total={total + previousBalanceDue}
+                            paidAmount={paidAmount}
+                            setPaidAmount={setPaidAmountForCart}
+                            onAmountPaidEdit={handleAmountPaidEditForCart}
+                            previousBalanceDue={previousBalanceDue}
+                            onShowHistory={handleShowHistory}
+                            onSaveBackup={handleSaveBackup}
+                            onRestoreBackup={handleRestoreBackup}
+                            onUpdateProductPrice={handleUpdateProductPrice}
+                            onUpdateProductDetails={handleUpdateProductDetails}
+                            onAddNewProduct={handleAddNewProductFromSale}
+                            isOnline={isOnline}
+                            viewMode={viewMode}
+                            setViewMode={setViewMode}
+                            currentUser={currentUser}
+                            activeCartIndex={activeCartIndex}
+                            onCartChange={(index) => setActiveCartIndex(index)}
+                        />;
+        }
+    };
+
     return (
         <div style={styles.appContainer}>
-            <header style={styles.header}>
-                <h1 style={styles.title}>{activeShop?.name || 'POS'}</h1>
+            <div style={styles.header}>
+                 <h1 style={styles.title}>
+                    <span style={{color: 'var(--secondary-color)', fontWeight: 400}}>{activeShop?.name || 'No Shop'} /</span> {view.charAt(0).toUpperCase() + view.slice(1)}
+                </h1>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <DropdownNav
-                        activeView={view}
-                        onSelectView={setView}
-                        disabled={!activeShopId}
-                        currentUser={currentUser}
-                    />
-                     {currentUser?.role === 'super_admin' && (
-                        <button onClick={() => setIsShopManagerOpen(true)} style={styles.shopManagerButton}>
-                            Shop Manager
-                        </button>
-                    )}
-                    <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
-                        <UserIcon size={20} color="var(--secondary-color)"/>
-                        <span>{currentUser?.username} ({currentUser?.role})</span>
-                    </div>
-                    <button onClick={handleLogout} style={styles.logoutButton}>
-                        Logout
-                    </button>
+                    <DropdownNav activeView={view} onSelectView={setView} disabled={isProductModalOpen || isConfirmationModalOpen || isInvoicePreviewOpen || isBulkAddModalOpen} currentUser={currentUser} />
+                    <button onClick={() => setIsShopManagerOpen(true)} style={styles.shopManagerButton}>Manage Shops</button>
+                    <button onClick={handleLogout} style={styles.logoutButton}>Logout</button>
                 </div>
-            </header>
-
+            </div>
             <main style={styles.mainContent}>
-                {!activeShopId ? (
-                    <div style={styles.viewContainer}>
-                        <h2>No Shop Selected</h2>
-                        <p>Please use the Shop Manager to select or create a shop.</p>
-                    </div>
-                ) : view === 'sales' ? (
-                    <SalesView
-                        products={products}
-                        activeCart={activeCart}
-                        updateActiveCart={updateActiveCart}
-                        onPreview={handlePreviewSale}
-                        total={total + previousBalanceDue}
-                        paidAmount={paidAmount}
-                        setPaidAmount={setPaidAmountForCart}
-                        onAmountPaidEdit={handleAmountPaidEditForCart}
-                        previousBalanceDue={previousBalanceDue}
-                        onShowHistory={handleShowHistory}
-                        onSaveBackup={handleSaveBackup}
-                        onRestoreBackup={handleRestoreBackup}
-                        onUpdateProductPrice={handleUpdateProductPrice}
-                        onUpdateProductDetails={handleUpdateProductDetails}
-                        onAddNewProduct={handleAddNewProductFromSale}
-                        isOnline={isOnline}
-                        viewMode={viewMode}
-                        setViewMode={setViewMode}
-                        currentUser={currentUser}
-                        activeCartIndex={activeCartIndex}
-                        onCartChange={setActiveCartIndex}
-                    />
-                ) : view === 'products' ? (
-                    <ProductsView
-                        products={products}
-                        onEdit={(p) => { setEditingProduct(p); setIsProductModalOpen(true); }}
-                        onDelete={handleDeleteProduct}
-                        onAdd={() => { setEditingProduct(null); setIsProductModalOpen(true); }}
-                        onBulkAdd={handleBulkAdd}
-                        onBulkAddPdfs={() => setIsPdfUploadModalOpen(true)}
-                        onExportPdf={handleExportPdf}
-                        selectedProductIds={selectedProductIds}
-                        setSelectedProductIds={setSelectedProductIds}
-                        onDeleteSelected={handleDeleteSelectedProducts}
-                        isOnline={isOnline}
-                        aiUsage={{ plan: userPlan, count: aiUsageCount }}
-                        onUpgrade={handleUpgrade}
-                        currentUser={currentUser}
-                    />
-                ) : view === 'reports' ? (
-                     <ReportsView salesHistory={salesHistory} onPrint={handlePrintHistoricalSale} userPlan={userPlan} onUpgrade={handleUpgrade} isOnline={isOnline}/>
-                ) : view === 'customers' ? (
-                    <CustomersView
-                        customers={customers}
-                        salesHistory={salesHistory}
-                        onAdd={() => { setEditingCustomer(null); setIsCustomerModalOpen(true); }}
-                        onEdit={(c) => { setEditingCustomer(c); setIsCustomerModalOpen(true); }}
-                        onDelete={handleDeleteCustomer}
-                        currentUser={currentUser}
-                    />
-                ) : view === 'expenses' ? (
-                     <ExpensesView expenses={expenses} onAdd={handleExpenseAdd} onDelete={handleExpenseDelete} shopId={activeShopId} userPlan={userPlan} onUpgrade={handleUpgrade} />
-                ) : view === 'balance_due' ? (
-                    <BalanceDueView salesHistory={salesHistory} customers={customers} onSettlePayment={handleSettlePayment} />
-                ) : view === 'settings' ? (
-                     <SettingsView 
-                        billSettings={billSettings} 
-                        onSave={handleSaveSettings} 
-                        onPreview={handlePreviewBillSettings}
-                        activeShopName={activeShop?.name || ''}
-                        onRenameShop={handleRenameShopInSettings}
-                        userPlan={userPlan}
-                        onUpgrade={handleUpgrade}
-                    />
-                ) : null}
+                {renderView()}
             </main>
-
+            
+            {/* --- MODALS --- */}
             {isProductModalOpen && <ProductFormModal product={editingProduct} onSave={handleAddProduct} onUpdate={handleUpdateProduct} onClose={() => setIsProductModalOpen(false)} />}
-            {isCustomerModalOpen && <CustomerFormModal customer={editingCustomer} onSave={editingCustomer ? (data) => handleUpdateCustomer({ ...data, id: editingCustomer.id }) : handleAddCustomer} onClose={() => setIsCustomerModalOpen(false)} />}
+            {isCustomerModalOpen && <CustomerFormModal customer={editingCustomer} onSave={editingCustomer ? handleUpdateCustomer : handleAddCustomer} onClose={() => setIsCustomerModalOpen(false)} />}
             {isConfirmationModalOpen && <ConfirmationModal message={confirmation.message} onConfirm={confirmation.onConfirm} onCancel={() => setIsConfirmationModalOpen(false)} />}
             {isHistoryModalOpen && <HistoryModal salesHistory={salesHistory} customerMobile={historyMobile} onClose={() => setIsHistoryModalOpen(false)} />}
-            {isInvoicePreviewOpen && <InvoicePreviewModal sale={previewSale} onFinalize={isPreviewingNewSale ? handleFinalizeSale : undefined} onClose={() => setIsInvoicePreviewOpen(false)} isPreviewMode={!isPreviewingNewSale || previewSale.isFinalized} />}
-            {isBulkAddModalOpen && <BulkAddModal fileSrc={bulkAddFileSrc} fileType={bulkAddFileType} fileNames={bulkAddPdfFileNames} initialProducts={bulkAddProducts} onSave={handleSaveBulkProducts} onClose={() => setIsBulkAddModalOpen(false)} loading={isBulkAddLoading} error={bulkAddError} />}
-            {isPdfUploadModalOpen && <PdfUploadModal onProcess={handleProcessPdfs} onClose={() => setIsPdfUploadModalOpen(false)} />}
-            {isShopManagerOpen && <ShopManagerModal shops={shops} activeShopId={activeShopId} onSelect={handleSelectShop} onCreate={handleCreateShop} onRename={renameShop} onDelete={handleDeleteShop} onClose={() => setIsShopManagerOpen(false)} userPlan={userPlan} onUpgrade={handleUpgrade} />}
-            {isRestoreModalOpen && <RestoreProgressModal {...restoreProgress} />}
-            {isBillSettingsPreviewOpen && (
-                <InvoicePreviewModal
+            {isPdfUploadModalOpen && <PdfUploadModal onProcess={handleBulkAddFromPdfs} onClose={() => setIsPdfUploadModalOpen(false)} />}
+            {isBulkAddModalOpen && <BulkAddModal 
+                fileSrc={bulkAddFileSrc} 
+                fileType={bulkAddFileType} 
+                fileNames={bulkAddPdfFileNames}
+                initialProducts={bulkAddProducts} 
+                onSave={handleSaveBulkProducts} 
+                onClose={() => setIsBulkAddModalOpen(false)} 
+                loading={isBulkAddLoading}
+                error={bulkAddError}
+            />}
+            {isInvoicePreviewOpen && isPreviewingNewSale && (
+                <InvoicePreviewModal 
+                    sale={previewSale} 
+                    onFinalize={handleFinalizeSale}
+                    onClose={() => setIsInvoicePreviewOpen(false)}
+                    isPreviewMode={true}
+                />
+            )}
+             {isInvoicePreviewOpen && !isPreviewingNewSale && (
+                <InvoicePreviewModal 
+                    sale={previewSale} 
+                    onClose={() => setIsInvoicePreviewOpen(false)}
+                />
+            )}
+             {isBillSettingsPreviewOpen && (
+                <InvoicePreviewModal 
                     sale={previewSale}
                     onClose={() => setIsBillSettingsPreviewOpen(false)}
                     isPreviewMode={true}
                 />
             )}
+            {isShopManagerOpen && <ShopManagerModal shops={shops} activeShopId={activeShopId} onSelect={handleSelectShop} onCreate={handleCreateShop} onRename={renameShop} onDelete={handleDeleteShop} onClose={() => setIsShopManagerOpen(false)} userPlan={userPlan} onUpgrade={() => { handleUpgrade(); setIsShopManagerOpen(false); }} />}
+            {isRestoreModalOpen && <RestoreProgressModal {...restoreProgress} />}
+
         </div>
     );
 };
 
-const rootElement = document.getElementById('root');
-if (rootElement) {
-    const root = createRoot(rootElement);
-    root.render(<App />);
-}
+const root = createRoot(document.getElementById('root')!);
+root.render(<App />);
