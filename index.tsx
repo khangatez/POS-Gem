@@ -2117,7 +2117,7 @@ const InvoicePreviewModal = ({
                             </>
                         ) : (
                             <button onClick={onClose} style={{...styles.button, backgroundColor: 'var(--secondary-color)', width: '100%'}}>
-                                {isPreviewMode ? 'Close Preview' : 'New Sale'}
+                                {isPreviewMode ? 'New Sale' : 'New Sale'}
                             </button>
                         )}
                     </div>
@@ -4380,38 +4380,63 @@ const App = () => {
             return;
         }
 
+        // Close the modal immediately to provide feedback and prevent double-clicks.
+        setIsInvoicePreviewOpen(false);
         const saleId = `INV-${activeShopId}-${Date.now()}`;
-        const finalBalance = total - paidAmount;
+
+        // 1. Calculate totals for the CURRENT sale only, not including previous balance.
+        const saleSubtotal = activeCart.items.reduce((acc, item) => {
+            const itemTotal = item.quantity * item.price;
+            return acc + (item.isReturn ? -itemTotal : itemTotal);
+        }, 0);
+        const saleTaxAmount = (saleSubtotal - activeCart.discount) * (activeCart.tax / 100);
+        const saleTotal = saleSubtotal - activeCart.discount + saleTaxAmount;
+
+        let remainingPaidAmount = paidAmount;
+
+        // 2. Determine payment allocation for the current sale.
+        const paymentForCurrentSale = Math.min(remainingPaidAmount, saleTotal > 0 ? saleTotal : 0);
+        const balanceForCurrentSale = saleTotal - paymentForCurrentSale;
+        remainingPaidAmount -= paymentForCurrentSale;
 
         // Start transaction
         db.exec("BEGIN TRANSACTION;");
         try {
-            // 1. Insert into sales_history
+            // 3. Insert the new sale record with correct, sale-specific values.
             db.run(
                 "INSERT INTO sales_history (id, shop_id, date, subtotal, discount, tax, total, paid_amount, balance_due, customerName, customerMobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     saleId,
                     activeShopId,
                     new Date().toISOString(),
-                    subtotal,
+                    saleSubtotal,
                     activeCart.discount,
                     activeCart.tax,
-                    total,
-                    paidAmount,
-                    finalBalance > 0 ? finalBalance : 0,
+                    saleTotal,
+                    paymentForCurrentSale,
+                    balanceForCurrentSale,
                     activeCart.customerName,
                     activeCart.customerMobile
                 ]
             );
 
-            // 2. Insert into sale_items
+            // Insert sale items and update stock
             const saleItemStmt = db.prepare("INSERT INTO sale_items (sale_id, productId, shop_id, description, descriptionTamil, quantity, price, isReturn, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
             for (const item of activeCart.items) {
-                saleItemStmt.run([saleId, item.productId, activeShopId, item.description, item.descriptionTamil, item.quantity, item.price, item.isReturn ? 1 : 0, item.hsnCode]);
+                saleItemStmt.run([
+                    saleId,
+                    item.productId,
+                    activeShopId,
+                    item.description,
+                    item.descriptionTamil || null,
+                    item.quantity,
+                    item.price,
+                    item.isReturn ? 1 : 0,
+                    item.hsnCode || null
+                ]);
             }
             saleItemStmt.free();
 
-            // 3. Update product stock
             const updateStockStmt = db.prepare("UPDATE products SET stock = stock - ? WHERE id = ? AND shop_id = ?");
             for (const item of activeCart.items) {
                 const quantityChange = item.isReturn ? -item.quantity : item.quantity;
@@ -4419,32 +4444,31 @@ const App = () => {
             }
             updateStockStmt.free();
 
-            // 4. Record payment if any
-            if (paidAmount > 0) {
+            // 4. Record the payment portion for the current sale in payment_history
+            if (paymentForCurrentSale > 0) {
                 db.run(
                     "INSERT INTO payment_history (sale_id, date, amount_paid, payment_method) VALUES (?, ?, ?, ?)",
-                    [saleId, new Date().toISOString(), paidAmount, 'cash'] // Assuming 'cash' for now
+                    [saleId, new Date().toISOString(), paymentForCurrentSale, 'cash']
                 );
             }
             
-             // 5. Update previous balance dues for the customer if any
-            if (previousBalanceDue > 0 && paidAmount > 0) {
-                let amountToSettle = paidAmount - (total - previousBalanceDue);
+             // 5. Settle past dues with any remaining paid amount.
+            if (remainingPaidAmount > 0 && previousBalanceDue > 0) {
                 const pastDueSales = salesHistory
                     .filter(s => s.customerMobile === activeCart.customerMobile && s.balance_due > 0)
                     .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
                 for (const sale of pastDueSales) {
-                    if (amountToSettle <= 0) break;
-                    const paymentForThisSale = Math.min(amountToSettle, sale.balance_due);
-                    const newBalance = sale.balance_due - paymentForThisSale;
+                    if (remainingPaidAmount <= 0) break;
+                    const paymentForThisOldSale = Math.min(remainingPaidAmount, sale.balance_due);
+                    const newBalance = sale.balance_due - paymentForThisOldSale;
                     
-                    db.run("UPDATE sales_history SET balance_due = ?, paid_amount = paid_amount + ? WHERE id = ?", [newBalance, paymentForThisSale, sale.id]);
+                    db.run("UPDATE sales_history SET balance_due = ?, paid_amount = paid_amount + ? WHERE id = ?", [newBalance, paymentForThisOldSale, sale.id]);
                      db.run(
                         "INSERT INTO payment_history (sale_id, date, amount_paid, payment_method) VALUES (?, ?, ?, ?)",
-                        [sale.id, new Date().toISOString(), paymentForThisSale, 'settlement']
+                        [sale.id, new Date().toISOString(), paymentForThisOldSale, 'settlement']
                     );
-                    amountToSettle -= paymentForThisSale;
+                    remainingPaidAmount -= paymentForThisOldSale;
                 }
             }
 
@@ -4460,8 +4484,12 @@ const App = () => {
                 ...activeCart,
                 id: saleId,
                 date: new Date().toISOString(),
-                subtotal, total, paid_amount: paidAmount, balance_due: finalBalance > 0 ? finalBalance : 0,
+                subtotal: saleSubtotal,
+                total: saleTotal,
+                paid_amount: paidAmount, // Show total amount paid in this transaction for user clarity
+                balance_due: balanceForCurrentSale,
                 previousBalanceForPreview: previousBalanceDue,
+                isFinalized: true,
             };
             setPreviewingSale(finalizedSaleRecord);
             setIsInvoicePreviewOpen(true);
@@ -4715,7 +4743,7 @@ const App = () => {
     
     // --- BULK ADD & AI FEATURES ---
 
-    const processFileWithGemini = async (file: File, fileType: 'image' | 'pdf', additionalFile?: File) => {
+    const processFileWithGemini = async (file: File, fileType: 'image' | 'pdf' | 'dual-pdf', additionalFile?: File) => {
         if (!isOnline) {
             setBulkAddError("AI features are disabled while offline.");
             return;
@@ -4746,224 +4774,268 @@ const App = () => {
                 items: {
                     type: Type.OBJECT,
                     properties: {
-                        description: { type: Type.STRING },
-                        descriptionTamil: { type: Type.STRING },
-                        category: { type: Type.STRING },
-                        barcode: { type: Type.STRING },
-                        b2bPrice: { type: Type.NUMBER },
-                        b2cPrice: { type: Type.NUMBER },
-                        stock: { type: Type.NUMBER },
+                        description: { type: Type.STRING, description: 'The full name or description of the product.' },
+                        descriptionTamil: { type: Type.STRING, description: 'The Tamil name for the product, if available. Otherwise, leave blank.' },
+                        category: { type: Type.STRING, description: 'A suitable category for the product (e.g., Groceries, Snacks, Drinks). Leave blank if not obvious.' },
+                        b2bPrice: { type: Type.NUMBER, description: 'The business-to-business (wholesale) price.' },
+                        b2cPrice: { type: Type.NUMBER, description: 'The business-to-consumer (retail) price.' },
+                        stock: { type: Type.NUMBER, description: 'The current stock quantity. Default to 0 if not specified.' },
+                        barcode: { type: Type.STRING, description: 'The barcode or SKU number. Leave blank if not available.' },
                     },
-                    required: ["description", "b2cPrice", "stock"],
+                    required: ["description", "b2bPrice", "b2cPrice", "stock"],
                 },
             };
             
-            if (fileType === 'image') {
-                contents.parts.push(await fileToPart(file));
-                prompt = 'Extract product details from this image of a handwritten inventory list. Infer columns if not explicitly labeled. Ensure b2cPrice and stock are numbers. Do not invent data if it is not present in the image.';
-            } else if (fileType === 'pdf' && additionalFile) { // Dual PDF
-                 contents.parts.push({text: 'B2B Price List:'});
-                 contents.parts.push(await fileToPart(file));
-                 contents.parts.push({text: 'B2C Price List:'});
-                 contents.parts.push(await fileToPart(additionalFile));
-                 prompt = 'Analyze these two PDF price lists. The first is B2B, the second is B2C. Match products by description and merge them. Extract description, b2bPrice, and b2cPrice. Assume stock is 10 for all items.';
-            }
+            const config = {
+                responseMimeType: "application/json",
+                responseSchema: schema,
+            };
 
-            contents.parts.unshift({ text: prompt });
+            if (fileType === 'image') {
+                prompt = `Analyze this image of a product list or inventory sheet. Extract each product's details. If a price is listed, assume it is the B2C price and set the B2B price to 90% of that value. If no stock is visible, default to 0. Provide the response as a JSON array matching the schema.`;
+                contents.parts.push({text: prompt});
+                contents.parts.push(await fileToPart(file));
+            } else if (fileType === 'pdf') { // This case might be for a single, combined PDF
+                 prompt = `Analyze this PDF document which contains a product price list. Extract each product's details. It might contain B2B and B2C prices. If only one price is listed, use it for both. If no stock is mentioned, default to 0. Provide the response as a JSON array matching the schema.`;
+                 contents.parts.push({text: prompt});
+                 contents.parts.push(await fileToPart(file));
+            } else if (fileType === 'dual-pdf' && additionalFile) {
+                prompt = `Analyze these two PDF documents. One is a B2B price list and the other is a B2C price list. Merge them based on the product descriptions, which should be identical or very similar across both lists. Extract all product details and provide a single, combined JSON array matching the provided schema. Match items carefully.`;
+                contents.parts.push({text: prompt});
+                contents.parts.push(await fileToPart(file));
+                contents.parts.push(await fileToPart(additionalFile));
+            }
 
             const response = await ai.models.generateContent({
                 model: 'gemini-2.5-flash',
-                contents,
-                config: {
-                    responseMimeType: 'application/json',
-                    responseSchema: schema,
-                }
+                contents: contents,
+                config: config,
             });
             
-            const resultText = response.text.trim();
-            const parsedProducts = JSON.parse(resultText);
-
-            // Ensure all fields are present to avoid crashes
-            const cleanedProducts = parsedProducts.map((p: any) => ({
-                description: p.description || '',
-                descriptionTamil: p.descriptionTamil || '',
-                category: p.category || '',
-                barcode: p.barcode || '',
-                b2bPrice: p.b2bPrice || 0,
-                b2cPrice: p.b2cPrice || 0,
-                stock: p.stock || 0,
-            }));
+            let jsonStr = response.text.trim();
+            const productsArray = JSON.parse(jsonStr);
             
-            setBulkAddInitialProducts(cleanedProducts);
+            // Validate that we got an array of objects
+            if (Array.isArray(productsArray) && productsArray.every(p => typeof p === 'object')) {
+                 setBulkAddInitialProducts(productsArray.map(p => ({
+                    description: p.description || '',
+                    descriptionTamil: p.descriptionTamil || '',
+                    category: p.category || '',
+                    b2bPrice: p.b2bPrice || 0,
+                    b2cPrice: p.b2cPrice || 0,
+                    stock: p.stock || 0,
+                    barcode: p.barcode || '',
+                    hsnCode: '',
+                })));
+            } else {
+                 throw new Error("AI returned data in an unexpected format. Please check the file and try again.");
+            }
 
         } catch (error: any) {
-            console.error('Error processing with Gemini:', error);
-            setBulkAddError(`AI processing failed: ${error.message || 'Unknown error'}`);
+            console.error("Error processing file with Gemini:", error);
+            setBulkAddError(error.message || "An unexpected error occurred while analyzing the file.");
         } finally {
             setIsBulkAddLoading(false);
         }
     };
+    
+    const handleBulkAddFromFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        event.target.value = ''; // Reset input
+        if (!file) return;
 
-    const handleBulkAddFromFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            const fileUrl = URL.createObjectURL(file);
-            setBulkAddFileSrc(fileUrl);
-            setBulkAddFileType('image');
-            setIsBulkAddModalOpen(true);
-            processFileWithGemini(file, 'image');
-        }
-        e.target.value = ''; // Reset file input
+        const fileURL = URL.createObjectURL(file);
+        setBulkAddFileSrc(fileURL);
+        setBulkAddFileType('image');
+        setIsBulkAddModalOpen(true);
+        await processFileWithGemini(file, 'image');
     };
     
-    const handleBulkAddFromPdfs = async (b2bFile: File, b2cFile: File) => {
+     const handleBulkAddFromPdfs = async (b2bFile: File, b2cFile: File) => {
         setIsPdfUploadModalOpen(false);
+        setBulkAddFileSrc(null); // No single source for dual PDFs
         setBulkAddFileType('dual-pdf');
         setBulkAddFileNames({ b2b: b2bFile.name, b2c: b2cFile.name });
         setIsBulkAddModalOpen(true);
-        processFileWithGemini(b2bFile, 'pdf', b2cFile);
+        await processFileWithGemini(b2bFile, 'dual-pdf', b2cFile);
     };
 
     const handleSaveBulkProducts = async (productsToSave: Omit<Product, 'id'>[]) => {
         if (!activeShopId) return;
-
-        // Get the next product ID for the current shop
-        const shop = shops.find(s => s.id === activeShopId);
-        if (!shop) {
-             showAppToast("Error: Active shop not found.");
-             return;
-        }
-
-        let nextId = shop.nextProductId;
         
         db.exec("BEGIN TRANSACTION;");
         try {
+            const shop = shops.find(s => s.id === activeShopId);
+            if (!shop) throw new Error("Active shop not found.");
+
+            let nextId = shop.nextProductId;
+            
             const stmt = db.prepare("INSERT INTO products (id, shop_id, description, descriptionTamil, barcode, b2bPrice, b2cPrice, stock, category, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            for (const p of productsToSave) {
-                stmt.run([nextId, activeShopId, p.description, p.descriptionTamil || '', p.barcode || '', p.b2bPrice || 0, p.b2cPrice || 0, p.stock || 0, p.category || '', p.hsnCode || '']);
-                nextId++;
+            for (const product of productsToSave) {
+                 stmt.run([nextId, activeShopId, product.description, product.descriptionTamil, product.barcode, product.b2bPrice, product.b2cPrice, product.stock, product.category, product.hsnCode]);
+                 nextId++;
             }
             stmt.free();
 
-            // Update the nextProductId for the shop
             db.run("UPDATE shops SET nextProductId = ? WHERE id = ?", [nextId, activeShopId]);
-
             db.exec("COMMIT;");
-            
+
             await saveDbToIndexedDB();
             await fetchAllData();
-            
             setIsBulkAddModalOpen(false);
             showAppToast(`${productsToSave.length} products added successfully!`);
-
-        } catch (error) {
+        } catch (err) {
             db.exec("ROLLBACK;");
-            console.error("Failed to save bulk products:", error);
+            console.error("Error saving bulk products:", err);
             showAppToast("Error: Could not save products.");
         }
     };
-    
-    // --- DATABASE BACKUP & RESTORE ---
 
-    const handleSaveBackup = async () => {
-        if (!db) {
-            showAppToast("Database not ready.");
-            return;
+    const handleQuickAddNewProduct = (description: string): Product | null => {
+        if (!activeShopId || !description) return null;
+
+        try {
+            const shop = shops.find(s => s.id === activeShopId);
+            if (!shop) throw new Error("Active shop not found.");
+            
+            const nextId = shop.nextProductId;
+            const newProduct: Product = {
+                id: nextId,
+                description,
+                b2bPrice: 0,
+                b2cPrice: 0,
+                stock: 1,
+                barcode: '',
+            };
+
+            db.run(
+                "INSERT INTO products (id, shop_id, description, b2bPrice, b2cPrice, stock, barcode) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [nextId, activeShopId, newProduct.description, newProduct.b2bPrice, newProduct.b2cPrice, newProduct.stock, newProduct.barcode]
+            );
+            db.run("UPDATE shops SET nextProductId = ? WHERE id = ?", [nextId + 1, activeShopId]);
+            
+            // No need to await these for quick add, but trigger them
+            saveDbToIndexedDB();
+            fetchAllData(); 
+            
+            return newProduct;
+        } catch (err) {
+            console.error("Error in quick add:", err);
+            return null;
         }
+    };
+    
+    const handleUpdateProductPrice = (productId: number, newPrice: number, priceMode: 'b2b' | 'b2c') => {
+        if (!activeShopId) return;
+        try {
+            const fieldToUpdate = priceMode === 'b2b' ? 'b2bPrice' : 'b2cPrice';
+            db.run(`UPDATE products SET ${fieldToUpdate} = ? WHERE id = ? AND shop_id = ?`, [newPrice, productId, activeShopId]);
+            saveDbToIndexedDB();
+            fetchAllData();
+        } catch(e) {
+            console.error("Error updating price", e);
+        }
+    };
+
+    const handleUpdateProductDetails = (productId: number, field: 'description', value: string) => {
+         if (!activeShopId) return;
+        try {
+            db.run(`UPDATE products SET ${field} = ? WHERE id = ? AND shop_id = ?`, [value, productId, activeShopId]);
+            saveDbToIndexedDB();
+            fetchAllData();
+        } catch(e) {
+            console.error("Error updating details", e);
+        }
+    };
+    
+    // --- DATABASE BACKUP/RESTORE ---
+    const handleSaveBackup = async () => {
+        if (!db) return;
         try {
             const data = db.export();
-            const blob = new Blob([data], { type: 'application/x-sqlite3' });
+            const blob = new Blob([data]);
             const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
+            const link = document.createElement('a');
             const date = new Date().toISOString().slice(0, 10);
-            a.download = `pos_gem_backup_${date}.db`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+            link.href = url;
+            link.download = `pos-backup-${date}.sqlite`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
             URL.revokeObjectURL(url);
             showAppToast("Backup saved successfully!");
         } catch (err) {
-            console.error("Error saving backup:", err);
-            showAppToast("Error: Could not save backup.");
+            console.error("Backup failed:", err);
+            showAppToast("Error: Backup failed.");
         }
     };
-    
-    const handleRestoreBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
+
+    const handleRestoreBackup = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
         if (!file) return;
 
-        setConfirmationMessage("Restoring from a backup will overwrite all current data. This action cannot be undone. Are you sure you want to proceed?");
-        setConfirmationAction(() => async () => {
+        setConfirmationMessage("Restoring a backup will completely overwrite all current data in the application. Are you sure you want to proceed?");
+        setConfirmationAction(() => () => {
+            const reader = new FileReader();
             const startTime = Date.now();
-            setIsRestoreProgressModalOpen(true);
-            setRestoreProgress({ percentage: 0, eta: 'calculating...', message: 'Reading backup file...' });
+            
+            reader.onloadstart = () => {
+                setRestoreProgress({ percentage: 0, eta: 'calculating...', message: 'Starting Restore...' });
+                setIsRestoreProgressModalOpen(true);
+            };
 
-            try {
-                const reader = new FileReader();
-                reader.onload = async (event) => {
-                    try {
-                        const arrayBuffer = event.target?.result as ArrayBuffer;
-                        const uInt8Array = new Uint8Array(arrayBuffer);
-                        
-                        setRestoreProgress({ percentage: 25, eta: '...', message: 'Initializing new database...' });
-                        
-                        const SQL = await initSqlJs({ locateFile: (file: string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}` });
-                        db = new SQL.Database(uInt8Array);
-                        
-                        setRestoreProgress({ percentage: 50, eta: '...', message: 'Saving to local storage...' });
+            reader.onprogress = (e) => {
+                if (e.lengthComputable) {
+                    const percentage = (e.loaded / e.total) * 100;
+                    const elapsedTime = (Date.now() - startTime) / 1000; // in seconds
+                    const totalTime = (elapsedTime / e.loaded) * e.total;
+                    const remainingTime = Math.round(totalTime - elapsedTime);
+                    const eta = remainingTime > 60 ? `${Math.floor(remainingTime / 60)}m ${remainingTime % 60}s` : `${remainingTime}s`;
+                    setRestoreProgress({ percentage, eta, message: 'Reading File...' });
+                }
+            };
+            
+            reader.onload = async (e) => {
+                try {
+                    setRestoreProgress(prev => ({ ...prev, percentage: 100, message: 'Initializing Database...' }));
+                    const SQL = await initSqlJs({ locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}` });
+                    const restoredDb = new SQL.Database(new Uint8Array(e.target?.result as ArrayBuffer));
+                    db = restoredDb; // Replace the in-memory DB
+                    setRestoreProgress(prev => ({ ...prev, message: 'Saving to Browser...' }));
+                    await saveDbToIndexedDB(); // Save the new DB to IndexedDB
+                    setRestoreProgress(prev => ({ ...prev, message: 'Reloading Application...' }));
+                    setTimeout(() => {
+                        window.location.reload(); // Reload to apply changes cleanly
+                    }, 1500);
+                } catch (err) {
+                    console.error("Restore failed:", err);
+                    showAppToast("Error: Invalid or corrupt backup file.");
+                    setIsRestoreProgressModalOpen(false);
+                }
+            };
 
-                        await saveDbToIndexedDB();
-                        
-                        setRestoreProgress({ percentage: 100, eta: '0s', message: 'Restore complete!' });
-                        showAppToast("Database restored successfully! The app will now reload.");
-                        
-                        setTimeout(() => {
-                           window.location.reload();
-                        }, 1500);
+            reader.onerror = () => {
+                 showAppToast("Error: Could not read the backup file.");
+                 setIsRestoreProgressModalOpen(false);
+            };
 
-                    } catch (err) {
-                        console.error("Error processing backup file:", err);
-                        showAppToast("Error: The selected file is not a valid database backup.");
-                        setIsRestoreProgressModalOpen(false);
-                    }
-                };
-                 reader.onprogress = (event) => {
-                    if (event.lengthComputable) {
-                        const percentLoaded = Math.round((event.loaded / event.total) * 20); // Reading is ~20% of the work
-                        const elapsedTime = (Date.now() - startTime) / 1000;
-                        const totalTime = (elapsedTime / percentLoaded) * 100;
-                        const eta = Math.round(totalTime - elapsedTime);
-                        setRestoreProgress({ percentage: percentLoaded, eta: `${eta}s`, message: 'Reading backup file...' });
-                    }
-                };
-                reader.readAsArrayBuffer(file);
-
-            } catch (err) {
-                console.error("Error restoring backup:", err);
-                showAppToast("Error: Could not restore backup.");
-                setIsRestoreProgressModalOpen(false);
-            } finally {
-                 // Reset file input to allow selecting the same file again
-                 e.target.value = '';
-            }
-            setIsConfirmationOpen(false);
+            reader.readAsArrayBuffer(file);
+            setIsConfirmationOpen(false); // Close confirmation modal
         });
         setIsConfirmationOpen(true);
+        // Reset file input to allow selecting the same file again
+        event.target.value = '';
     };
 
     // --- PDF EXPORT ---
-    const handleExportProductsPdf = (productsToExport: Product[]) => {
-        if (productsToExport.length === 0) {
-            alert("No products to export.");
-            return;
-        }
-
-        const tableRows = productsToExport.map(p => `
+    const handleExportPdf = (productsToExport: Product[]) => {
+        const productRows = productsToExport.map(p => `
             <tr>
                 <td>${p.id}</td>
-                <td>${p.description}</td>
-                <td>${p.barcode || 'N/A'}</td>
+                <td style="word-break: break-word;">${p.description}</td>
+                <td>${p.descriptionTamil || ''}</td>
+                <td>${p.barcode || ''}</td>
+                <td>${p.b2bPrice.toFixed(2)}</td>
                 <td>${p.b2cPrice.toFixed(2)}</td>
                 <td>${p.stock}</td>
             </tr>
@@ -4974,27 +5046,29 @@ const App = () => {
                 <head>
                     <title>Product List</title>
                     <style>
-                        body { font-family: sans-serif; }
+                        body { font-family: sans-serif; font-size: 10px; }
                         table { width: 100%; border-collapse: collapse; }
-                        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                        th, td { border: 1px solid #ddd; padding: 4px; text-align: left; }
                         th { background-color: #f2f2f2; }
                     </style>
                 </head>
                 <body>
                     <h1>Product List</h1>
-                    <p>Generated on: ${new Date().toLocaleDateString()}</p>
+                    <p>Generated on: ${new Date().toLocaleString()}</p>
                     <table>
                         <thead>
                             <tr>
                                 <th>ID</th>
                                 <th>Description</th>
+                                <th>Description (Tamil)</th>
                                 <th>Barcode</th>
-                                <th>Price</th>
+                                <th>B2B Price</th>
+                                <th>B2C Price</th>
                                 <th>Stock</th>
                             </tr>
                         </thead>
                         <tbody>
-                            ${tableRows}
+                            ${productRows}
                         </tbody>
                     </table>
                 </body>
@@ -5003,104 +5077,63 @@ const App = () => {
 
         html2pdf(htmlContent, {
             margin: 10,
-            filename: `product_list_${new Date().toISOString().slice(0,10)}.pdf`,
+            filename: `product-list-${new Date().toISOString().slice(0, 10)}.pdf`,
             image: { type: 'jpeg', quality: 0.98 },
             html2canvas: { scale: 2 },
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
         });
     };
-    
-    // --- SETTINGS MANAGEMENT ---
-    const handleSaveSettings = (newSettings: BillSettings) => {
-        if (!activeShopId) return;
-        localStorage.setItem(`billSettings_${activeShopId}`, JSON.stringify(newSettings));
-        setBillSettings(newSettings);
-        showAppToast("Settings saved successfully!");
-    };
-    
-    const handlePreviewBill = () => {
-        const dummySale: SaleRecord = {
-            id: 'PREVIEW-123',
-            date: new Date().toISOString(),
-            items: [
-                { id: 1, productId: 101, description: 'Sample Product A', quantity: 2, price: 15.50, isReturn: false },
-                { id: 2, productId: 102, description: 'Sample Product B (Extra long name to test wrapping)', quantity: 1, price: 120.00, isReturn: false },
-                { id: 3, productId: 103, description: 'Returned Item', quantity: 1, price: 50.00, isReturn: true },
-            ],
-            subtotal: 101,
-            discount: 10,
-            tax: 5,
-            total: (101 - 10) * 1.05,
-            paid_amount: 100,
-            balance_due: ((101 - 10) * 1.05) - 100,
-            customerName: 'John Doe',
-            customerMobile: '9876543210',
-            isFinalized: true
-        };
-        handlePrintFromHistory(dummySale);
-    };
 
     // --- SHOP MANAGEMENT ---
-    const handleSelectShop = (shopId: number) => {
-        setActiveShopId(shopId);
-        setIsShopManagerOpen(false);
-        // Data will be refetched by the useEffect hook watching activeShopId
-    };
-
     const handleCreateShop = async (shopName: string) => {
         try {
-            const nextShopId = (shops.reduce((max, s) => Math.max(max, s.id), 0) || 0) + 1;
-            db.run(
-                "INSERT INTO shops (id, name, nextProductId) VALUES (?, ?, ?)",
-                [nextShopId, shopName, 1] // Start product IDs from 1 for the new shop
-            );
+            // Find the highest existing ID to determine the next one
+            const result = db.exec("SELECT MAX(id) as maxId FROM shops");
+            const maxId = result[0]?.values[0]?.[0] || 0;
+            const nextShopId = maxId + 1;
+            
+            db.run("INSERT INTO shops (id, name, nextProductId) VALUES (?, ?, ?)", [nextShopId, shopName, 1]); // Start product IDs at 1
             await saveDbToIndexedDB();
-            setActiveShopId(nextShopId); // Switch to the new shop
             await fetchAllData();
+            setActiveShopId(nextShopId);
             showAppToast(`Shop "${shopName}" created successfully!`);
         } catch (err) {
             console.error("Error creating shop:", err);
             showAppToast("Error: Could not create shop.");
         }
     };
-    
-     const handleRenameShop = async (shopId: number, newName: string) => {
+
+    const handleRenameShop = async (shopId: number, newName: string) => {
         try {
             db.run("UPDATE shops SET name = ? WHERE id = ?", [newName, shopId]);
             await saveDbToIndexedDB();
-            await fetchAllData();
-            showAppToast("Shop renamed successfully!");
+            await fetchAllData(); // This will also update settings if shop name is used there
+            showAppToast(`Shop renamed to "${newName}" successfully!`);
         } catch (err) {
             console.error("Error renaming shop:", err);
             showAppToast("Error: Could not rename shop.");
         }
     };
-    
-    const handleDeleteShop = async (shopId: number) => {
-        const shopToDelete = shops.find(s => s.id === shopId);
-        if (!shopToDelete) return;
 
-        setConfirmationMessage(`Are you sure you want to delete the shop "${shopToDelete.name}"? All associated products, sales, and expenses will be permanently deleted. This action cannot be undone.`);
+    const handleDeleteShop = async (shopId: number) => {
+        if (shopId === activeShopId) {
+            showAppToast("Cannot delete the currently active shop.");
+            return;
+        }
+        setConfirmationMessage("Are you sure you want to delete this shop and all its associated products, sales, and expenses? This action is permanent and cannot be undone.");
         setConfirmationAction(() => async () => {
-             db.exec("BEGIN TRANSACTION;");
+            db.exec("BEGIN TRANSACTION;");
             try {
-                db.run("DELETE FROM products WHERE shop_id = ?", [shopId]);
-                db.run("DELETE FROM sales_history WHERE shop_id = ?", [shopId]);
-                db.run("DELETE FROM sale_items WHERE shop_id = ?", [shopId]);
                 db.run("DELETE FROM expenses WHERE shop_id = ?", [shopId]);
+                db.run("DELETE FROM sale_items WHERE shop_id = ?", [shopId]);
+                db.run("DELETE FROM sales_history WHERE shop_id = ?", [shopId]);
+                db.run("DELETE FROM products WHERE shop_id = ?", [shopId]);
                 db.run("DELETE FROM shops WHERE id = ?", [shopId]);
                 db.exec("COMMIT;");
-                await saveDbToIndexedDB();
-                
-                // If the deleted shop was active, switch to another one or reset
-                if (activeShopId === shopId) {
-                    const remainingShops = shops.filter(s => s.id !== shopId);
-                    const newActiveId = remainingShops.length > 0 ? remainingShops[0].id : null;
-                    setActiveShopId(newActiveId);
-                }
 
-                await fetchAllData();
-                showAppToast(`Shop "${shopToDelete.name}" deleted successfully.`);
+                await saveDbToIndexedDB();
+                await fetchAllData(); // Re-fetch all data to reflect deletion
+                showAppToast("Shop deleted successfully.");
             } catch (err) {
                 db.exec("ROLLBACK;");
                 console.error("Error deleting shop:", err);
@@ -5111,141 +5144,183 @@ const App = () => {
         setIsConfirmationOpen(true);
     };
 
-    const handleInitialShopCreate = async (shopName: string) => {
-        await handleCreateShop(shopName);
-        // After creating the first shop, fetchAllData will run due to state changes
-        // and the main app UI will render instead of the initial setup modal.
+    const handleSelectShop = (shopId: number) => {
+        setActiveShopId(shopId);
+        setIsShopManagerOpen(false);
+        // Data will re-fetch due to useEffect on activeShopId
     };
 
-    // --- AUTHENTICATION ---
-    if (!isDbReady) {
-        return <div>Loading Database...</div>; // Or a more sophisticated loading spinner
-    }
+    const activeShop = shops.find(s => s.id === activeShopId);
+    
+    const handleSaveSettings = (newSettings: BillSettings) => {
+        if (!activeShopId) return;
+        localStorage.setItem(`billSettings_${activeShopId}`, JSON.stringify(newSettings));
+        setBillSettings(newSettings);
+        showAppToast("Settings saved successfully!");
+    };
+    
+    const handlePreviewBill = () => {
+        const dummySale: SaleRecord = {
+            id: 'PREVIEW-DUMMY',
+            date: new Date().toISOString(),
+            items: [
+                { id: 1, productId: 999, description: 'Sample Item A', descriptionTamil: 'மாதிரி பொருள் A', quantity: 2, price: 50.00, isReturn: false, hsnCode: '1234' },
+                { id: 2, productId: 998, description: 'Sample Item B', descriptionTamil: 'மாதிரி பொருள் B', quantity: 1, price: 125.00, isReturn: false, hsnCode: '5678' },
+            ],
+            subtotal: 225.00,
+            discount: 25.00,
+            tax: 18,
+            total: 236,
+            paid_amount: 250,
+            balance_due: -14,
+            customerName: 'Test Customer',
+            customerMobile: '1234567890',
+            isFinalized: true,
+        };
+        setPreviewingSale(dummySale);
+        setIsInvoicePreviewOpen(true);
+    };
 
+    const handleRenameCurrentShop = (newName: string) => {
+        if(activeShopId) {
+            handleRenameShop(activeShopId, newName);
+        }
+    };
+
+
+    // --- RENDER LOGIC ---
+    if (!isDbReady) {
+        return <div style={{display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh'}}>Loading Database...</div>;
+    }
+    
     if (!currentUser) {
         return <LoginView onLoginSuccess={setCurrentUser} />;
     }
-    
-    // Show setup modal if user is logged in but has no shops
-    if (shops.length === 0) {
-        return <InitialSetupModal onCreate={handleInitialShopCreate} />;
-    }
 
-    const activeShop = shops.find(s => s.id === activeShopId);
+    if (shops.length === 0 && currentUser.role === 'super_admin') {
+        return <InitialSetupModal onCreate={handleCreateShop} />;
+    }
+    
+    if (!activeShopId && currentUser.role !== 'super_admin' && currentUser.shop_id) {
+         // This case handles when a non-admin user is logged in but their assigned shop doesn't exist.
+         // Or on first load before activeShopId is set from user.
+        setActiveShopId(currentUser.shop_id);
+        return <div style={{display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh'}}>Loading Shop...</div>;
+    }
+    
+    if (!activeShop) {
+        // This can happen if the user's assigned shop was deleted, or if a super_admin hasn't selected one.
+        return (
+            <div style={{display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh'}}>
+                <h2>No Shop Selected</h2>
+                {currentUser.role === 'super_admin' && (
+                    <button style={styles.button} onClick={() => setIsShopManagerOpen(true)}>Open Shop Manager</button>
+                )}
+                 {isShopManagerOpen && (
+                    <ShopManagerModal
+                        shops={shops}
+                        activeShopId={activeShopId}
+                        onSelect={handleSelectShop}
+                        onCreate={handleCreateShop}
+                        onRename={handleRenameShop}
+                        onDelete={handleDeleteShop}
+                        onClose={() => setIsShopManagerOpen(false)}
+                    />
+                )}
+            </div>
+        );
+    }
 
     const renderView = () => {
         switch (activeView) {
             case 'products':
                 return <ProductsView 
-                    products={products} 
-                    onAdd={() => handleOpenProductForm(null)}
-                    onEdit={handleOpenProductForm}
-                    onDelete={handleDeleteProduct}
-                    onBulkAdd={handleBulkAddFromFile}
-                    onBulkAddPdfs={() => setIsPdfUploadModalOpen(true)}
-                    onExportPdf={handleExportProductsPdf}
-                    selectedProductIds={selectedProductIds}
-                    setSelectedProductIds={setSelectedProductIds}
-                    onDeleteSelected={handleDeleteSelectedProducts}
-                    isOnline={isOnline}
-                    currentUser={currentUser}
-                />;
+                            products={products} 
+                            onAdd={() => handleOpenProductForm(null)}
+                            onEdit={handleOpenProductForm}
+                            onDelete={handleDeleteProduct}
+                            onBulkAdd={handleBulkAddFromFile}
+                            onBulkAddPdfs={() => setIsPdfUploadModalOpen(true)}
+                            onExportPdf={handleExportPdf}
+                            selectedProductIds={selectedProductIds}
+                            setSelectedProductIds={setSelectedProductIds}
+                            onDeleteSelected={handleDeleteSelectedProducts}
+                            isOnline={isOnline}
+                            currentUser={currentUser}
+                         />;
             case 'reports':
                 return <ReportsView salesHistory={salesHistory} onPrint={handlePrintFromHistory} isOnline={isOnline} />;
             case 'customers':
-                return <CustomersView customers={customers} salesHistory={salesHistory} onAdd={() => handleOpenCustomerForm(null)} onEdit={handleOpenCustomerForm} onDelete={handleDeleteCustomer} currentUser={currentUser} />;
+                return <CustomersView 
+                            customers={customers} 
+                            salesHistory={salesHistory} 
+                            onAdd={() => handleOpenCustomerForm(null)} 
+                            onEdit={handleOpenCustomerForm}
+                            onDelete={handleDeleteCustomer}
+                            currentUser={currentUser}
+                        />;
             case 'expenses':
-                return <ExpensesView expenses={expenses} onAdd={handleAddExpense} onDelete={handleDeleteExpense} shopId={activeShopId!} />;
+                return <ExpensesView
+                            expenses={expenses}
+                            onAdd={handleAddExpense}
+                            onDelete={handleDeleteExpense}
+                            shopId={activeShopId}
+                        />;
             case 'balance_due':
                 return <BalanceDueView salesHistory={salesHistory} customers={customers} onSettlePayment={handleSettlePayment} />;
             case 'settings':
                 return <SettingsView 
-                    billSettings={billSettings} 
-                    onSave={handleSaveSettings} 
-                    onPreview={handlePreviewBill}
-                    activeShopName={activeShop?.name || ''}
-                    onRenameShop={(newName) => handleRenameShop(activeShopId!, newName)}
-                />;
+                            billSettings={billSettings} 
+                            onSave={handleSaveSettings} 
+                            onPreview={handlePreviewBill}
+                            activeShopName={activeShop.name}
+                            onRenameShop={handleRenameCurrentShop}
+                        />;
             case 'sales':
             default:
                 return <SalesView 
-                    products={products}
-                    activeCart={activeCart}
-                    updateActiveCart={updateActiveCart}
-                    onPreview={handlePreviewSale}
-                    total={total}
-                    paidAmount={paidAmount}
-                    setPaidAmount={setPaidAmount}
-                    onAmountPaidEdit={handleAmountPaidEdit}
-                    previousBalanceDue={previousBalanceDue}
-                    onShowHistory={handleShowHistory}
-                    onSaveBackup={handleSaveBackup}
-                    onRestoreBackup={handleRestoreBackup}
-                    onUpdateProductPrice={(productId, newPrice, priceMode) => {
-                        const updatedProducts = products.map(p => {
-                            if (p.id === productId) {
-                                return {...p, [priceMode === 'b2b' ? 'b2bPrice' : 'b2cPrice']: newPrice };
-                            }
-                            return p;
-                        });
-                        setProducts(updatedProducts);
-                    }}
-                    onUpdateProductDetails={(productId, field, value) => {
-                        const updatedProducts = products.map(p => {
-                            if (p.id === productId) {
-                                return {...p, [field]: value };
-                            }
-                            return p;
-                        });
-                        setProducts(updatedProducts);
-                    }}
-                    onAddNewProduct={(productName) => {
-                        // This is a simplified "quick add"
-                        const newProduct: Omit<Product, 'id'> = {
-                            description: productName,
-                            descriptionTamil: '',
-                            barcode: '',
-                            b2bPrice: 0,
-                            b2cPrice: 0,
-                            stock: 1, // Start with 1
-                        };
-                        handleAddProduct(newProduct);
-                        // We need to return the full product with its new ID
-                        const nextId = activeShop?.nextProductId || 0;
-                        return { ...newProduct, id: nextId, shop_id: activeShopId! };
-                    }}
-                    isOnline={isOnline}
-                    viewMode={viewMode}
-                    setViewMode={setViewMode}
-                    currentUser={currentUser}
-                    activeCartIndex={activeCartIndex}
-                    onCartChange={handleCartChange}
-                />;
+                            products={products}
+                            activeCart={activeCart}
+                            updateActiveCart={updateActiveCart}
+                            onPreview={handlePreviewSale}
+                            total={total}
+                            paidAmount={paidAmount}
+                            setPaidAmount={setPaidAmount}
+                            onAmountPaidEdit={handleAmountPaidEdit}
+                            previousBalanceDue={previousBalanceDue}
+                            onShowHistory={handleShowHistory}
+                            onSaveBackup={handleSaveBackup}
+                            onRestoreBackup={handleRestoreBackup}
+                            onUpdateProductPrice={handleUpdateProductPrice}
+                            onUpdateProductDetails={handleUpdateProductDetails}
+                            onAddNewProduct={handleQuickAddNewProduct}
+                            isOnline={isOnline}
+                            viewMode={viewMode}
+                            setViewMode={setViewMode}
+                            currentUser={currentUser}
+                            activeCartIndex={activeCartIndex}
+                            onCartChange={handleCartChange}
+                        />;
         }
     };
 
     return (
         <div style={styles.appContainer}>
             <header style={styles.header}>
-                <h1 style={styles.title}>{activeShop?.name || 'POS'}</h1>
+                <div>
+                    <h1 style={styles.title}>Premium POS</h1>
+                    <span style={{color: 'var(--secondary-color)'}}>
+                        Shop: <strong>{activeShop.name}</strong>
+                    </span>
+                </div>
                 <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
-                    {isOnline ? 
-                        <span title="Online" style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
-                            <CloudIcon color="var(--success-color)" /> {currentUser.username}
-                        </span> : 
-                        <span title="Offline Mode" style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
-                             <CloudIcon color="var(--danger-color)" /> {currentUser.username}
-                        </span>
-                    }
-                     {currentUser.role === 'super_admin' && (
-                        <button onClick={() => setIsShopManagerOpen(true)} style={styles.shopManagerButton}>Shop Manager</button>
+                    <span style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                        <UserIcon size={20} color="var(--secondary-color)" /> {currentUser.username} ({currentUser.role})
+                    </span>
+                    <DropdownNav activeView={activeView} onSelectView={setActiveView} disabled={isBulkAddModalOpen} currentUser={currentUser} />
+                    {currentUser.role === 'super_admin' && (
+                         <button onClick={() => setIsShopManagerOpen(true)} style={styles.shopManagerButton}>Shop Manager</button>
                     )}
-                    <DropdownNav 
-                        activeView={activeView} 
-                        onSelectView={setActiveView} 
-                        disabled={isInvoicePreviewOpen}
-                        currentUser={currentUser}
-                    />
                     <button onClick={() => window.location.reload()} style={styles.logoutButton}>Logout</button>
                 </div>
             </header>
@@ -5254,21 +5329,95 @@ const App = () => {
                 {renderView()}
             </main>
 
-            {isProductFormOpen && <ProductFormModal product={editingProduct} onSave={handleAddProduct} onUpdate={handleUpdateProduct} onClose={() => { setIsProductFormOpen(false); setEditingProduct(null); }} />}
-            {isCustomerFormOpen && <CustomerFormModal customer={editingCustomer} onSave={handleSaveCustomer} onClose={() => { setIsCustomerFormOpen(false); setEditingCustomer(null); }} />}
-            {isConfirmationOpen && <ConfirmationModal message={confirmationMessage} onConfirm={confirmationAction!} onCancel={() => setIsConfirmationOpen(false)} />}
-            {isHistoryModalOpen && <HistoryModal salesHistory={salesHistory} customerMobile={activeCart.customerMobile} onClose={() => setIsHistoryModalOpen(false)} />}
-            {isInvoicePreviewOpen && previewingSale && <InvoicePreviewModal sale={previewingSale} onFinalize={previewingSale.isFinalized ? undefined : handleFinalizeSale} onClose={() => setIsInvoicePreviewOpen(false)} isPreviewMode={previewingSale.isFinalized}/>}
-            {isBulkAddModalOpen && <BulkAddModal fileSrc={bulkAddFileSrc} fileType={bulkAddFileType} fileNames={bulkAddFileNames} initialProducts={bulkAddInitialProducts} onSave={handleSaveBulkProducts} onClose={() => setIsBulkAddModalOpen(false)} loading={isBulkAddLoading} error={bulkAddError} />}
-            {isPdfUploadModalOpen && <PdfUploadModal onProcess={handleBulkAddFromPdfs} onClose={() => setIsPdfUploadModalOpen(false)} />}
-            {isShopManagerOpen && <ShopManagerModal shops={shops} activeShopId={activeShopId} onSelect={handleSelectShop} onCreate={handleCreateShop} onRename={handleRenameShop} onDelete={handleDeleteShop} onClose={() => setIsShopManagerOpen(false)} />}
-            {isRestoreProgressModalOpen && <RestoreProgressModal {...restoreProgress} />}
+            {isProductFormOpen && (
+                <ProductFormModal 
+                    product={editingProduct} 
+                    onSave={handleAddProduct} 
+                    onUpdate={handleUpdateProduct}
+                    onClose={() => { setIsProductFormOpen(false); setEditingProduct(null); }} 
+                />
+            )}
+            
+            {isCustomerFormOpen && (
+                <CustomerFormModal
+                    customer={editingCustomer}
+                    onSave={handleSaveCustomer}
+                    onClose={() => { setIsCustomerFormOpen(false); setEditingCustomer(null); }}
+                />
+            )}
 
-             {showToast && (
+            {isConfirmationOpen && confirmationAction && (
+                <ConfirmationModal 
+                    message={confirmationMessage} 
+                    onConfirm={confirmationAction} 
+                    onCancel={() => setIsConfirmationOpen(false)} 
+                />
+            )}
+            
+            {isHistoryModalOpen && (
+                <HistoryModal
+                    salesHistory={salesHistory}
+                    customerMobile={activeCart.customerMobile}
+                    onClose={() => setIsHistoryModalOpen(false)}
+                />
+            )}
+            
+            {isInvoicePreviewOpen && previewingSale && (
+                <InvoicePreviewModal
+                    sale={previewingSale}
+                    onFinalize={!previewingSale.isFinalized ? handleFinalizeSale : undefined}
+                    onClose={() => {
+                        setIsInvoicePreviewOpen(false);
+                        // If the sale was finalized, start a new one, otherwise keep editing
+                        if (previewingSale.isFinalized) {
+                            setActiveView('sales'); // Ensure we are on sales view
+                        }
+                    }}
+                    isPreviewMode={previewingSale.isFinalized}
+                />
+            )}
+
+            {isShopManagerOpen && currentUser.role === 'super_admin' && (
+                <ShopManagerModal
+                    shops={shops}
+                    activeShopId={activeShopId}
+                    onSelect={handleSelectShop}
+                    onCreate={handleCreateShop}
+                    onRename={handleRenameShop}
+                    onDelete={handleDeleteShop}
+                    onClose={() => setIsShopManagerOpen(false)}
+                />
+            )}
+            
+            {isPdfUploadModalOpen && (
+                <PdfUploadModal
+                    onProcess={handleBulkAddFromPdfs}
+                    onClose={() => setIsPdfUploadModalOpen(false)}
+                />
+            )}
+
+            {isBulkAddModalOpen && (
+                <BulkAddModal
+                    fileSrc={bulkAddFileSrc}
+                    fileType={bulkAddFileType}
+                    fileNames={bulkAddFileNames}
+                    initialProducts={bulkAddInitialProducts}
+                    onSave={handleSaveBulkProducts}
+                    onClose={() => setIsBulkAddModalOpen(false)}
+                    loading={isBulkAddLoading}
+                    error={bulkAddError}
+                />
+            )}
+            
+            {isRestoreProgressModalOpen && (
+                 <RestoreProgressModal {...restoreProgress} />
+            )}
+
+            {showToast && (
                 <div style={{
                     position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
-                    backgroundColor: 'var(--text-color)', color: 'white', padding: '1rem 2rem',
-                    borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', zIndex: 2000,
+                    backgroundColor: 'var(--text-color)', color: 'white', padding: '1rem 2rem', borderRadius: '8px',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)', zIndex: 2000
                 }}>
                     {toastMessage}
                 </div>
@@ -5277,5 +5426,8 @@ const App = () => {
     );
 };
 
-const root = createRoot(document.getElementById('root')!);
-root.render(<App />);
+const container = document.getElementById('root');
+if (container) {
+    const root = createRoot(container);
+    root.render(<App />);
+}
