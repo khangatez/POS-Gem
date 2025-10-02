@@ -1791,6 +1791,114 @@ const defaultBillSettings: BillSettings = {
     layout: 'default',
 };
 
+// --- INVOICE THEME STYLES ---
+const themes: { [key: string]: { [key: string]: React.CSSProperties } } = {
+    classic: {
+        container: { fontFamily: 'monospace, "Courier New", Courier' },
+        headerContainer: { textAlign: 'center', paddingBottom: '10px' },
+        headerTitle: { margin: 0, fontSize: '1.2em' },
+        headerSubtitle: { margin: '5px 0', fontSize: '0.9em' },
+        hr: { border: 'none', borderTop: '1px dashed black', margin: '10px 0' },
+        tableHeader: { padding: '5px 2px', textAlign: 'left', borderBottom: '1px solid black' },
+        tableCell: { padding: '4px 2px', textAlign: 'left', verticalAlign: 'top' },
+        totalsContainer: { display: 'flex', justifyContent: 'flex-end', marginTop: '10px' },
+        totalsWrapper: { minWidth: '150px' },
+        totalsRow: { display: 'flex', justifyContent: 'space-between', padding: '2px 0' },
+        footer: { textAlign: 'center', marginTop: '20px', fontSize: '0.9em' },
+    },
+    modern: {
+        container: { fontFamily: 'var(--font-family)' },
+        headerContainer: { textAlign: 'center', paddingBottom: '15px', borderBottom: '2px solid var(--primary-color)' },
+        headerTitle: { margin: 0, fontSize: '1.8em', color: 'var(--primary-color)' },
+        headerSubtitle: { margin: '5px 0', fontSize: '1em', color: 'var(--secondary-color)' },
+        hr: { display: 'none' },
+        tableHeader: { padding: '10px 5px', textAlign: 'left', backgroundColor: 'var(--primary-color-light)', borderBottom: '2px solid var(--primary-color)', color: 'var(--primary-color)' },
+        tableCell: { padding: '8px 5px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top' },
+        totalsContainer: { display: 'flex', justifyContent: 'flex-end', marginTop: '15px', paddingTop: '10px', borderTop: '1px solid var(--border-color)' },
+        totalsWrapper: { minWidth: '200px' },
+        totalsRow: { display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '1.1em' },
+        footer: { textAlign: 'center', marginTop: '25px', fontSize: '1em', color: 'var(--secondary-color)' },
+    },
+    minimalist: {
+        container: { fontFamily: 'var(--font-family)' },
+        headerContainer: { textAlign: 'left', paddingBottom: '15px' },
+        headerTitle: { margin: 0, fontSize: '1.6em', fontWeight: 600 },
+        headerSubtitle: { margin: '5px 0', fontSize: '1em', color: 'var(--secondary-color)' },
+        hr: { border: 'none', borderTop: '1px solid var(--border-color)', margin: '15px 0' },
+        tableHeader: { padding: '10px 0', textAlign: 'left', borderBottom: '2px solid var(--text-color)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', fontSize: '0.9em' },
+        tableCell: { padding: '10px 0', textAlign: 'left', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top' },
+        totalsContainer: { display: 'flex', justifyContent: 'flex-end', marginTop: '15px' },
+        totalsWrapper: { minWidth: '180px' },
+        totalsRow: { display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: '1.05em' },
+        footer: { textAlign: 'center', marginTop: '25px', fontSize: '0.9em', color: 'var(--secondary-color)' },
+    },
+    grid: {
+        container: { fontFamily: 'var(--font-family)', border: '1px solid black', padding: '15px' },
+        headerContainer: { textAlign: 'center', paddingBottom: '10px', borderBottom: '1px solid black' },
+        headerTitle: { margin: 0, fontSize: '1.5em' },
+        headerSubtitle: { margin: '5px 0' },
+        hr: { display: 'none' },
+        tableHeader: { padding: '8px', border: '1px solid black', backgroundColor: '#f0f0f0' },
+        tableCell: { padding: '8px', border: '1px solid black', verticalAlign: 'top' },
+        totalsContainer: { display: 'flex', justifyContent: 'flex-end', marginTop: '10px' },
+        totalsWrapper: { minWidth: '220px', border: '1px solid black', padding: '5px' },
+        totalsRow: { display: 'flex', justifyContent: 'space-between', padding: '3px 5px' },
+        footer: { textAlign: 'center', marginTop: '20px', fontSize: '0.9em' },
+    },
+    formal: {
+        container: { fontFamily: "Georgia, 'Times New Roman', serif" },
+        headerContainer: { textAlign: 'left', paddingBottom: '20px' },
+        headerTitle: { margin: '0 0 5px 0', fontSize: '2em', fontWeight: 'bold' },
+        headerSubtitle: { margin: 0, fontSize: '1em', fontStyle: 'italic' },
+        hr: { border: 'none', borderTop: '1px solid #ccc', margin: '20px 0' },
+        tableHeader: { padding: '12px 0', textAlign: 'left', borderBottom: '1px solid black', textTransform: 'none', fontWeight: 'bold' },
+        tableCell: { padding: '10px 0', textAlign: 'left', borderBottom: '1px solid #eee', verticalAlign: 'top' },
+        totalsContainer: { display: 'flex', justifyContent: 'flex-end', marginTop: '20px' },
+        totalsWrapper: { minWidth: '250px' },
+        totalsRow: { display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: '1.1em' },
+        footer: { textAlign: 'center', marginTop: '30px', fontSize: '0.8em', color: '#aaa' },
+    },
+    creative: {
+        container: { fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif" },
+        headerContainer: { padding: '20px', backgroundColor: 'var(--success-color)', color: 'white', borderRadius: '8px 8px 0 0' },
+        headerTitle: { margin: 0, fontSize: '1.8em' },
+        headerSubtitle: { margin: '5px 0 0 0', opacity: 0.9 },
+        hr: { display: 'none' },
+        tableHeader: { padding: '10px', textAlign: 'left', border: 'none', color: 'var(--success-color)', textTransform: 'uppercase', letterSpacing: '1px' },
+        tableCell: { padding: '10px', textAlign: 'left', borderBottom: '1px dashed #ccc', verticalAlign: 'top' },
+        totalsContainer: { display: 'flex', justifyContent: 'flex-end', marginTop: '15px', padding: '15px', backgroundColor: '#f5f5f5', borderRadius: '8px' },
+        totalsWrapper: { minWidth: '200px' },
+        totalsRow: { display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '1.1em' },
+        footer: { textAlign: 'center', marginTop: '25px', fontSize: '1em', fontWeight: 'bold', color: 'var(--success-color)' },
+    },
+    compact: {
+        container: { fontFamily: 'var(--font-family)', fontSize: '0.85em' },
+        headerContainer: { textAlign: 'center', paddingBottom: '5px' },
+        headerTitle: { margin: 0, fontSize: '1.1em' },
+        headerSubtitle: { margin: '3px 0', fontSize: '0.8em' },
+        hr: { border: 'none', borderTop: '1px solid #ccc', margin: '5px 0' },
+        tableHeader: { padding: '4px 2px', textAlign: 'left', borderBottom: '1px solid black' },
+        tableCell: { padding: '3px 2px', textAlign: 'left', verticalAlign: 'top' },
+        totalsContainer: { display: 'flex', justifyContent: 'flex-end', marginTop: '5px' },
+        totalsWrapper: { minWidth: '130px' },
+        totalsRow: { display: 'flex', justifyContent: 'space-between', padding: '1px 0', fontSize: '1em' },
+        footer: { textAlign: 'center', marginTop: '15px', fontSize: '0.8em' },
+    },
+    receipt: {
+        container: { fontFamily: 'monospace, "Courier New", Courier' },
+        headerContainer: { textAlign: 'center', paddingBottom: '10px' },
+        headerTitle: { margin: 0, fontSize: '1.1em' },
+        headerSubtitle: { margin: '5px 0', fontSize: '0.8em' },
+        hr: { border: 'none', borderTop: '1px dashed black', margin: '10px 0', content: ' ' },
+        tableHeader: { padding: '5px 0', textAlign: 'left', border: 'none' },
+        tableCell: { padding: '2px 0', textAlign: 'left', border: 'none', verticalAlign: 'top' },
+        totalsContainer: { display: 'block', marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed black' },
+        totalsWrapper: { width: '100%' },
+        totalsRow: { display: 'flex', justifyContent: 'space-between', padding: '1px 0' },
+        footer: { textAlign: 'center', marginTop: '20px', fontSize: '0.9em' },
+    }
+};
+
 // --- NEW INVOICE PREVIEW MODAL ---
 // FIX: Added explicit prop types to make 'onFinalize' optional, resolving a TypeScript error where the component was being invoked without it.
 const InvoicePreviewModal = ({
@@ -1808,10 +1916,10 @@ const InvoicePreviewModal = ({
     const [printSettings, setPrintSettings] = useState({
         paperSize: '4-inch',
         fontSize: 'medium',
-        fontStyle: 'monospace',
         margins: { top: 20, right: 20, bottom: 20, left: 20 },
         offsets: { x: 0, y: 0 },
     });
+    const [activeTheme, setActiveTheme] = useState<'classic' | 'modern' | 'minimalist' | 'grid' | 'formal' | 'creative' | 'compact' | 'receipt'>('classic');
     const printAreaRef = useRef<HTMLDivElement>(null);
     const tableRef = useRef<HTMLTableElement>(null);
     const [columnWidths, setColumnWidths] = useState<number[]>([]);
@@ -1873,7 +1981,11 @@ const InvoicePreviewModal = ({
 
     const handleSettingChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
         const { name, value } = e.target;
-        setPrintSettings(prev => ({ ...prev, [name]: value }));
+        if (name === 'theme') {
+            setActiveTheme(value as any);
+        } else {
+            setPrintSettings(prev => ({ ...prev, [name]: value }));
+        }
     };
 
     const handleMarginChange = (side: 'top' | 'right' | 'bottom' | 'left', value: string) => {
@@ -1896,7 +2008,6 @@ const InvoicePreviewModal = ({
             color: 'black',
             padding: `${printSettings.margins.top}px ${printSettings.margins.right}px ${printSettings.margins.bottom}px ${printSettings.margins.left}px`,
             transform: `translate(${printSettings.offsets.x}px, ${printSettings.offsets.y}px)`,
-            fontFamily: printSettings.fontStyle,
             boxSizing: 'border-box',
         };
 
@@ -1921,6 +2032,7 @@ const InvoicePreviewModal = ({
         
         const content = printAreaRef.current.innerHTML;
         const styles = getPrintableStyles();
+        const themeStyles = themes[activeTheme];
 
         let columnStyles = '';
         if (columnWidths.length > 0) {
@@ -1947,15 +2059,46 @@ const InvoicePreviewModal = ({
                 <html>
                     <head><title>Print Invoice</title>
                         <style>
+                            :root {
+                                --primary-color: #17a2b8;
+                                --primary-color-light: #e2f6f8;
+                                --secondary-color: #6c757d;
+                                --text-color: #343a40;
+                                --border-color: #ced4da;
+                                --success-color: #2ecc71;
+                            }
                             body { 
-                                font-family: ${styles.fontFamily};
+                                font-family: ${themeStyles.container.fontFamily};
                                 font-size: ${styles.fontSize};
+                                color: ${themeStyles.container.color || 'black'};
                                 width: ${styles.width};
                                 margin: 0;
                             }
                             table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-                            th, td { text-align: left; padding: 4px 2px; word-wrap: break-word; }
-                            hr { border: none; border-top: 1px dashed black; }
+                            th {
+                                padding: ${themeStyles.tableHeader.padding};
+                                text-align: ${themeStyles.tableHeader.textAlign as string};
+                                background-color: ${themeStyles.tableHeader.backgroundColor || 'transparent'};
+                                border-bottom: ${themeStyles.tableHeader.borderBottom || 'none'};
+                                border: ${themeStyles.tableHeader.border || 'none'};
+                                color: ${themeStyles.tableHeader.color || 'inherit'};
+                                font-weight: ${themeStyles.tableHeader.fontWeight || 'bold'};
+                                text-transform: ${themeStyles.tableHeader.textTransform as string || 'none'};
+                                letter-spacing: ${themeStyles.tableHeader.letterSpacing || 'normal'};
+                            }
+                            td {
+                                padding: ${themeStyles.tableCell.padding};
+                                text-align: ${themeStyles.tableCell.textAlign as string};
+                                border-bottom: ${themeStyles.tableCell.borderBottom || 'none'};
+                                border: ${themeStyles.tableCell.border || 'none'};
+                                vertical-align: ${themeStyles.tableCell.verticalAlign as string};
+                                word-wrap: break-word;
+                            }
+                            hr {
+                                border: ${themeStyles.hr.border || 'none'};
+                                border-top: ${themeStyles.hr.borderTop || 'none'};
+                                margin: ${themeStyles.hr.margin || 0};
+                            }
                             .text-right { text-align: right; }
                             ${columnStyles}
                         </style>
@@ -1994,6 +2137,8 @@ const InvoicePreviewModal = ({
         { label: 'Total', align: 'right' as const },
     ];
     
+    const currentTheme = themes[activeTheme];
+
     return (
         <div style={styles.modalBackdrop}>
             <div style={{
@@ -2006,20 +2151,20 @@ const InvoicePreviewModal = ({
                 overflow: 'hidden'
             }}>
                 <div style={{ flex: 1, overflowY: 'auto', padding: '2rem', display: 'flex', justifyContent: 'center' }}>
-                    <div ref={printAreaRef} style={{...getPrintableStyles(), boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minHeight: '100px'}}>
-                        <div style={{ textAlign: 'center', paddingBottom: '10px' }}>
-                            <h2 style={{ margin: 0 }}>Invoice</h2>
-                            <p style={{ margin: '5px 0' }}>Date: {saleDate.toLocaleString()}</p>
+                    <div ref={printAreaRef} style={{...getPrintableStyles(), ...currentTheme.container, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minHeight: '100px'}}>
+                        <div style={currentTheme.headerContainer}>
+                            <h2 style={currentTheme.headerTitle}>Invoice</h2>
+                            <p style={currentTheme.headerSubtitle}>Date: {saleDate.toLocaleString()}</p>
                         </div>
-                        <hr style={{ border: 'none', borderTop: '1px dashed black' }} />
-                        <table ref={tableRef} style={{ width: '100%', borderCollapse: 'collapse', margin: '10px 0', tableLayout: 'fixed' }}>
+                        <hr style={currentTheme.hr} />
+                        <table ref={tableRef} style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
                             <colgroup>
                                {columnWidths.map((width, i) => <col key={i} style={{ width: width ? `${width}px` : undefined }} />)}
                             </colgroup>
                             <thead>
                                 <tr>
                                     {headers.map((header, i) => (
-                                        <th key={header.label} style={{ padding: '5px 2px', textAlign: header.align, position: 'relative' }}>
+                                        <th key={header.label} style={{ ...currentTheme.tableHeader, textAlign: header.align, position: 'relative' }}>
                                             {header.label}
                                             {i < headers.length - 1 && (
                                                 <div
@@ -2037,25 +2182,25 @@ const InvoicePreviewModal = ({
                             <tbody>
                                 {sale.items.map((item: SaleItem, index: number) => (
                                     <tr key={item.id}>
-                                        <td style={{textAlign: headers[0].align, padding: '4px 2px'}}>{index + 1}</td>
-                                        <td style={{textAlign: headers[1].align, padding: '4px 2px'}}>{item.description}</td>
-                                        <td style={{textAlign: headers[2].align, padding: '4px 2px'}}>{item.quantity}</td>
-                                        <td style={{textAlign: headers[3].align, padding: '4px 2px'}}>{item.price.toFixed(2)}</td>
-                                        <td style={{textAlign: headers[4].align, padding: '4px 2px'}}>{(item.quantity * item.price).toFixed(2)}</td>
+                                        <td style={{...currentTheme.tableCell, textAlign: headers[0].align}}>{index + 1}</td>
+                                        <td style={{...currentTheme.tableCell, textAlign: headers[1].align}}>{item.description}</td>
+                                        <td style={{...currentTheme.tableCell, textAlign: headers[2].align}}>{item.quantity}</td>
+                                        <td style={{...currentTheme.tableCell, textAlign: headers[3].align}}>{item.price.toFixed(2)}</td>
+                                        <td style={{...currentTheme.tableCell, textAlign: headers[4].align}}>{(item.quantity * item.price).toFixed(2)}</td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
-                        <hr style={{ border: 'none', borderTop: '1px dashed black' }} />
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
-                            <div style={{ minWidth: '150px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <hr style={currentTheme.hr} />
+                        <div style={currentTheme.totalsContainer}>
+                            <div style={currentTheme.totalsWrapper}>
+                                <div style={currentTheme.totalsRow}>
                                     <span>Grand Total</span>
                                     <strong>₹{sale.total.toFixed(2)}</strong>
                                 </div>
                             </div>
                         </div>
-                         <p style={{ textAlign: 'center', marginTop: '20px' }}>Thank you for your business!</p>
+                         <p style={currentTheme.footer}>Thank you for your business!</p>
                     </div>
                 </div>
 
@@ -2088,11 +2233,16 @@ const InvoicePreviewModal = ({
                             </select>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <label>Font Style</label>
-                            <select name="fontStyle" value={printSettings.fontStyle} onChange={handleSettingChange} style={{...styles.input, width: 'auto'}}>
-                                <option value="monospace">Monospace</option>
-                                <option value="sans-serif">Sans-serif</option>
-                                <option value="serif">Serif</option>
+                            <label>Theme</label>
+                            <select name="theme" value={activeTheme} onChange={handleSettingChange} style={{...styles.input, width: 'auto'}}>
+                                <option value="classic">Classic</option>
+                                <option value="modern">Modern</option>
+                                <option value="minimalist">Minimalist</option>
+                                <option value="grid">Grid</option>
+                                <option value="formal">Formal</option>
+                                <option value="creative">Creative</option>
+                                <option value="compact">Compact</option>
+                                <option value="receipt">Receipt</option>
                             </select>
                         </div>
                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
