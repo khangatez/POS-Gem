@@ -3191,6 +3191,17 @@ const SalesView = ({
         }
     };
 
+    const handleDescriptionKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const quantityInput = quantityInputRefs.current[index];
+            if (quantityInput) {
+                quantityInput.focus();
+                quantityInput.select();
+            }
+        }
+    };
+
     const handleQuantityKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
         if(e.key === 'Enter') {
             e.preventDefault();
@@ -3394,6 +3405,7 @@ const SalesView = ({
                                                 onChange={(e) => handleUpdateSaleItem(item.id, 'description', e.target.value)}
                                                 style={styles.wideGridInput}
                                                 disabled={!canEditProductDetails}
+                                                onKeyDown={(e) => handleDescriptionKeyDown(e, index)}
                                             />
                                         </td>
                                         <td style={styles.td}><input ref={el => { quantityInputRefs.current[index] = el; }} type="number" step="0.001" value={item.quantity} onChange={(e) => handleUpdateSaleItem(item.id, 'quantity', parseFloat(e.target.value) || 0)} style={styles.gridInput} onKeyDown={(e) => handleQuantityKeyDown(e, index)} /></td>
