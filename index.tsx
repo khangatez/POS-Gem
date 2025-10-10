@@ -4461,7 +4461,7 @@ const App = () => {
 
         const currentTotal = currentSubtotal - activeCart.discount + taxAmount + balance;
 
-        return { subtotal: currentSubtotal, total: currentTotal, previousBalanceDue: balance };
+        return { subtotal: currentSubtotal, total: Math.round(currentTotal), previousBalanceDue: balance };
     }, [activeCart, salesHistory]);
 
 
@@ -4620,29 +4620,24 @@ const App = () => {
             return;
         }
 
-        // Close the modal immediately to provide feedback and prevent double-clicks.
         setIsInvoicePreviewOpen(false);
         const saleId = `INV-${activeShopId}-${Date.now()}`;
 
-        // 1. Calculate totals for the CURRENT sale only, not including previous balance.
         const saleSubtotal = activeCart.items.reduce((acc, item) => {
             const itemTotal = item.quantity * item.price;
             return acc + (item.isReturn ? -itemTotal : itemTotal);
         }, 0);
         const saleTaxAmount = (saleSubtotal - activeCart.discount) * (activeCart.tax / 100);
-        const saleTotal = saleSubtotal - activeCart.discount + saleTaxAmount;
+        const saleTotal = Math.round(saleSubtotal - activeCart.discount + saleTaxAmount);
 
         let remainingPaidAmount = paidAmount;
 
-        // 2. Determine payment allocation for the current sale.
         const paymentForCurrentSale = Math.min(remainingPaidAmount, saleTotal > 0 ? saleTotal : 0);
         const balanceForCurrentSale = saleTotal - paymentForCurrentSale;
         remainingPaidAmount -= paymentForCurrentSale;
 
-        // Start transaction
         db.exec("BEGIN TRANSACTION;");
         try {
-            // 3. Insert the new sale record with correct, sale-specific values.
             db.run(
                 "INSERT INTO sales_history (id, shop_id, date, subtotal, discount, tax, total, paid_amount, balance_due, customerName, customerMobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
@@ -4660,7 +4655,6 @@ const App = () => {
                 ]
             );
 
-            // Insert sale items and update stock
             const saleItemStmt = db.prepare("INSERT INTO sale_items (sale_id, productId, shop_id, description, descriptionTamil, quantity, price, isReturn, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
             for (const item of activeCart.items) {
                 saleItemStmt.run([
@@ -4684,7 +4678,6 @@ const App = () => {
             }
             updateStockStmt.free();
 
-            // 4. Record the payment portion for the current sale in payment_history
             if (paymentForCurrentSale > 0) {
                 db.run(
                     "INSERT INTO payment_history (sale_id, date, amount_paid, payment_method) VALUES (?, ?, ?, ?)",
@@ -4692,7 +4685,6 @@ const App = () => {
                 );
             }
             
-             // 5. Settle past dues with any remaining paid amount.
             if (remainingPaidAmount > 0 && previousBalanceDue > 0) {
                 const pastDueSales = salesHistory
                     .filter(s => s.customerMobile === activeCart.customerMobile && s.balance_due > 0)
@@ -4712,28 +4704,11 @@ const App = () => {
                 }
             }
 
-            // Commit transaction
             db.exec("COMMIT;");
             
             await saveDbToIndexedDB();
             await fetchAllData();
             showAppToast("Sale saved successfully!");
-            
-            // Re-open preview in non-finalizable mode
-            const finalizedSaleRecord = {
-                ...activeCart,
-                id: saleId,
-                date: new Date().toISOString(),
-                subtotal: saleSubtotal,
-                total: saleTotal,
-                paid_amount: paidAmount, // Show total amount paid in this transaction for user clarity
-                balance_due: balanceForCurrentSale,
-                previousBalanceForPreview: previousBalanceDue,
-                isFinalized: true,
-            };
-            setPreviewingSale(finalizedSaleRecord);
-            setIsInvoicePreviewOpen(true);
-            
             resetCurrentCart();
             
         } catch (error) {
