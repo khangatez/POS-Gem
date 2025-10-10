@@ -1900,6 +1900,7 @@ interface PrintSettings {
     margins: { top: number; right: number; bottom: number; left: number };
     offsets: { x: number; y: number };
     theme: 'classic' | 'modern' | 'minimalist' | 'grid' | 'formal' | 'creative' | 'compact' | 'receipt';
+    columnWidths: number[];
 }
 
 // --- NEW INVOICE PREVIEW MODAL ---
@@ -1925,21 +1926,30 @@ const InvoicePreviewModal = ({
         return price.toString();
     };
     
-    const getInitialSettings = (): PrintSettings => {
-        if (activeShopId) {
-            const saved = localStorage.getItem(`printSettings_${activeShopId}`);
-            if (saved) return JSON.parse(saved);
-        }
-        return {
+    const getInitialSettings = useCallback((): PrintSettings => {
+        const defaults: PrintSettings = {
             paperSize: '4-inch',
             fontSize: 14,
             margins: { top: 20, right: 20, bottom: 20, left: 20 },
             offsets: { x: 0, y: 0 },
             theme: 'classic',
+            columnWidths: [],
         };
-    };
+        if (activeShopId) {
+            const saved = localStorage.getItem(`printSettings_${activeShopId}`);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                return { ...defaults, ...parsed };
+            }
+        }
+        return defaults;
+    }, [activeShopId]);
 
-    const [printSettings, setPrintSettings] = useState<PrintSettings>(getInitialSettings);
+    const [printSettings, setPrintSettings] = useState<PrintSettings>(getInitialSettings());
+
+    useEffect(() => {
+        setPrintSettings(getInitialSettings());
+    }, [activeShopId, getInitialSettings]);
 
     useEffect(() => {
         if (activeShopId) {
@@ -1949,46 +1959,42 @@ const InvoicePreviewModal = ({
 
     const printAreaRef = useRef<HTMLDivElement>(null);
     const tableRef = useRef<HTMLTableElement>(null);
-    const [columnWidths, setColumnWidths] = useState<number[]>([]);
     const saleDate = new Date(sale.date);
     
-    const calculateAndSetInitialWidths = useCallback(() => {
-        // Use a timeout to ensure DOM has been painted and widths are available.
-        setTimeout(() => {
+    useEffect(() => {
+        if (printSettings.columnWidths && printSettings.columnWidths.length > 0) {
+            return; 
+        }
+
+        const timer = setTimeout(() => {
             if (tableRef.current) {
                 const ths = Array.from(tableRef.current.querySelectorAll<HTMLTableCellElement>('thead th'));
                 const initialWidths = ths.map(th => th.offsetWidth);
                 if (initialWidths.length > 0 && initialWidths.every(w => w > 0)) {
-                    setColumnWidths(initialWidths);
+                    setPrintSettings(prev => ({ ...prev, columnWidths: initialWidths }));
                 }
             }
         }, 100);
-    }, [tableRef]);
 
-    useEffect(() => {
-        // Only calculate widths when the sale data changes (i.e., modal opens for a new sale)
-        calculateAndSetInitialWidths();
-    }, [sale, calculateAndSetInitialWidths]);
+        return () => clearTimeout(timer);
+    }, [sale.id, printSettings.columnWidths]);
 
     const handleResetLayout = () => {
-        // By clearing the widths array, the inline styles on the <col> elements
-        // will be removed, causing the table to revert to its default layout.
-        // The resizer will pick up the new default widths from the DOM if used again.
-        setColumnWidths([]);
+        setPrintSettings(prev => ({...prev, columnWidths: []}));
     };
 
     const handleMouseDown = (e: React.MouseEvent, index: number) => {
         e.preventDefault();
         const startX = e.clientX;
-        const startWidth = columnWidths[index] || (tableRef.current!.querySelectorAll<HTMLTableCellElement>('thead th')[index]).offsetWidth;
+        const startWidth = (printSettings.columnWidths || [])[index] || (tableRef.current!.querySelectorAll<HTMLTableCellElement>('thead th')[index]).offsetWidth;
 
         const handleMouseMove = (moveEvent: MouseEvent) => {
             const deltaX = moveEvent.clientX - startX;
             const newWidth = startWidth + deltaX;
-            setColumnWidths(prevWidths => {
-                const newWidths = [...prevWidths];
+            setPrintSettings(prevSettings => {
+                const newWidths = [...(prevSettings.columnWidths || [])];
                 newWidths[index] = Math.max(40, newWidth); // Minimum width
-                return newWidths;
+                return { ...prevSettings, columnWidths: newWidths };
             });
         };
 
@@ -2057,11 +2063,11 @@ const InvoicePreviewModal = ({
         const themeStyles = themes[printSettings.theme];
 
         let columnStyles = '';
-        if (columnWidths.length > 0) {
-            const totalWidth = columnWidths.reduce((sum, w) => sum + w, 0);
+        const widths = printSettings.columnWidths || [];
+        if (widths.length > 0) {
+            const totalWidth = widths.reduce((sum, w) => sum + w, 0);
             if (totalWidth > 0) {
-                columnStyles = columnWidths.map((width, i) => {
-                    // Use the raw pixel width for printing if available
+                columnStyles = widths.map((width, i) => {
                     return `table th:nth-child(${i + 1}), table td:nth-child(${i + 1}) { width: ${width}px; }`;
                 }).join('\n');
             }
@@ -2185,7 +2191,7 @@ const InvoicePreviewModal = ({
                         <hr style={currentTheme.hr} />
                         <table ref={tableRef} style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
                             <colgroup>
-                               {columnWidths.map((width, i) => <col key={i} style={{ width: width ? `${width}px` : undefined }} />)}
+                               {(printSettings.columnWidths || []).map((width, i) => <col key={i} style={{ width: width ? `${width}px` : undefined }} />)}
                             </colgroup>
                             <thead>
                                 <tr>
