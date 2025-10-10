@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -18,7 +17,6 @@ const initDb = async () => {
         const SQL = await initSqlJs({
             locateFile: (file: string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}`
         });
-        // FIX: Replaced incorrect type UintArray with Uint8Array.
         const dbFile: Uint8Array | null = await getDbFromIndexedDB();
         db = dbFile ? new SQL.Database(dbFile) : new SQL.Database();
         // Ensure schema exists on every load
@@ -56,7 +54,6 @@ const saveDbToIndexedDB = async () => {
     });
 };
 
-// FIX: Replaced incorrect return type UintArray with Uint8Array.
 const getDbFromIndexedDB = (): Promise<Uint8Array | null> => {
     return new Promise((resolve) => {
         const request = indexedDB.open(DB_NAME_IDB, 1);
@@ -180,7 +177,6 @@ const hashPassword = async (password: string): Promise<string> => {
     const encoder = new TextEncoder();
     const data = encoder.encode(password);
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    // FIX: Replaced incorrect type UintArray with Uint8Array. This resolves the reported 'Cannot find name' error and likely the subsequent 'Expected 0 arguments' error as well.
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 };
@@ -267,7 +263,6 @@ interface Shop {
     nextProductId: number;
 }
 
-// FIX: Added the missing 'styles' object definition to resolve all 'Cannot find name: styles' errors.
 const styles: { [key: string]: React.CSSProperties } = {
     // General & Layout
     appContainer: {
@@ -1986,7 +1981,6 @@ const InvoicePreviewModal = ({
     const handleMouseDown = (e: React.MouseEvent, index: number) => {
         e.preventDefault();
         const startX = e.clientX;
-        // FIX: Specified the element type for querySelectorAll to ensure offsetWidth is available.
         const startWidth = columnWidths[index] || (tableRef.current!.querySelectorAll<HTMLTableCellElement>('thead th')[index]).offsetWidth;
 
         const handleMouseMove = (moveEvent: MouseEvent) => {
@@ -3243,7 +3237,7 @@ const SalesView = ({
     };
 
     const handleDescriptionKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
-        if (e.key === 'Enter') {
+        if (e.key === 'Enter' || e.key === 'ArrowRight') {
             e.preventDefault();
             const quantityInput = quantityInputRefs.current[index];
             if (quantityInput) {
@@ -3254,7 +3248,7 @@ const SalesView = ({
     };
 
     const handleQuantityKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
-        if(e.key === 'Enter') {
+        if(e.key === 'Enter' || e.key === 'ArrowRight') {
             e.preventDefault();
             if (canChangePrice) {
                 const priceInput = priceInputRefs.current[index];
@@ -3263,13 +3257,27 @@ const SalesView = ({
             } else {
                 productSearchRef.current?.focus();
             }
+        } else if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            const descriptionInput = descriptionInputRefs.current[index];
+            if (descriptionInput) {
+                descriptionInput.focus();
+                descriptionInput.select();
+            }
         }
     };
 
-    const handlePriceKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if(e.key === 'Enter') {
+    const handlePriceKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
+        if(e.key === 'Enter' || e.key === 'ArrowRight') {
             e.preventDefault();
             productSearchRef.current?.focus();
+        } else if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            const quantityInput = quantityInputRefs.current[index];
+            if (quantityInput) {
+                quantityInput.focus();
+                quantityInput.select();
+            }
         }
     };
 
@@ -3461,7 +3469,7 @@ const SalesView = ({
                                             />
                                         </td>
                                         <td style={styles.td}><input ref={el => { quantityInputRefs.current[index] = el; }} type="number" step="0.001" value={item.quantity} onChange={(e) => handleUpdateSaleItem(item.id, 'quantity', parseFloat(e.target.value) || 0)} style={styles.gridInput} onKeyDown={(e) => handleQuantityKeyDown(e, index)} /></td>
-                                        <td style={styles.td}><input ref={el => { priceInputRefs.current[index] = el; }} type="number" step="0.01" value={item.price} onChange={(e) => handleUpdateSaleItem(item.id, 'price', parseFloat(e.target.value) || 0)} style={styles.gridInput} onKeyDown={handlePriceKeyDown} disabled={!canChangePrice} /></td>
+                                        <td style={styles.td}><input ref={el => { priceInputRefs.current[index] = el; }} type="number" step="0.01" value={item.price} onChange={(e) => handleUpdateSaleItem(item.id, 'price', parseFloat(e.target.value) || 0)} style={styles.gridInput} onKeyDown={(e) => handlePriceKeyDown(e, index)} disabled={!canChangePrice} /></td>
                                         <td style={styles.td}>₹{itemTotal.toFixed(1)}</td>
                                         <td style={styles.td}><input type="checkbox" checked={item.isReturn} onChange={(e) => handleUpdateSaleItem(item.id, 'isReturn', e.target.checked)} style={{width: '20px', height: '20px'}} /></td>
                                         <td style={styles.td}><button onClick={() => handleRemoveSaleItem(item.id)} style={{...styles.actionButton, backgroundColor: 'var(--danger-color)'}}>X</button></td>
@@ -5070,13 +5078,77 @@ const App = () => {
         e.target.value = '';
     };
     
+    // --- SHOP MANAGEMENT ---
+    const handleCreateShop = async (shopName: string) => {
+        try {
+            const newShopId = Date.now(); // Simple unique ID
+            db.run("INSERT INTO shops (id, name, nextProductId) VALUES (?, ?, ?)", [newShopId, shopName, 1]);
+            await saveDbToIndexedDB();
+            await fetchAllData();
+            setActiveShopId(newShopId); // Switch to the new shop
+            showAppToast(`Shop "${shopName}" created successfully.`);
+        } catch (err) {
+            console.error("Error creating shop:", err);
+            showAppToast("Error: Could not create shop.");
+        }
+    };
+    
+    const handleRenameShop = async (shopId: number, newName: string) => {
+        try {
+            db.run("UPDATE shops SET name = ? WHERE id = ?", [newName, shopId]);
+            await saveDbToIndexedDB();
+            await fetchAllData();
+            showAppToast("Shop renamed successfully.");
+        } catch (err) {
+            console.error("Error renaming shop:", err);
+            showAppToast("Error: Could not rename shop.");
+        }
+    };
+    
+    const handleDeleteShop = (shopId: number) => {
+        if (shopId === activeShopId) {
+            showAppToast("Cannot delete the currently active shop.");
+            return;
+        }
+        setConfirmationMessage("Are you sure you want to delete this shop and all its associated products and sales? This action is irreversible.");
+        setConfirmationAction(() => async () => {
+            try {
+                db.exec("BEGIN TRANSACTION;");
+                db.run("DELETE FROM shops WHERE id = ?", [shopId]);
+                db.run("DELETE FROM products WHERE shop_id = ?", [shopId]);
+                db.run("DELETE FROM sales_history WHERE shop_id = ?", [shopId]);
+                db.run("DELETE FROM sale_items WHERE shop_id = ?", [shopId]);
+                db.run("DELETE FROM expenses WHERE shop_id = ?", [shopId]);
+                db.exec("COMMIT;");
+                await saveDbToIndexedDB();
+                await fetchAllData();
+                showAppToast("Shop deleted successfully.");
+            } catch (err) {
+                db.exec("ROLLBACK;");
+                console.error("Error deleting shop:", err);
+                showAppToast("Error: Could not delete shop.");
+            }
+            setIsConfirmationOpen(false);
+        });
+        setIsConfirmationOpen(true);
+    };
+
+    const handleSelectShop = (shopId: number) => {
+        setActiveShopId(shopId);
+        setIsShopManagerOpen(false);
+        showAppToast(`Switched to shop: ${shops.find(s => s.id === shopId)?.name}`);
+    };
+    
     // --- RENDER LOGIC ---
 
     const activeShop = shops.find(s => s.id === activeShopId);
 
     const renderView = () => {
-        if (!activeShopId) {
-            return <p style={styles.emptyMessage}>Please select a shop to begin.</p>;
+        if (!activeShopId && currentUser?.role !== 'super_admin') {
+             return <p style={styles.emptyMessage}>You are not assigned to a shop. Please contact an administrator.</p>;
+        }
+        if (shops.length > 0 && !activeShopId && currentUser?.role === 'super_admin') {
+            return <p style={styles.emptyMessage}>Please select a shop from the Shop Manager to begin.</p>;
         }
         switch (activeView) {
             case 'sales':
@@ -5122,9 +5194,9 @@ const App = () => {
                     onEdit={(p) => { setEditingProduct(p); setIsProductFormOpen(true); }}
                     onDelete={handleDeleteProduct}
                     onAdd={() => { setEditingProduct(null); setIsProductFormOpen(true); }}
-                    onBulkAdd={() => { /* TODO */ }}
+                    onBulkAdd={(e) => { /* TODO: Implement handleBulkAddImage */ }}
                     onBulkAddPdfs={() => setIsPdfUploadModalOpen(true)}
-                    onExportPdf={() => { /* TODO */ }}
+                    onExportPdf={(filteredProducts) => { /* TODO: Implement PDF export */ }}
                     selectedProductIds={selectedProductIds}
                     setSelectedProductIds={setSelectedProductIds}
                     onDeleteSelected={handleDeleteSelectedProducts}
@@ -5151,161 +5223,91 @@ const App = () => {
                     expenses={expenses}
                     onAdd={handleAddExpense}
                     onDelete={handleDeleteExpense}
-                    shopId={activeShopId}
-                />
+                    shopId={activeShopId as number}
+                />;
             case 'balance_due':
                 return <BalanceDueView 
                     salesHistory={salesHistory} 
                     customers={customers} 
                     onSettlePayment={handleSettlePayment} 
-                />
+                />;
             case 'settings':
-                return <SettingsView 
+                 return <SettingsView 
                     billSettings={billSettings}
                     onSave={(settings) => {
                         localStorage.setItem(`billSettings_${activeShopId}`, JSON.stringify(settings));
                         setBillSettings(settings);
                         showAppToast("Settings saved!");
                     }}
-                    onPreview={() => { /* TODO: Implement settings preview */ }}
+                    onPreview={() => {
+                        const sampleItem: SaleItem = { id: 1, productId: 101, description: "Sample Product", quantity: 2, price: 50.00, isReturn: false };
+                        const sampleSale = {
+                            id: 'PREVIEW',
+                            date: new Date().toISOString(),
+                            items: [sampleItem],
+                            subtotal: 100.00,
+                            discount: 10.00,
+                            tax: 5.00,
+                            total: 95.00,
+                            paid_amount: 95.00,
+                            balance_due: 0,
+                            customerName: "John Doe",
+                            customerMobile: "9876543210"
+                        };
+                        setPreviewingSale(sampleSale);
+                        setIsInvoicePreviewOpen(true);
+                    }}
                     activeShopName={activeShop?.name || ''}
-                    onRenameShop={(newName) => { /* TODO: Implement rename from settings */ }}
-                />
+                    onRenameShop={(newName) => {
+                        if (activeShopId) {
+                            handleRenameShop(activeShopId, newName);
+                        }
+                    }}
+                />;
             default:
-                return <div>View not found</div>;
+                return <p>Select a view</p>;
         }
     };
 
     if (!isDbReady) {
-        return <div>Loading Database...</div>;
-    }
-
-    if (!currentUser) {
-        return <LoginView onLoginSuccess={(user) => {
-            setCurrentUser(user);
-            setActiveShopId(user.shop_id); // Set shop_id from user record on login
-        }} />;
+        return <div style={{textAlign: 'center', paddingTop: '4rem'}}>Loading Database...</div>;
     }
     
+    if (!currentUser) {
+        return <LoginView onLoginSuccess={setCurrentUser} />;
+    }
+
     if (shops.length === 0 && currentUser.role === 'super_admin') {
-        return <InitialSetupModal onCreate={async (name) => {
-            try {
-                const newShopId = Date.now();
-                db.run("INSERT INTO shops (id, name, nextProductId) VALUES (?, ?, ?)", [newShopId, name, 1]);
-                await saveDbToIndexedDB();
-                await fetchAllData();
-                setActiveShopId(newShopId);
-            } catch (e) {
-                console.error("Error creating first shop", e);
-            }
-        }} />;
+        return <InitialSetupModal onCreate={handleCreateShop} />;
     }
 
     return (
-        <div style={styles.appContainer}>
+        <div style={{ ...styles.appContainer, height: '100vh', width: '100vw', boxSizing: 'border-box' }}>
             <header style={styles.header}>
-                <h1 style={styles.title}>{activeShop?.name || "POS"}</h1>
+                <h1 style={styles.title}>Premium POS</h1>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <DropdownNav activeView={activeView} onSelectView={setActiveView} disabled={!activeShopId} currentUser={currentUser} />
-                    {currentUser.role === 'super_admin' && (
+                     <span style={{color: 'var(--secondary-color)', fontWeight: 500}}>
+                        Shop: <strong>{activeShop?.name || 'N/A'}</strong>
+                    </span>
+                     {currentUser.role === 'super_admin' && (
                         <button onClick={() => setIsShopManagerOpen(true)} style={styles.shopManagerButton}>Shop Manager</button>
                     )}
-                    <button onClick={handleLogout} style={styles.logoutButton}>Logout</button>
+                    <DropdownNav activeView={activeView} onSelectView={setActiveView} disabled={!activeShopId} currentUser={currentUser} />
+                    <button onClick={handleLogout} style={styles.logoutButton}>Logout ({currentUser.username})</button>
                 </div>
             </header>
             <main style={styles.mainContent}>
                 {renderView()}
             </main>
-
+            
             {isProductFormOpen && <ProductFormModal product={editingProduct} onSave={handleAddProduct} onUpdate={handleUpdateProduct} onClose={() => setIsProductFormOpen(false)} />}
             {isCustomerFormOpen && <CustomerFormModal customer={editingCustomer} onSave={handleAddOrUpdateCustomer} onClose={() => setIsCustomerFormOpen(false)} />}
             {isConfirmationOpen && confirmationAction && <ConfirmationModal message={confirmationMessage} onConfirm={confirmationAction} onCancel={() => setIsConfirmationOpen(false)} />}
             {isHistoryModalOpen && <HistoryModal salesHistory={salesHistory} customerMobile={activeCart.customerMobile} onClose={() => setIsHistoryModalOpen(false)} />}
-            {isInvoicePreviewOpen && previewingSale && 
-                <InvoicePreviewModal 
-                    sale={previewingSale} 
-                    onFinalize={previewingSale.isFinalized ? undefined : handleFinalizeSale}
-                    onClose={() => setIsInvoicePreviewOpen(false)}
-                    isPreviewMode={previewingSale.isFinalized}
-                    activeShopId={activeShopId}
-                />
-            }
-            {isShopManagerOpen && <ShopManagerModal 
-                shops={shops} 
-                activeShopId={activeShopId}
-                onSelect={async (shopId) => { setActiveShopId(shopId); await fetchAllData(); setIsShopManagerOpen(false); }}
-                onCreate={async (name) => {
-                    const newId = Date.now();
-                    db.run("INSERT INTO shops (id, name, nextProductId) VALUES (?, ?, ?)", [newId, name, 1]);
-                    await saveDbToIndexedDB();
-                    await fetchAllData();
-                }}
-                onRename={async (id, name) => {
-                    db.run("UPDATE shops SET name = ? WHERE id = ?", [name, id]);
-                    await saveDbToIndexedDB();
-                    await fetchAllData();
-                }}
-                onDelete={(id) => {
-                    setConfirmationMessage("Are you sure you want to delete this shop and all its associated products, sales, and expenses? This is irreversible.");
-                    setConfirmationAction(() => async () => {
-                        db.exec("BEGIN TRANSACTION;");
-                        try {
-                            db.run("DELETE FROM products WHERE shop_id = ?", [id]);
-                            db.run("DELETE FROM sales_history WHERE shop_id = ?", [id]);
-                            db.run("DELETE FROM sale_items WHERE shop_id = ?", [id]);
-                            db.run("DELETE FROM expenses WHERE shop_id = ?", [id]);
-                            db.run("DELETE FROM shops WHERE id = ?", [id]);
-                            db.exec("COMMIT;");
-                            await saveDbToIndexedDB();
-                            await fetchAllData();
-                            setIsConfirmationOpen(false);
-                            if (activeShopId === id) {
-                                setActiveShopId(shops.length > 0 ? shops[0].id : null);
-                            }
-                        } catch(e) {
-                            db.exec("ROLLBACK;");
-                            console.error("Failed to delete shop", e);
-                        }
-                    });
-                    setIsConfirmationOpen(true);
-                }}
-                onClose={() => setIsShopManagerOpen(false)}
-            />}
-            {isPdfUploadModalOpen && <PdfUploadModal onProcess={() => {}} onClose={() => setIsPdfUploadModalOpen(false)} />}
-            {isBulkAddModalOpen && <BulkAddModal 
-                fileSrc={bulkAddFileSrc}
-                fileType={bulkAddFileType}
-                fileNames={bulkAddFileNames}
-                initialProducts={bulkAddInitialProducts}
-                onSave={async (productsToSave) => {
-                     if (!activeShopId) return;
-                     const shop = shops.find(s => s.id === activeShopId);
-                     if (!shop) return;
-
-                     let nextId = shop.nextProductId;
-                     db.exec("BEGIN TRANSACTION;");
-                     try {
-                        const stmt = db.prepare("INSERT INTO products (id, shop_id, description, descriptionTamil, barcode, b2bPrice, b2cPrice, stock, category, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                        productsToSave.forEach(p => {
-                            stmt.run([nextId++, activeShopId, p.description, p.descriptionTamil || null, p.barcode || null, p.b2bPrice, p.b2cPrice, p.stock, p.category || null, p.hsnCode || null]);
-                        });
-                        stmt.free();
-                        db.run("UPDATE shops SET nextProductId = ? WHERE id = ?", [nextId, activeShopId]);
-                        db.exec("COMMIT;");
-                        await saveDbToIndexedDB();
-                        await fetchAllData();
-                        setIsBulkAddModalOpen(false);
-                        showAppToast(`${productsToSave.length} products added successfully!`);
-                     } catch (e) {
-                        db.exec("ROLLBACK;");
-                        console.error("Error bulk saving products", e);
-                        showAppToast("Error saving products.");
-                     }
-                }}
-                onClose={() => setIsBulkAddModalOpen(false)}
-                loading={isBulkAddLoading}
-                error={bulkAddError}
-            />}
+            {isInvoicePreviewOpen && previewingSale && <InvoicePreviewModal sale={previewingSale} onFinalize={previewingSale.isFinalized ? undefined : handleFinalizeSale} onClose={() => setIsInvoicePreviewOpen(false)} isPreviewMode={!!previewingSale.isFinalized} activeShopId={activeShopId} />}
+            {isShopManagerOpen && <ShopManagerModal shops={shops} activeShopId={activeShopId} onSelect={handleSelectShop} onCreate={handleCreateShop} onRename={handleRenameShop} onDelete={handleDeleteShop} onClose={() => setIsShopManagerOpen(false)} />}
+            {isPdfUploadModalOpen && <PdfUploadModal onProcess={() => { /* TODO */ }} onClose={() => setIsPdfUploadModalOpen(false)} />}
+            {isBulkAddModalOpen && <BulkAddModal fileSrc={bulkAddFileSrc} fileType={bulkAddFileType} fileNames={bulkAddFileNames} initialProducts={bulkAddInitialProducts} onSave={() => { /* TODO */ }} onClose={() => setIsBulkAddModalOpen(false)} loading={isBulkAddLoading} error={bulkAddError} />}
             {isRestoreProgressModalOpen && <RestoreProgressModal {...restoreProgress} />}
         </div>
     );
