@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -1922,6 +1923,13 @@ const InvoicePreviewModal = ({
     activeShopId: number | null;
 }) => {
     const [whatsAppNumber, setWhatsAppNumber] = useState(sale.customerMobile || '');
+
+    const formatPrice = (price: number) => {
+        if (price % 1 !== 0) {
+            return price.toFixed(1);
+        }
+        return price.toString();
+    };
     
     const getInitialSettings = (): PrintSettings => {
         if (activeShopId) {
@@ -2210,7 +2218,7 @@ const InvoicePreviewModal = ({
                                         <td style={{...currentTheme.tableCell, textAlign: headers[0].align}}>{index + 1}</td>
                                         <td style={{...currentTheme.tableCell, textAlign: headers[1].align}}>{item.description}</td>
                                         <td style={{...currentTheme.tableCell, textAlign: headers[2].align}}>{item.quantity}</td>
-                                        <td style={{...currentTheme.tableCell, textAlign: headers[3].align}}>{item.price.toFixed(2)}</td>
+                                        <td style={{...currentTheme.tableCell, textAlign: headers[3].align}}>{formatPrice(item.price)}</td>
                                         <td style={{...currentTheme.tableCell, textAlign: headers[4].align}}>{(item.quantity * item.price).toFixed(2)}</td>
                                     </tr>
                                 ))}
@@ -2226,7 +2234,7 @@ const InvoicePreviewModal = ({
                                         <td style={{...currentTheme.tableCell, textAlign: headers[0].align}}>{index + 1}</td>
                                         <td style={{...currentTheme.tableCell, textAlign: headers[1].align}}>{item.description}</td>
                                         <td style={{...currentTheme.tableCell, textAlign: headers[2].align}}>{item.quantity}</td>
-                                        <td style={{...currentTheme.tableCell, textAlign: headers[3].align}}>{item.price.toFixed(2)}</td>
+                                        <td style={{...currentTheme.tableCell, textAlign: headers[3].align}}>{formatPrice(item.price)}</td>
                                         <td style={{...currentTheme.tableCell, textAlign: headers[4].align}}>-{(item.quantity * item.price).toFixed(2)}</td>
                                     </tr>
                                 ))}
