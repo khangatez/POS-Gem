@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -2087,6 +2088,7 @@ const InvoicePreviewModal = ({
                                 --text-color: #343a40;
                                 --border-color: #ced4da;
                                 --success-color: #2ecc71;
+                                --danger-color: #e74c3c;
                             }
                             body { 
                                 font-family: ${themeStyles.container.fontFamily};
@@ -2160,6 +2162,9 @@ const InvoicePreviewModal = ({
     
     const currentTheme = themes[printSettings.theme];
 
+    const saleItems = sale.items.filter((item: SaleItem) => !item.isReturn);
+    const returnItems = sale.items.filter((item: SaleItem) => item.isReturn);
+
     return (
         <div style={styles.modalBackdrop}>
             <div style={{
@@ -2201,13 +2206,29 @@ const InvoicePreviewModal = ({
                                 </tr>
                             </thead>
                             <tbody>
-                                {sale.items.map((item: SaleItem, index: number) => (
-                                    <tr key={item.id}>
+                                {saleItems.map((item: SaleItem, index: number) => (
+                                    <tr key={`sale-${item.id}`}>
                                         <td style={{...currentTheme.tableCell, textAlign: headers[0].align}}>{index + 1}</td>
                                         <td style={{...currentTheme.tableCell, textAlign: headers[1].align}}>{item.description}</td>
                                         <td style={{...currentTheme.tableCell, textAlign: headers[2].align}}>{item.quantity}</td>
                                         <td style={{...currentTheme.tableCell, textAlign: headers[3].align}}>{item.price.toFixed(2)}</td>
                                         <td style={{...currentTheme.tableCell, textAlign: headers[4].align}}>{(item.quantity * item.price).toFixed(2)}</td>
+                                    </tr>
+                                ))}
+                                {returnItems.length > 0 && (
+                                    <tr>
+                                        <td colSpan={headers.length} style={{ ...currentTheme.tableCell, textAlign: 'center', fontWeight: 'bold', paddingTop: '15px', paddingBottom: '5px', borderBottom: 'none', color: 'var(--danger-color)' }}>
+                                            --- Returned Items ---
+                                        </td>
+                                    </tr>
+                                )}
+                                {returnItems.map((item: SaleItem, index: number) => (
+                                     <tr key={`return-${item.id}`} style={{color: 'var(--danger-color)'}}>
+                                        <td style={{...currentTheme.tableCell, textAlign: headers[0].align}}>{index + 1}</td>
+                                        <td style={{...currentTheme.tableCell, textAlign: headers[1].align}}>{item.description}</td>
+                                        <td style={{...currentTheme.tableCell, textAlign: headers[2].align}}>{item.quantity}</td>
+                                        <td style={{...currentTheme.tableCell, textAlign: headers[3].align}}>{item.price.toFixed(2)}</td>
+                                        <td style={{...currentTheme.tableCell, textAlign: headers[4].align}}>-{(item.quantity * item.price).toFixed(2)}</td>
                                     </tr>
                                 ))}
                             </tbody>
