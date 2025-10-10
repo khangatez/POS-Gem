@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -3039,6 +3038,7 @@ const SalesView = ({
     const descriptionInputRefs = useRef<{ [key: number]: HTMLInputElement | null }>({});
     const recognitionRef = useRef<any>(null);
     const searchResultsContainerRef = useRef<HTMLUListElement>(null);
+    const previewButtonRef = useRef<HTMLButtonElement>(null);
     
     const finalBalance = total - paidAmount;
 
@@ -3244,6 +3244,9 @@ const SalesView = ({
                 quantityInput.focus();
                 quantityInput.select();
             }
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            previewButtonRef.current?.focus();
         }
     };
 
@@ -3264,6 +3267,9 @@ const SalesView = ({
                 descriptionInput.focus();
                 descriptionInput.select();
             }
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            previewButtonRef.current?.focus();
         }
     };
 
@@ -3278,6 +3284,9 @@ const SalesView = ({
                 quantityInput.focus();
                 quantityInput.select();
             }
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            previewButtonRef.current?.focus();
         }
     };
 
@@ -3495,7 +3504,7 @@ const SalesView = ({
                             onAmountPaidEdit();
                         }} style={styles.totalsInput}/>
                     </div>
-                    <button onClick={onPreview} style={{...styles.button, backgroundColor: 'var(--success-color)'}} disabled={activeCart.items.length === 0 && previousBalanceDue <= 0}>Preview Invoice</button>
+                    <button ref={previewButtonRef} onClick={onPreview} style={{...styles.button, backgroundColor: 'var(--success-color)'}} disabled={activeCart.items.length === 0 && previousBalanceDue <= 0}>Preview Invoice</button>
                     <div style={styles.grandTotal}>
                         <h3>Grand Total: ₹{total.toFixed(2)}</h3>
                         {finalBalance !== 0 && <h4 style={{color: finalBalance > 0 ? 'var(--danger-color)' : 'var(--success-color)', margin: 0}}>Balance: ₹{finalBalance.toFixed(2)}</h4>}
