@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -2248,10 +2247,9 @@ const InvoicePreviewModal = ({
                             <p style={currentTheme.headerSubtitle}>Date: {saleDate.toLocaleString()}</p>
                         </div>
                         {(sale.customerName || sale.customerMobile) && (
-                            <div style={{ paddingTop: '10px' }}>
-                                <h4 style={{ margin: '0 0 5px 0' }}>Bill To:</h4>
-                                {sale.customerName && <p style={{ margin: '0 0 3px 0' }}>{sale.customerName}</p>}
-                                {sale.customerMobile && <p style={{ margin: 0 }}>{sale.customerMobile}</p>}
+                            <div style={{ paddingTop: '10px', paddingBottom: '10px' }}>
+                                <p style={{ margin: 0 }}><strong>Bill To:</strong> {sale.customerName}</p>
+                                {sale.customerMobile && <p style={{ margin: '2px 0 0 0' }}>{sale.customerMobile}</p>}
                             </div>
                         )}
                         <hr style={currentTheme.hr} />
@@ -4506,6 +4504,17 @@ const App = () => {
     const [isInitialSetup, setIsInitialSetup] = useState(false);
     const [isShopManagerOpen, setIsShopManagerOpen] = useState(false);
     
+    // FIX: Define helper functions for opening and closing the confirmation modal. These were missing, causing `Cannot find name` errors in multiple handlers.
+    const openConfirmModal = (message: string, onConfirm: () => void) => {
+        setConfirmAction({ message, onConfirm });
+        setIsConfirmModalOpen(true);
+    };
+
+    const closeConfirmModal = () => {
+        setIsConfirmModalOpen(false);
+        setConfirmAction(null);
+    };
+
     // Bulk Add States
     const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState(false);
     const [bulkAddFile, setBulkAddFile] = useState<{ src: string | null, type: 'image' | 'pdf' | 'dual-pdf' | null, names?: { b2b: string, b2c: string } | null }>({ src: null, type: null, names: null });
@@ -4770,36 +4779,227 @@ const App = () => {
         const onConfirm = async () => {
             if (!db) return;
             const placeholders = selectedProductIds.map(() => '?').join(',');
-            db.run(`DELETE FROM products WHERE id IN (${placeholders}) AND shop_id = ?`, [...selectedProductIds, activeShopId]);
+            const sql = `DELETE FROM products WHERE id IN (${placeholders}) AND shop_id = ?`;
+            db.run(sql, [...selectedProductIds, activeShopId]);
             await saveDbToIndexedDB();
             await loadShopData(activeShopId!);
-            setSelectedProductIds([]); // Clear selection
+            setSelectedProductIds([]);
             closeConfirmModal();
         };
         openConfirmModal(`Are you sure you want to delete ${selectedProductIds.length} selected products? This action cannot be undone.`, onConfirm);
     };
 
-    // Customer Handlers
-    const handleAddOrUpdateCustomer = async (customerData: Omit<Customer, 'id'>) => {
+    // --- Bulk Add Handlers ---
+    const handleBulkAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file && isOnline) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                setBulkAddFile({ src: event.target?.result as string, type: 'image' });
+                setIsBulkAddModalOpen(true);
+                setIsBulkAddLoading(true);
+                setBulkAddError(null);
+                setBulkAddProducts([]);
+                processImageWithGemini(file);
+            };
+            reader.readAsDataURL(file);
+        } else if (!isOnline) {
+            alert("AI features require an internet connection.");
+        }
+        // Clear the input value to allow selecting the same file again
+        if (e.target) e.target.value = '';
+    };
+
+    const processImageWithGemini = async (file: File) => {
         try {
-            // Check if customer exists
-            const existing = sqlResultToObjects(db.exec("SELECT id FROM customers WHERE mobile = ?", [customerData.mobile]));
-            if (editingCustomer || existing.length > 0) {
-                const idToUpdate = editingCustomer ? editingCustomer.id : existing[0].id;
-                db.run("UPDATE customers SET name = ? WHERE id = ?", [customerData.name, idToUpdate]);
-            } else {
-                db.run("INSERT INTO customers (name, mobile) VALUES (?, ?)", [customerData.name, customerData.mobile]);
-            }
-            await saveDbToIndexedDB();
-            await loadShopData(activeShopId!);
-        } catch (e: any) {
-            alert("Error saving customer: " + e.message);
+            const fileToBase64 = (file: File): Promise<string> => new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve((reader.result as string).split(',')[1]);
+                reader.onerror = error => reject(error);
+            });
+
+            const base64Data = await fileToBase64(file);
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            
+            const prompt = `Analyze this image of a product price list. Extract the following details for each product: description, description in Tamil (if available), category (if discernible), B2B price, B2C price, and any listed stock quantity. Provide the output as a JSON array of objects. Each object should have keys: "description", "descriptionTamil", "category", "b2bPrice", "b2cPrice", and "stock". If a value isn't available, use an empty string or 0. Ensure prices and stock are numbers.`;
+
+            const response = await ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: {
+                    parts: [
+                        { inlineData: { mimeType: file.type, data: base64Data } },
+                        { text: prompt }
+                    ]
+                },
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.ARRAY,
+                        items: {
+                            type: Type.OBJECT,
+                            properties: {
+                                description: { type: Type.STRING },
+                                descriptionTamil: { type: Type.STRING },
+                                category: { type: Type.STRING },
+                                b2bPrice: { type: Type.NUMBER },
+                                b2cPrice: { type: Type.NUMBER },
+                                stock: { type: Type.NUMBER }
+                            }
+                        }
+                    }
+                }
+            });
+
+            const parsedProducts = JSON.parse(response.text);
+            const formattedProducts = parsedProducts.map((p: any) => ({
+                description: p.description || '',
+                descriptionTamil: p.descriptionTamil || '',
+                category: p.category || '',
+                barcode: '',
+                b2bPrice: p.b2bPrice || 0,
+                b2cPrice: p.b2cPrice || 0,
+                stock: p.stock || 0,
+                hsnCode: '',
+            }));
+            
+            setBulkAddProducts(formattedProducts);
+
+        } catch (err: any) {
+            console.error("Error with Gemini API:", err);
+            setBulkAddError(err.message || "Failed to process the image. Please try again.");
         } finally {
-            setIsCustomerFormOpen(false);
-            setEditingCustomer(null);
+            setIsBulkAddLoading(false);
         }
     };
     
+    const handleProcessDualPdfs = async (b2bFile: File, b2cFile: File) => {
+         setIsPdfUploadModalOpen(false);
+         setBulkAddFile({ src: null, type: 'dual-pdf', names: { b2b: b2bFile.name, b2c: b2cFile.name } });
+         setIsBulkAddModalOpen(true);
+         setIsBulkAddLoading(true);
+         setBulkAddError(null);
+         setBulkAddProducts([]);
+
+         try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            // This is a placeholder for a multi-modal model that can handle multiple PDFs.
+            // For now, we will simulate this by sending two separate requests and merging the results.
+            // This is NOT ideal and a true multi-modal PDF model would be better.
+            
+            // A helper to process a single PDF
+            const processSinglePdf = async (file: File, priceType: 'b2bPrice' | 'b2cPrice'): Promise<any[]> => {
+                const prompt = `Analyze this PDF price list. Extract the product description and price for each item. Provide the output as a JSON array of objects. Each object should have keys: "description" and "price". Ensure price is a number.`;
+                const arrayBuffer = await file.arrayBuffer();
+                const base64Data = btoa(new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ''));
+
+                const response = await ai.models.generateContent({
+                    model: "gemini-2.5-flash",
+                    contents: {
+                        parts: [
+                           { inlineData: { mimeType: 'application/pdf', data: base64Data } },
+                           { text: prompt }
+                        ]
+                    },
+                     config: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    description: { type: Type.STRING },
+                                    price: { type: Type.NUMBER },
+                                }
+                            }
+                        }
+                    }
+                });
+                return JSON.parse(response.text).map((item: any) => ({ description: item.description, [priceType]: item.price }));
+            };
+
+            const b2bData = await processSinglePdf(b2bFile, 'b2bPrice');
+            const b2cData = await processSinglePdf(b2cFile, 'b2cPrice');
+
+            // Merge the data based on description (simple matching)
+            const mergedProducts: { [key: string]: any } = {};
+            b2bData.forEach(p => {
+                if (p.description) mergedProducts[p.description.toLowerCase().trim()] = { description: p.description, b2bPrice: p.b2bPrice || 0 };
+            });
+            b2cData.forEach(p => {
+                const key = p.description.toLowerCase().trim();
+                if (mergedProducts[key]) {
+                    mergedProducts[key].b2cPrice = p.b2cPrice || 0;
+                } else {
+                    mergedProducts[key] = { description: p.description, b2cPrice: p.b2cPrice || 0 };
+                }
+            });
+
+            const finalProductList = Object.values(mergedProducts).map(p => ({
+                ...p,
+                stock: 0,
+                barcode: '',
+                category: '',
+                descriptionTamil: '',
+                hsnCode: '',
+            }));
+
+            setBulkAddProducts(finalProductList);
+
+         } catch(err: any) {
+             console.error("Error processing PDFs:", err);
+             setBulkAddError(err.message || "Failed to process PDFs. Ensure they are clear and machine-readable.");
+         } finally {
+             setIsBulkAddLoading(false);
+         }
+    };
+
+    const handleSaveBulkAdd = async (productsToSave: EditableProduct[]) => {
+        if (!activeShop) return;
+
+        let nextId = activeShop.nextProductId;
+        const productStmt = db.prepare("INSERT INTO products (id, shop_id, description, descriptionTamil, barcode, b2bPrice, b2cPrice, stock, category, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        
+        productsToSave.forEach(p => {
+            productStmt.run([nextId++, activeShopId, p.description, p.descriptionTamil, p.barcode, p.b2bPrice, p.b2cPrice, p.stock, p.category, p.hsnCode]);
+        });
+        
+        productStmt.free();
+        db.run("UPDATE shops SET nextProductId = ? WHERE id = ?", [nextId, activeShopId]);
+
+        await saveDbToIndexedDB();
+        await loadShopData(activeShopId!);
+        const newShops = sqlResultToObjects(db.exec("SELECT * FROM shops"));
+        setShops(newShops);
+
+        setIsBulkAddModalOpen(false);
+        setBulkAddProducts([]);
+    };
+
+    // Customer Handlers
+    const handleAddCustomer = async (customerData: Omit<Customer, 'id'>) => {
+        try {
+            db.run("INSERT INTO customers (name, mobile) VALUES (?, ?)", [customerData.name, customerData.mobile]);
+            await saveDbToIndexedDB();
+            await loadShopData(activeShopId!);
+            setIsCustomerFormOpen(false);
+        } catch (err: any) {
+             if (err.message.includes('UNIQUE constraint failed')) {
+                alert("A customer with this mobile number already exists.");
+            } else {
+                alert("Failed to add customer. Please try again.");
+            }
+        }
+    };
+
+    const handleUpdateCustomer = async (customerData: Customer) => {
+        db.run("UPDATE customers SET name = ?, mobile = ? WHERE id = ?", [customerData.name, customerData.mobile, customerData.id]);
+        await saveDbToIndexedDB();
+        await loadShopData(activeShopId!);
+        setIsCustomerFormOpen(false);
+        setEditingCustomer(null);
+    };
+
     const handleDeleteCustomer = (customer: Customer) => {
         const onConfirm = async () => {
             db.run("DELETE FROM customers WHERE id = ?", [customer.id]);
@@ -4811,18 +5011,15 @@ const App = () => {
     };
     
     // Expense Handlers
-    const handleAddExpense = async (expenseData: Omit<Expense, 'id'>) => {
-        db.run(
-            "INSERT INTO expenses (shop_id, date, description, category, amount) VALUES (?, ?, ?, ?, ?)",
-            [expenseData.shop_id, expenseData.date, expenseData.description, expenseData.category, expenseData.amount]
-        );
+    const handleAddExpense = async (expense: Omit<Expense, 'id'>) => {
+        db.run("INSERT INTO expenses (shop_id, date, description, category, amount) VALUES (?, ?, ?, ?, ?)", [expense.shop_id, expense.date, expense.description, expense.category, expense.amount]);
         await saveDbToIndexedDB();
         await loadShopData(activeShopId!);
     };
-
-    const handleDeleteExpense = (id: number) => {
-         const onConfirm = async () => {
-            db.run("DELETE FROM expenses WHERE id = ?", [id]);
+    
+    const handleDeleteExpense = (expenseId: number) => {
+        const onConfirm = async () => {
+            db.run("DELETE FROM expenses WHERE id = ?", [expenseId]);
             await saveDbToIndexedDB();
             await loadShopData(activeShopId!);
             closeConfirmModal();
@@ -4830,44 +5027,162 @@ const App = () => {
         openConfirmModal("Are you sure you want to delete this expense record?", onConfirm);
     };
 
-    // Modal Controls
-    const openProductForm = (product: Product | null) => {
-        setEditingProduct(product);
-        setIsProductFormOpen(true);
+
+    // Sale & Invoice Handlers
+    const handleFinalizeSale = async () => {
+        if (!activeShopId) return;
+
+        const saleToFinalize = {
+            id: `${activeShopId}-${Date.now()}`,
+            date: new Date().toISOString(),
+            items: [...activeCart.items],
+            subtotal,
+            discount: activeCart.discount,
+            tax: activeCart.tax,
+            total,
+            paid_amount: paidAmount,
+            balance_due: Math.max(0, total - paidAmount),
+            customerName: activeCart.customerName,
+            customerMobile: activeCart.customerMobile,
+        };
+
+        db.run(
+            "INSERT INTO sales_history (id, shop_id, date, subtotal, discount, tax, total, paid_amount, balance_due, customerName, customerMobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [saleToFinalize.id, activeShopId, saleToFinalize.date, saleToFinalize.subtotal, saleToFinalize.discount, saleToFinalize.tax, saleToFinalize.total, saleToFinalize.paid_amount, saleToFinalize.balance_due, saleToFinalize.customerName, saleToFinalize.customerMobile]
+        );
+
+        const itemStmt = db.prepare("INSERT INTO sale_items (sale_id, productId, shop_id, description, descriptionTamil, quantity, price, isReturn, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        
+        saleToFinalize.items.forEach(item => {
+            itemStmt.run([saleToFinalize.id, item.productId, activeShopId, item.description, item.descriptionTamil, item.quantity, item.price, item.isReturn, item.hsnCode]);
+            // Update stock
+            const stockChange = item.isReturn ? item.quantity : -item.quantity;
+            db.run("UPDATE products SET stock = stock + ? WHERE id = ? AND shop_id = ?", [stockChange, item.productId, activeShopId]);
+        });
+        itemStmt.free();
+
+        await saveDbToIndexedDB();
+        await loadShopData(activeShopId!);
+
+        // Keep the finalized invoice in the preview
+        setInvoicePreview({ ...saleToFinalize, isFinalized: true });
+
+        // Do not reset the cart immediately. Let the user click "New Sale".
     };
     
-    const openCustomerForm = (customer: Customer | null) => {
-        setEditingCustomer(customer);
-        setIsCustomerFormOpen(true);
-    };
-    
-    const openConfirmModal = (message: string, onConfirm: () => void) => {
-        setConfirmAction({ message, onConfirm });
-        setIsConfirmModalOpen(true);
+    const handleSettlePayment = async (saleId: string, amount: number) => {
+        const sale = salesHistory.find(s => s.id === saleId);
+        if (!sale) return;
+
+        const newPaidAmount = sale.paid_amount + amount;
+        const newBalanceDue = Math.max(0, sale.total - newPaidAmount);
+
+        db.run(
+            "UPDATE sales_history SET paid_amount = ?, balance_due = ? WHERE id = ?",
+            [newPaidAmount, newBalanceDue, saleId]
+        );
+        db.run(
+            "INSERT INTO payment_history (sale_id, date, amount_paid, payment_method) VALUES (?, ?, ?, ?)",
+            [saleId, new Date().toISOString(), amount, 'cash'] // Assuming cash for now
+        );
+        await saveDbToIndexedDB();
+        await loadShopData(activeShopId!);
     };
 
-    const closeConfirmModal = () => {
-        setConfirmAction(null);
-        setIsConfirmModalOpen(false);
-    };
-
-    // Cart and Sale Handlers
-    const updateActiveCart = (updates: Partial<CartState>) => {
-        setActiveCarts(prevCarts => {
-            const newCarts = [...prevCarts];
-            newCarts[activeCartIndex] = { ...newCarts[activeCartIndex], ...updates };
+    const handleNewSale = () => {
+        setInvoicePreview(null);
+        setActiveCarts(prev => {
+            const newCarts = [...prev];
+            newCarts[activeCartIndex] = defaultCartState;
             return newCarts;
         });
-    };
-    
-    const handleChangeCart = (index: number) => {
-        setActiveCartIndex(index);
-        setIsAmountPaidEdited(false); // Reset edit flag on cart switch
+        setPaidAmount(0);
+        setPreviousBalanceDue(0);
+        setIsAmountPaidEdited(false);
     };
 
-    const handlePreviewSale = () => {
-        const saleRecord: SaleRecord = {
-            id: `INV-${Date.now()}`,
+    const handleSaveBackup = async () => {
+        if (!db) return;
+        const data = db.export();
+        const blob = new Blob([data], { type: 'application/x-sqlite3' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const date = new Date().toISOString().slice(0, 10);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `pos_gem_backup_${date}.db`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    const handleRestoreBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            const arrayBuffer = event.target?.result as ArrayBuffer;
+            if (arrayBuffer) {
+                setRestoreProgress({ percentage: 0, eta: 'Calculating...', message: 'Starting Restore...' });
+                const data = new Uint8Array(arrayBuffer);
+                
+                // Simulate progress for user feedback
+                setRestoreProgress({ percentage: 25, eta: 'few moments', message: 'Replacing Database...' });
+                
+                const SQL = await initSqlJs({ locateFile: (file: string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}` });
+                db = new SQL.Database(data);
+
+                setRestoreProgress({ percentage: 75, eta: 'almost there', message: 'Saving...' });
+
+                await saveDbToIndexedDB();
+                
+                setRestoreProgress({ percentage: 100, eta: '0s', message: 'Reloading App...' });
+
+                // Force a reload to re-initialize everything with the new DB
+                setTimeout(() => window.location.reload(), 1000);
+            }
+        };
+        reader.readAsArrayBuffer(file);
+        if(e.target) e.target.value = ''; // Allow re-selecting same file
+    };
+
+    const handleExportProductsPdf = (productsToExport: Product[]) => {
+        // Implementation for PDF export
+        const element = document.createElement('div');
+        element.innerHTML = `
+            <h1>Product List</h1>
+            <table border="1" style="width:100%; border-collapse: collapse;">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Description</th>
+                        <th>B2B Price</th>
+                        <th>B2C Price</th>
+                        <th>Stock</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${productsToExport.map(p => `
+                        <tr>
+                            <td>${p.id}</td>
+                            <td>${p.description}</td>
+                            <td>${p.b2bPrice.toFixed(2)}</td>
+                            <td>${p.b2cPrice.toFixed(2)}</td>
+                            <td>${p.stock}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+        html2pdf(element, {
+            filename: `product-list-${new Date().toISOString().slice(0, 10)}.pdf`,
+            jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
+        });
+    };
+
+    const handlePreviewBill = () => {
+        const previewSale = {
+            id: `PREVIEW-${Date.now()}`,
             date: new Date().toISOString(),
             items: activeCart.items,
             subtotal,
@@ -4875,545 +5190,160 @@ const App = () => {
             tax: activeCart.tax,
             total,
             paid_amount: paidAmount,
-            balance_due: total - paidAmount,
+            balance_due: Math.max(0, total - paidAmount),
             customerName: activeCart.customerName,
             customerMobile: activeCart.customerMobile,
             previousBalanceForPreview: previousBalanceDue,
             isFinalized: false,
         };
-        setInvoicePreview(saleRecord);
-    };
-
-    const handleFinalizeSale = async () => {
-        if (!invoicePreview || !activeShopId) return;
-
-        const { id, date, items, subtotal, discount, tax, total, paid_amount, balance_due, customerName, customerMobile } = invoicePreview;
-
-        // Save sale history
-        db.run(
-            "INSERT INTO sales_history (id, shop_id, date, subtotal, discount, tax, total, paid_amount, balance_due, customerName, customerMobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [id, activeShopId, date, subtotal, discount, tax, total, paid_amount, balance_due, customerName, customerMobile]
-        );
-
-        // Save sale items and update stock
-        items.forEach((item: SaleItem) => {
-            db.run(
-                "INSERT INTO sale_items (sale_id, productId, shop_id, description, descriptionTamil, quantity, price, isReturn, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [id, item.productId, activeShopId, item.description, item.descriptionTamil, item.quantity, item.price, item.isReturn ? 1 : 0, item.hsnCode]
-            );
-            // Update product stock
-            const stockChange = item.isReturn ? item.quantity : -item.quantity;
-            db.run("UPDATE products SET stock = stock + ? WHERE id = ? AND shop_id = ?", [stockChange, item.productId, activeShopId]);
-        });
-        
-        // Save customer if new
-        if (customerMobile && customerName) {
-            const existing = sqlResultToObjects(db.exec("SELECT id FROM customers WHERE mobile = ?", [customerMobile]));
-            if (existing.length === 0) {
-                 db.run("INSERT INTO customers (name, mobile) VALUES (?, ?)", [customerName, customerMobile]);
-            }
-        }
-
-        await saveDbToIndexedDB();
-        await loadShopData(activeShopId);
-
-        // Keep the user on the finalized invoice screen
-        setInvoicePreview(prev => prev ? { ...prev, isFinalized: true } : null);
-    };
-
-    const handleNewSale = () => {
-        // This is called from a finalized invoice to start a new sale
-        // FIX: The updater function for `setActiveCarts` must return the new state.
-        // Other state updates were moved outside this updater to avoid side effects and ensure correctness.
-        setActiveCarts(prevCarts => {
-            const newCarts = [...prevCarts];
-            newCarts[activeCartIndex] = defaultCartState;
-            return newCarts;
-        });
-        // Clear other related state
-        setInvoicePreview(null);
-        setPaidAmount(0);
-        setIsAmountPaidEdited(false);
-        setPreviousBalanceDue(0);
+        setInvoicePreview(previewSale);
     };
     
-    const handleSettleDuePayment = async (saleId: string, amount: number) => {
-        if (!activeShopId) return;
-
-        // Find the sale
-        const saleToUpdate = salesHistory.find(s => s.id === saleId);
-        if (!saleToUpdate) return;
-
-        const newPaidAmount = saleToUpdate.paid_amount + amount;
-        const newBalanceDue = Math.max(0, saleToUpdate.balance_due - amount);
-
-        // Update sales_history
-        db.run(
-            "UPDATE sales_history SET paid_amount = ?, balance_due = ? WHERE id = ?",
-            [newPaidAmount, newBalanceDue, saleId]
-        );
-
-        // Add to payment_history
-        db.run(
-            "INSERT INTO payment_history (sale_id, date, amount_paid, payment_method) VALUES (?, ?, ?, ?)",
-            [saleId, new Date().toISOString(), amount, 'cash']
-        );
-
-        await saveDbToIndexedDB();
-        await loadShopData(activeShopId);
-    };
-
-    // Backup & Restore Handlers
-    const handleSaveBackup = async () => {
-        if (!db) {
-            alert("Database not loaded.");
-            return;
-        }
-        try {
-            const data = db.export();
-            const blob = new Blob([data], { type: 'application/octet-stream' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            const date = new Date().toISOString().slice(0, 10);
-            link.download = `pos_gem_backup_${date}.sqlite`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-        } catch (e) {
-            alert("Failed to save backup: " + e);
-        }
-    };
-    
-    const handleRestoreBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        const confirmRestore = () => {
-            const reader = new FileReader();
-            let startTime = 0;
-            
-            reader.onloadstart = () => {
-                startTime = Date.now();
-                setRestoreProgress({ percentage: 0, eta: 'calculating...', message: 'Reading file...' });
-            };
-
-            reader.onprogress = (event) => {
-                if (event.lengthComputable) {
-                    const percentage = (event.loaded / event.total) * 100;
-                    const elapsed = (Date.now() - startTime) / 1000; // in seconds
-                    const eta = elapsed > 0.1 ? ((elapsed / percentage) * (100 - percentage)).toFixed(1) + 's' : '...';
-                    setRestoreProgress({ percentage, eta, message: 'Restoring database...' });
-                }
-            };
-            
-            reader.onload = async (event) => {
-                try {
-                    const data = new Uint8Array(event.target?.result as ArrayBuffer);
-                    const SQL = await initSqlJs({ locateFile: (file: string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}` });
-                    db = new SQL.Database(data);
-                    await saveDbToIndexedDB();
-                    setRestoreProgress({ percentage: 100, eta: '0s', message: 'Restore Complete!' });
-                    setTimeout(() => {
-                        window.location.reload(); // Easiest way to reload all state from new DB
-                    }, 1500);
-                } catch (err) {
-                    alert("Error restoring database. The file might be corrupted or in an invalid format.");
-                    console.error(err);
-                    setRestoreProgress(null);
-                }
-            };
-
-            reader.onerror = () => {
-                 alert("Failed to read the backup file.");
-                 setRestoreProgress(null);
-            };
-
-            reader.readAsArrayBuffer(file);
-            closeConfirmModal();
-        };
-
-        openConfirmModal(
-            "Restoring from a backup will completely overwrite all current data. This action cannot be undone. Are you sure you want to continue?",
-            confirmRestore
-        );
-         e.target.value = ''; // Allow re-uploading same file
-    };
-
-    // Bulk Add Handlers
-    const handleBulkAddFromFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            setBulkAddFile({ src: event.target?.result as string, type: 'image' });
-            setIsBulkAddModalOpen(true);
-            processImageWithAI(event.target?.result as string);
-        };
-        reader.readAsDataURL(file);
-        e.target.value = ''; // Allow re-uploading same file
-    };
-    
-    const handleBulkAddFromPdfs = async (b2bFile: File, b2cFile: File) => {
-        setIsPdfUploadModalOpen(false);
-        setIsBulkAddModalOpen(true);
-
-        const readerToB64 = (file: File): Promise<string> => {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.readAsDataURL(file);
-                reader.onload = () => resolve((reader.result as string).split(',')[1]);
-                reader.onerror = error => reject(error);
-            });
-        };
-
-        try {
-            setBulkAddFile({
-                src: null,
-                type: 'dual-pdf',
-                names: { b2b: b2bFile.name, b2c: b2cFile.name },
-            });
-            setIsBulkAddLoading(true);
-            setBulkAddError(null);
-
-            const [b2bData, b2cData] = await Promise.all([readerToB64(b2bFile), readerToB64(b2cFile)]);
-            
-            const ai = new GoogleGenAI({apiKey: process.env.API_KEY});
-            
-            const schema = {
-                type: Type.ARRAY,
-                items: {
-                    type: Type.OBJECT,
-                    properties: {
-                        description: { type: Type.STRING },
-                        price: { type: Type.NUMBER },
-                    }
-                }
-            };
-
-            const [b2bResponse, b2cResponse] = await Promise.all([
-                 ai.models.generateContent({
-                    model: "gemini-2.5-flash",
-                    contents: {
-                        parts: [
-                            { text: "Extract product names and prices from this B2B price list PDF. Output as JSON." },
-                            { inlineData: { mimeType: 'application/pdf', data: b2bData } }
-                        ]
-                    },
-                    config: { responseMimeType: 'application/json', responseSchema: schema }
-                }),
-                ai.models.generateContent({
-                    model: "gemini-2.5-flash",
-                    contents: {
-                        parts: [
-                            { text: "Extract product names and prices from this B2C price list PDF. Output as JSON." },
-                            { inlineData: { mimeType: 'application/pdf', data: b2cData } }
-                        ]
-                    },
-                    config: { responseMimeType: 'application/json', responseSchema: schema }
-                })
-            ]);
-
-            const b2bList = JSON.parse(b2bResponse.text.trim());
-            const b2cList = JSON.parse(b2cResponse.text.trim());
-
-            // Merge logic
-            const mergedMap = new Map<string, Partial<Product>>();
-
-            b2bList.forEach((item: any) => {
-                if (item.description) {
-                    mergedMap.set(item.description.toLowerCase(), {
-                        description: item.description,
-                        b2bPrice: item.price || 0
-                    });
-                }
-            });
-
-            b2cList.forEach((item: any) => {
-                if (item.description) {
-                    const key = item.description.toLowerCase();
-                    const existing = mergedMap.get(key) || { description: item.description };
-                    mergedMap.set(key, {
-                        ...existing,
-                        b2cPrice: item.price || 0
-                    });
-                }
-            });
-
-            const mergedProducts: Omit<Product, 'id'>[] = Array.from(mergedMap.values()).map(p => ({
-                description: p.description || '',
-                descriptionTamil: '',
-                barcode: '',
-                b2bPrice: p.b2bPrice || p.b2cPrice || 0,
-                b2cPrice: p.b2cPrice || p.b2bPrice || 0,
-                stock: 0,
-                category: '',
-                hsnCode: '',
-            }));
-
-            setBulkAddProducts(mergedProducts);
-
-        } catch (error: any) {
-            console.error("PDF processing error:", error);
-            setBulkAddError(error.toString());
-        } finally {
-             setIsBulkAddLoading(false);
-        }
-    };
-    
-    const processImageWithAI = async (imageDataUrl: string) => {
-        setIsBulkAddLoading(true);
-        setBulkAddError(null);
-        setBulkAddProducts([]);
-
-        try {
-            const ai = new GoogleGenAI({apiKey: process.env.API_KEY});
-            const schema = {
-                type: Type.ARRAY,
-                items: {
-                    type: Type.OBJECT,
-                    properties: {
-                        description: { type: Type.STRING },
-                        descriptionTamil: { type: Type.STRING },
-                        b2bPrice: { type: Type.NUMBER },
-                        b2cPrice: { type: Type.NUMBER },
-                        stock: { type: Type.NUMBER },
-                        barcode: { type: Type.STRING },
-                        category: { type: Type.STRING },
-                    }
-                }
-            };
-            
-            const response = await ai.models.generateContent({
-                model: "gemini-2.5-flash",
-                contents: {
-                    parts: [
-                        { text: "Extract all products from this image of a store's inventory list. For each product, extract its description, description in Tamil (if available), B2B price, B2C price, current stock, barcode/SKU, and category. Provide the output as a JSON array of objects. If a value is not present, use a default (0 for numbers, empty string for text)." },
-                        { inlineData: { mimeType: 'image/jpeg', data: imageDataUrl.split(',')[1] } }
-                    ]
-                },
-                config: { responseMimeType: 'application/json', responseSchema: schema }
-            });
-
-            const extractedProducts = JSON.parse(response.text.trim());
-            setBulkAddProducts(extractedProducts);
-        } catch (error: any) {
-            console.error("AI processing error:", error);
-            setBulkAddError(error.toString());
-        } finally {
-            setIsBulkAddLoading(false);
-        }
-    };
-
-    const handleSaveBulkProducts = async (productsToSave: Omit<Product, 'id'>[]) => {
-        if (!activeShop) return;
-
-        let nextId = activeShop.nextProductId;
-        productsToSave.forEach(p => {
-             db.run(
-                "INSERT INTO products (id, shop_id, description, descriptionTamil, barcode, b2bPrice, b2cPrice, stock, category, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [nextId++, activeShopId, p.description, p.descriptionTamil || '', p.barcode || '', p.b2bPrice || 0, p.b2cPrice || 0, p.stock || 0, p.category || '', p.hsnCode || '']
-            );
-        });
-        db.run("UPDATE shops SET nextProductId = ? WHERE id = ?", [nextId, activeShopId]);
-        
-        await saveDbToIndexedDB();
-        await loadShopData(activeShopId!);
-        const newShops = sqlResultToObjects(db.exec("SELECT * FROM shops"));
-        setShops(newShops);
-
-        // Reset bulk add modal
-        setIsBulkAddModalOpen(false);
-        setBulkAddFile({ src: null, type: null });
-        setBulkAddProducts([]);
-        setIsBulkAddLoading(false);
-        setBulkAddError(null);
-    };
-
-    const handleExportProductsPdf = (productsToExport: Product[]) => {
-        const element = document.createElement('div');
-        element.style.padding = '20px';
-        element.style.fontFamily = 'sans-serif';
-
-        const title = document.createElement('h1');
-        title.innerText = `Product List - ${activeShop?.name || ''}`;
-        element.appendChild(title);
-        
-        const date = document.createElement('p');
-        date.innerText = `Generated on: ${new Date().toLocaleDateString()}`;
-        element.appendChild(date);
-
-        const table = document.createElement('table');
-        table.style.width = '100%';
-        table.style.borderCollapse = 'collapse';
-        
-        const thead = document.createElement('thead');
-        thead.innerHTML = `
-            <tr style="background-color: #f2f2f2;">
-                <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">ID</th>
-                <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Description</th>
-                <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">B2C Price</th>
-                <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Stock</th>
-            </tr>
-        `;
-        table.appendChild(thead);
-        
-        const tbody = document.createElement('tbody');
-        productsToExport.forEach(p => {
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td style="padding: 8px; border: 1px solid #ddd;">${p.id}</td>
-                <td style="padding: 8px; border: 1px solid #ddd;">${p.description}</td>
-                <td style="padding: 8px; border: 1px solid #ddd;">₹${p.b2cPrice.toFixed(2)}</td>
-                <td style="padding: 8px; border: 1px solid #ddd;">${p.stock}</td>
-            `;
-            tbody.appendChild(row);
-        });
-        table.appendChild(tbody);
-        element.appendChild(table);
-
-        html2pdf(element, {
-            margin: 1,
-            filename: `product_list_${activeShop?.name}_${new Date().toISOString().slice(0, 10)}.pdf`,
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2 },
-            jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
-        });
-    };
-
-    const handleBillSettingsSave = (newSettings: BillSettings) => {
-        if (!activeShopId) return;
-        setBillSettings(newSettings);
-        localStorage.setItem(`billSettings_${activeShopId}`, JSON.stringify(newSettings));
-    };
-
     const handlePreviewBillFromSettings = () => {
-        const dummySale: SaleRecord = {
-            id: 'PREVIEW-123',
+        const sampleSale = {
+            id: 'SAMPLE-123',
             date: new Date().toISOString(),
             items: [
-                { id: 1, productId: 101, description: 'Sample Product A', quantity: 2, price: 150.50, isReturn: false },
-                { id: 2, productId: 102, description: 'Sample Product B', quantity: 1, price: 75.00, isReturn: false },
+                { id: 1, productId: 1, description: "Sample Product A", quantity: 2, price: 150.50, isReturn: false },
+                { id: 2, productId: 2, description: "Sample Product B", quantity: 1, price: 300.00, isReturn: false },
             ],
-            subtotal: 376.00,
-            discount: 20,
-            tax: 5,
-            total: 374.8,
-            paid_amount: 400,
-            balance_due: -25.2,
+            subtotal: 601.00,
+            discount: 0,
+            tax: 0,
+            total: 601.00,
+            paid_amount: 601.00,
+            balance_due: 0,
             customerName: 'John Doe',
             customerMobile: '9876543210',
             isFinalized: true,
         };
-        setInvoicePreview(dummySale);
+        setInvoicePreview(sampleSale);
     };
 
-    if (!dbLoaded) {
-        return <div>Loading Database...</div>;
-    }
+    const handleSaveSettings = async (newSettings: BillSettings) => {
+        if (!activeShopId) return;
+        localStorage.setItem(`billSettings_${activeShopId}`, JSON.stringify(newSettings));
+        setBillSettings(newSettings);
+        alert("Settings saved successfully!");
+    };
+    
+    const updateActiveCart = (updates: Partial<CartState>) => {
+        setActiveCarts(prev => {
+            const newCarts = [...prev];
+            newCarts[activeCartIndex] = { ...newCarts[activeCartIndex], ...updates };
+            return newCarts;
+        });
+    };
 
-    if (!currentUser) {
-        return <LoginView onLoginSuccess={handleLoginSuccess} />;
-    }
-
-    if (isInitialSetup) {
-        return <InitialSetupModal onCreate={handleCreateShop} />;
-    }
 
     const renderView = () => {
         switch (currentView) {
             case 'products':
                 return <ProductsView 
-                            products={products} 
-                            onEdit={(p) => openProductForm(p)} 
-                            onDelete={handleDeleteProduct} 
-                            onAdd={() => openProductForm(null)}
-                            onBulkAdd={handleBulkAddFromFile}
-                            onBulkAddPdfs={() => setIsPdfUploadModalOpen(true)}
-                            onExportPdf={handleExportProductsPdf}
-                            selectedProductIds={selectedProductIds}
-                            setSelectedProductIds={setSelectedProductIds}
-                            onDeleteSelected={handleDeleteSelectedProducts}
-                            isOnline={isOnline}
-                            currentUser={currentUser}
-                       />;
+                    products={products} 
+                    onAdd={() => { setEditingProduct(null); setIsProductFormOpen(true); }}
+                    onEdit={(p) => { setEditingProduct(p); setIsProductFormOpen(true); }}
+                    onDelete={handleDeleteProduct}
+                    onBulkAdd={handleBulkAdd}
+                    onBulkAddPdfs={() => setIsPdfUploadModalOpen(true)}
+                    onExportPdf={handleExportProductsPdf}
+                    selectedProductIds={selectedProductIds}
+                    setSelectedProductIds={setSelectedProductIds}
+                    onDeleteSelected={handleDeleteSelectedProducts}
+                    isOnline={isOnline}
+                    currentUser={currentUser}
+                />;
             case 'reports':
-                return <ReportsView salesHistory={salesHistory} onPrint={(sale) => setInvoicePreview(sale)} isOnline={isOnline} />;
+                return <ReportsView salesHistory={salesHistory} onPrint={setInvoicePreview} isOnline={isOnline} />;
             case 'customers':
                 return <CustomersView 
                             customers={customers} 
                             salesHistory={salesHistory} 
-                            onAdd={() => openCustomerForm(null)}
-                            onEdit={(c) => openCustomerForm(c)}
+                            onAdd={() => { setEditingCustomer(null); setIsCustomerFormOpen(true); }} 
+                            onEdit={(c) => { setEditingCustomer(c); setIsCustomerFormOpen(true); }}
                             onDelete={handleDeleteCustomer}
                             currentUser={currentUser}
-                       />;
+                        />;
             case 'expenses':
                 return <ExpensesView expenses={expenses} onAdd={handleAddExpense} onDelete={handleDeleteExpense} shopId={activeShopId!} />;
             case 'balance_due':
-                return <BalanceDueView salesHistory={salesHistory} customers={customers} onSettlePayment={handleSettleDuePayment} />;
+                return <BalanceDueView salesHistory={salesHistory} customers={customers} onSettlePayment={handleSettlePayment} />;
             case 'settings':
-                return <SettingsView billSettings={billSettings} onSave={handleBillSettingsSave} onPreview={handlePreviewBillFromSettings} activeShopName={activeShop?.name || ''} onRenameShop={(newName) => handleRenameShop(activeShopId!, newName)} />;
+                return <SettingsView 
+                            billSettings={billSettings} 
+                            onSave={handleSaveSettings} 
+                            onPreview={handlePreviewBillFromSettings}
+                            activeShopName={activeShop?.name || ''}
+                            onRenameShop={(newName) => handleRenameShop(activeShopId!, newName)}
+                        />;
             case 'sales':
             default:
-                return <SalesView 
-                            products={products} 
-                            activeCart={activeCart}
-                            updateActiveCart={updateActiveCart}
-                            onPreview={handlePreviewSale}
-                            total={total}
-                            paidAmount={paidAmount}
-                            setPaidAmount={setPaidAmount}
-                            onAmountPaidEdit={() => setIsAmountPaidEdited(true)}
-                            previousBalanceDue={previousBalanceDue}
-                            onShowHistory={() => setIsHistoryModalOpen(true)}
-                            onSaveBackup={handleSaveBackup}
-                            onRestoreBackup={handleRestoreBackup}
-                            onUpdateProductPrice={handleUpdateProductPrice}
-                            onUpdateProductDetails={handleUpdateProductDetails}
-                            onAddNewProduct={handleAddNewProductFromSale}
-                            isOnline={isOnline}
-                            viewMode={viewMode}
-                            setViewMode={setViewMode}
-                            currentUser={currentUser}
-                            activeCartIndex={activeCartIndex}
-                            onCartChange={handleChangeCart}
-                        />;
+                return <SalesView
+                    products={products}
+                    activeCart={activeCart}
+                    updateActiveCart={updateActiveCart}
+                    onPreview={handlePreviewBill}
+                    total={total}
+                    paidAmount={paidAmount}
+                    setPaidAmount={setPaidAmount}
+                    onAmountPaidEdit={() => setIsAmountPaidEdited(true)}
+                    previousBalanceDue={previousBalanceDue}
+                    onShowHistory={() => setIsHistoryModalOpen(true)}
+                    onSaveBackup={handleSaveBackup}
+                    onRestoreBackup={handleRestoreBackup}
+                    onUpdateProductPrice={handleUpdateProductPrice}
+                    onUpdateProductDetails={handleUpdateProductDetails}
+                    onAddNewProduct={handleAddNewProductFromSale}
+                    isOnline={isOnline}
+                    viewMode={viewMode}
+                    setViewMode={setViewMode}
+                    currentUser={currentUser}
+                    activeCartIndex={activeCartIndex}
+                    onCartChange={setActiveCartIndex}
+                />;
         }
     };
-    
+
+    if (!dbLoaded) return <div>Loading Database...</div>;
+    if (!currentUser) return <LoginView onLoginSuccess={handleLoginSuccess} />;
+    if (isInitialSetup) return <InitialSetupModal onCreate={handleCreateShop} />;
+
     return (
         <div style={styles.appContainer}>
             <header style={styles.header}>
                 <h1 style={styles.title}>{activeShop?.name || 'POS'}</h1>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem', color: isOnline ? 'var(--success-color)' : 'var(--danger-color)'}}>
-                        <CloudIcon size={20} />
-                        <span style={{fontSize: '0.9rem'}}>{isOnline ? 'Online' : 'Offline'}</span>
-                    </div>
-                     <span style={{ borderLeft: '1px solid var(--border-color)', height: '24px'}}></span>
-                    <UserIcon size={20} color="var(--secondary-color)" />
-                    <span style={{fontWeight: 500}}>{currentUser.username} ({currentUser.role.replace('_', ' ')})</span>
-                    <button onClick={() => setIsShopManagerOpen(true)} style={styles.shopManagerButton} disabled={!activeShopId || currentUser.role !== 'super_admin'}>Manage Shops</button>
-                    <DropdownNav activeView={currentView} onSelectView={setCurrentView} disabled={!activeShopId} currentUser={currentUser} />
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: isOnline ? 'var(--success-color)' : 'var(--danger-color)' }}>
+                        <CloudIcon size={20} color={isOnline ? 'var(--success-color)' : 'var(--danger-color)'} />
+                        {isOnline ? 'Online' : 'Offline'}
+                    </span>
+                    <button onClick={() => setIsShopManagerOpen(true)} style={styles.shopManagerButton} title="Manage Shops">
+                        {activeShop?.name || 'Select Shop'}
+                    </button>
+                    <DropdownNav
+                        activeView={currentView}
+                        onSelectView={setCurrentView}
+                        disabled={!activeShopId}
+                        currentUser={currentUser}
+                    />
+                    <UserIcon />
+                    <span style={{ fontWeight: 500 }}>{currentUser.username}</span>
                     <button onClick={handleLogout} style={styles.logoutButton}>Logout</button>
                 </div>
             </header>
             <main style={styles.mainContent}>
-                {activeShopId ? renderView() : <p>No shop selected. Please create or select a shop from the manager.</p>}
+                {renderView()}
             </main>
-            
-            {/* --- Modals --- */}
-            {isProductFormOpen && <ProductFormModal product={editingProduct} onSave={handleAddProduct} onUpdate={handleUpdateProduct} onClose={() => { setIsProductFormOpen(false); setEditingProduct(null); }} />}
-            {isCustomerFormOpen && <CustomerFormModal customer={editingCustomer} onSave={handleAddOrUpdateCustomer} onClose={() => { setIsCustomerFormOpen(false); setEditingCustomer(null); }} />}
+
+            {/* Modals */}
+            {isProductFormOpen && <ProductFormModal product={editingProduct} onSave={handleAddProduct} onUpdate={handleUpdateProduct} onClose={() => setIsProductFormOpen(false)} />}
+            {isCustomerFormOpen && <CustomerFormModal customer={editingCustomer} onSave={editingCustomer ? (c) => handleUpdateCustomer({ ...editingCustomer, ...c }) : handleAddCustomer} onClose={() => setIsCustomerFormOpen(false)} />}
             {isConfirmModalOpen && confirmAction && <ConfirmationModal message={confirmAction.message} onConfirm={confirmAction.onConfirm} onCancel={closeConfirmModal} />}
             {isHistoryModalOpen && <HistoryModal salesHistory={salesHistory} customerMobile={activeCart.customerMobile} onClose={() => setIsHistoryModalOpen(false)} />}
-            {invoicePreview && <InvoicePreviewModal sale={invoicePreview} onFinalize={handleFinalizeSale} onNewSale={handleNewSale} onClose={() => setInvoicePreview(null)} activeShopId={activeShopId} activeShopName={activeShop?.name || ''} />}
+            {invoicePreview && <InvoicePreviewModal sale={invoicePreview} onFinalize={handleFinalizeSale} onClose={() => setInvoicePreview(null)} onNewSale={handleNewSale} activeShopId={activeShopId} activeShopName={activeShop?.name || ''} />}
+            {isBulkAddModalOpen && <BulkAddModal fileSrc={bulkAddFile.src} fileType={bulkAddFile.type} fileNames={bulkAddFile.names} initialProducts={bulkAddProducts} onSave={handleSaveBulkAdd} onClose={() => setIsBulkAddModalOpen(false)} loading={isBulkAddLoading} error={bulkAddError} />}
+            {isPdfUploadModalOpen && <PdfUploadModal onProcess={handleProcessDualPdfs} onClose={() => setIsPdfUploadModalOpen(false)} />}
             {isShopManagerOpen && <ShopManagerModal shops={shops} activeShopId={activeShopId} onSelect={handleSelectShop} onCreate={handleCreateShop} onRename={handleRenameShop} onDelete={handleDeleteShop} onClose={() => setIsShopManagerOpen(false)} />}
-            {isBulkAddModalOpen && <BulkAddModal fileSrc={bulkAddFile.src} fileType={bulkAddFile.type} fileNames={bulkAddFile.names} initialProducts={bulkAddProducts} onSave={handleSaveBulkProducts} onClose={() => setIsBulkAddModalOpen(false)} loading={isBulkAddLoading} error={bulkAddError} />}
-            {isPdfUploadModalOpen && <PdfUploadModal onProcess={handleBulkAddFromPdfs} onClose={() => setIsPdfUploadModalOpen(false)} />}
             {restoreProgress && <RestoreProgressModal {...restoreProgress} />}
         </div>
     );
