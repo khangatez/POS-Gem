@@ -1911,6 +1911,7 @@ const InvoicePreviewModal = ({
     onNewSale,
     isPreviewMode = false,
     activeShopId,
+    activeShopName,
 }: {
     sale: any;
     onFinalize?: () => void;
@@ -1918,6 +1919,7 @@ const InvoicePreviewModal = ({
     onNewSale: () => void;
     isPreviewMode?: boolean;
     activeShopId: number | null;
+    activeShopName: string;
 }) => {
     const [whatsAppNumber, setWhatsAppNumber] = useState(sale.customerMobile || '');
 
@@ -2160,6 +2162,60 @@ const InvoicePreviewModal = ({
         });
     };
     
+    const generateBillSummary = (format: 'whatsapp' | 'sms') => {
+        const saleDate = new Date(sale.date).toLocaleDateString();
+        const customerGreeting = sale.customerName ? `Hi ${sale.customerName},\n\n` : '';
+
+        if (format === 'whatsapp') {
+            const itemsList = sale.items
+                .map((item: SaleItem) => `\n- ${item.description} (Qty: ${item.quantity}) - ₹${(item.quantity * item.price).toFixed(2)}`)
+                .join('');
+
+            return (
+                `${customerGreeting}Here is your invoice summary from ${activeShopName}:\n` +
+                `*Invoice ID:* ${sale.id}\n` +
+                `*Date:* ${saleDate}\n` +
+                `*Items:*${itemsList}\n\n` +
+                `*Subtotal:* ₹${sale.subtotal.toFixed(2)}\n` +
+                (sale.discount > 0 ? `*Discount:* -₹${sale.discount.toFixed(2)}\n` : '') +
+                `*Grand Total:* ₹${sale.total.toFixed(2)}\n` +
+                `*Amount Paid:* ₹${sale.paid_amount.toFixed(2)}\n` +
+                (sale.balance_due > 0 ? `*Balance Due:* ₹${sale.balance_due.toFixed(2)}\n\n` : '\n') +
+                `Thank you for your business!`
+            );
+        } else { // SMS format
+            return (
+                `From ${activeShopName}:\n` +
+                `Total: Rs.${sale.total.toFixed(2)}. ` +
+                `Paid: Rs.${sale.paid_amount.toFixed(2)}. ` +
+                (sale.balance_due > 0 ? `Balance Due: Rs.${sale.balance_due.toFixed(2)}. ` : '') +
+                `Inv ID: ${sale.id}. Thank you!`
+            );
+        }
+    };
+
+    const handleSendWhatsApp = () => {
+        if (!whatsAppNumber) {
+            alert("Please enter a mobile number.");
+            return;
+        }
+        const phoneNumber = whatsAppNumber.replace(/\D/g, ''); // Remove non-digits
+        const message = encodeURIComponent(generateBillSummary('whatsapp'));
+        const url = `https://wa.me/${phoneNumber}?text=${message}`;
+        window.open(url, '_blank');
+    };
+    
+    const handleSendSms = () => {
+         if (!whatsAppNumber) {
+            alert("Please enter a mobile number.");
+            return;
+        }
+        const phoneNumber = whatsAppNumber.replace(/\D/g, '');
+        const message = encodeURIComponent(generateBillSummary('sms'));
+        const url = `sms:${phoneNumber}?body=${message}`;
+        window.open(url);
+    };
+
     const headers = [
         { label: 'S.No', align: 'left' as const },
         { label: 'Item', align: 'left' as const },
@@ -2259,8 +2315,9 @@ const InvoicePreviewModal = ({
                     <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1rem' }}>
                         <button onClick={printInvoice} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Print</button>
                         <button onClick={saveAsPdf} style={{...styles.button, backgroundColor: 'var(--danger-color)'}}>Save as PDF</button>
-                        <input type="tel" value={whatsAppNumber} onChange={e => setWhatsAppNumber(e.target.value)} placeholder="WhatsApp Number" style={{ ...styles.input, flex: 1 }} />
-                        <button style={{...styles.button, backgroundColor: '#25D366'}}>Send</button>
+                        <input type="tel" value={whatsAppNumber} onChange={e => setWhatsAppNumber(e.target.value)} placeholder="Customer Mobile Number" style={{ ...styles.input, flex: 1 }} />
+                        <button onClick={handleSendWhatsApp} style={{...styles.button, backgroundColor: '#25D366'}}>Send via WhatsApp</button>
+                        <button onClick={handleSendSms} style={{...styles.button, backgroundColor: 'var(--primary-color)'}}>Send via Text</button>
                         <button onClick={handleResetLayout} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}} title="Reset column widths to default">Reset Layout</button>
                     </div>
                     {/* Settings Row */}
@@ -5343,6 +5400,7 @@ const App = () => {
                 onClose={() => setInvoicePreview(null)}
                 onNewSale={handleNewSale}
                 activeShopId={activeShopId}
+                activeShopName={activeShop?.name || 'Your Shop'}
             />}
             {isShopManagerOpen && <ShopManagerModal shops={shops} activeShopId={activeShopId} onSelect={handleSelectShop} onCreate={handleCreateShop} onRename={handleRenameShop} onDelete={handleDeleteShop} onClose={() => setIsShopManagerOpen(false)} />}
              {isBulkAddModalOpen && <BulkAddModal 
