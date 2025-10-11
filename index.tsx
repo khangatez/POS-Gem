@@ -5030,44 +5030,49 @@ const App = () => {
 
     // Sale & Invoice Handlers
     const handleFinalizeSale = async () => {
-        if (!activeShopId) return;
-
-        const saleToFinalize = {
-            id: `${activeShopId}-${Date.now()}`,
-            date: new Date().toISOString(),
-            items: [...activeCart.items],
-            subtotal,
-            discount: activeCart.discount,
-            tax: activeCart.tax,
-            total,
-            paid_amount: paidAmount,
-            balance_due: Math.max(0, total - paidAmount),
-            customerName: activeCart.customerName,
-            customerMobile: activeCart.customerMobile,
-        };
-
-        db.run(
-            "INSERT INTO sales_history (id, shop_id, date, subtotal, discount, tax, total, paid_amount, balance_due, customerName, customerMobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [saleToFinalize.id, activeShopId, saleToFinalize.date, saleToFinalize.subtotal, saleToFinalize.discount, saleToFinalize.tax, saleToFinalize.total, saleToFinalize.paid_amount, saleToFinalize.balance_due, saleToFinalize.customerName, saleToFinalize.customerMobile]
-        );
-
-        const itemStmt = db.prepare("INSERT INTO sale_items (sale_id, productId, shop_id, description, descriptionTamil, quantity, price, isReturn, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        
-        saleToFinalize.items.forEach(item => {
-            itemStmt.run([saleToFinalize.id, item.productId, activeShopId, item.description, item.descriptionTamil, item.quantity, item.price, item.isReturn, item.hsnCode]);
-            // Update stock
-            const stockChange = item.isReturn ? item.quantity : -item.quantity;
-            db.run("UPDATE products SET stock = stock + ? WHERE id = ? AND shop_id = ?", [stockChange, item.productId, activeShopId]);
-        });
-        itemStmt.free();
-
-        await saveDbToIndexedDB();
-        await loadShopData(activeShopId!);
-
-        // Keep the finalized invoice in the preview
-        setInvoicePreview({ ...saleToFinalize, isFinalized: true });
-
-        // Do not reset the cart immediately. Let the user click "New Sale".
+        // Guard against running without necessary data
+        if (!activeShopId || !invoicePreview) {
+            console.error("Finalize sale called without active shop or invoice preview.");
+            return;
+        }
+    
+        try {
+            const finalSaleId = `${activeShopId}-${Date.now()}`;
+            // Use the data from the invoicePreview state as the source of truth
+            const saleToSave = { ...invoicePreview, id: finalSaleId };
+    
+            // --- Database Operations ---
+            db.run(
+                "INSERT INTO sales_history (id, shop_id, date, subtotal, discount, tax, total, paid_amount, balance_due, customerName, customerMobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [saleToSave.id, activeShopId, saleToSave.date, saleToSave.subtotal, saleToSave.discount, saleToSave.tax, saleToSave.total, saleToSave.paid_amount, saleToSave.balance_due, saleToSave.customerName, saleToSave.customerMobile]
+            );
+    
+            const itemStmt = db.prepare("INSERT INTO sale_items (sale_id, productId, shop_id, description, descriptionTamil, quantity, price, isReturn, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            
+            saleToSave.items.forEach(item => {
+                itemStmt.run([saleToSave.id, item.productId, activeShopId, item.description, item.descriptionTamil, item.quantity, item.price, item.isReturn ? 1 : 0, item.hsnCode]);
+                
+                // Update stock level for each item
+                const stockChange = item.isReturn ? item.quantity : -item.quantity;
+                db.run("UPDATE products SET stock = stock + ? WHERE id = ? AND shop_id = ?", [stockChange, item.productId, activeShopId]);
+            });
+            itemStmt.free(); // Release the prepared statement
+    
+            // Persist DB changes to IndexedDB
+            await saveDbToIndexedDB();
+            
+            // --- State Updates ---
+            // Refresh all shop data (products, sales history) from the DB
+            await loadShopData(activeShopId);
+    
+            // Update the invoice preview modal to its 'finalized' state
+            // This keeps the modal open and changes the buttons
+            setInvoicePreview(prev => prev ? { ...prev, id: finalSaleId, isFinalized: true } : null);
+    
+        } catch (error) {
+            console.error("Failed to finalize sale:", error);
+            alert("An error occurred while completing the sale. Please check the console and try again.");
+        }
     };
     
     const handleSettlePayment = async (saleId: string, amount: number) => {
@@ -5205,28 +5210,22 @@ const App = () => {
             date: new Date().toISOString(),
             items: [
                 { id: 1, productId: 1, description: "Sample Product A", quantity: 2, price: 150.50, isReturn: false },
-                { id: 2, productId: 2, description: "Sample Product B", quantity: 1, price: 300.00, isReturn: false },
+                { id: 2, productId: 2, description: "Sample Product B", quantity: 1, price: 25.00, isReturn: false },
+                { id: 3, productId: 3, description: "Longer Description for a Product to test wrapping", quantity: 5, price: 10.00, isReturn: false },
             ],
-            subtotal: 601.00,
-            discount: 0,
-            tax: 0,
-            total: 601.00,
-            paid_amount: 601.00,
+            subtotal: 376,
+            discount: 26,
+            tax: 10,
+            total: 360,
+            paid_amount: 360,
             balance_due: 0,
-            customerName: 'John Doe',
-            customerMobile: '9876543210',
-            isFinalized: true,
+            customerName: "John Doe",
+            customerMobile: "+91 9876543210",
+            isFinalized: true, // Show it as a completed bill
         };
         setInvoicePreview(sampleSale);
     };
 
-    const handleSaveSettings = async (newSettings: BillSettings) => {
-        if (!activeShopId) return;
-        localStorage.setItem(`billSettings_${activeShopId}`, JSON.stringify(newSettings));
-        setBillSettings(newSettings);
-        alert("Settings saved successfully!");
-    };
-    
     const updateActiveCart = (updates: Partial<CartState>) => {
         setActiveCarts(prev => {
             const newCarts = [...prev];
@@ -5235,26 +5234,29 @@ const App = () => {
         });
     };
 
-
     const renderView = () => {
+        if (!activeShopId) {
+            return <div style={styles.viewContainer}><p style={styles.emptyMessage}>Please select a shop to begin.</p></div>;
+        }
+
         switch (currentView) {
             case 'products':
                 return <ProductsView 
-                    products={products} 
-                    onAdd={() => { setEditingProduct(null); setIsProductFormOpen(true); }}
-                    onEdit={(p) => { setEditingProduct(p); setIsProductFormOpen(true); }}
-                    onDelete={handleDeleteProduct}
-                    onBulkAdd={handleBulkAdd}
-                    onBulkAddPdfs={() => setIsPdfUploadModalOpen(true)}
-                    onExportPdf={handleExportProductsPdf}
-                    selectedProductIds={selectedProductIds}
-                    setSelectedProductIds={setSelectedProductIds}
-                    onDeleteSelected={handleDeleteSelectedProducts}
-                    isOnline={isOnline}
-                    currentUser={currentUser}
-                />;
+                            products={products} 
+                            onAdd={() => { setEditingProduct(null); setIsProductFormOpen(true); }}
+                            onEdit={(p) => { setEditingProduct(p); setIsProductFormOpen(true); }}
+                            onDelete={handleDeleteProduct}
+                            onBulkAdd={handleBulkAdd}
+                            onBulkAddPdfs={() => setIsPdfUploadModalOpen(true)}
+                            onExportPdf={handleExportProductsPdf}
+                            selectedProductIds={selectedProductIds}
+                            setSelectedProductIds={setSelectedProductIds}
+                            onDeleteSelected={handleDeleteSelectedProducts}
+                            isOnline={isOnline}
+                            currentUser={currentUser}
+                        />;
             case 'reports':
-                return <ReportsView salesHistory={salesHistory} onPrint={setInvoicePreview} isOnline={isOnline} />;
+                return <ReportsView salesHistory={salesHistory} onPrint={(sale) => setInvoicePreview(sale)} isOnline={isOnline} />;
             case 'customers':
                 return <CustomersView 
                             customers={customers} 
@@ -5265,79 +5267,77 @@ const App = () => {
                             currentUser={currentUser}
                         />;
             case 'expenses':
-                return <ExpensesView expenses={expenses} onAdd={handleAddExpense} onDelete={handleDeleteExpense} shopId={activeShopId!} />;
-            case 'balance_due':
+                return <ExpensesView expenses={expenses} onAdd={handleAddExpense} onDelete={handleDeleteExpense} shopId={activeShopId} />;
+             case 'balance_due':
                 return <BalanceDueView salesHistory={salesHistory} customers={customers} onSettlePayment={handleSettlePayment} />;
             case 'settings':
-                return <SettingsView 
-                            billSettings={billSettings} 
-                            onSave={handleSaveSettings} 
-                            onPreview={handlePreviewBillFromSettings}
-                            activeShopName={activeShop?.name || ''}
-                            onRenameShop={(newName) => handleRenameShop(activeShopId!, newName)}
-                        />;
+                return <SettingsView billSettings={billSettings} onSave={(s) => setBillSettings(s)} onPreview={handlePreviewBillFromSettings} activeShopName={activeShop?.name || ''} onRenameShop={(newName) => handleRenameShop(activeShopId, newName)} />;
             case 'sales':
             default:
-                return <SalesView
-                    products={products}
-                    activeCart={activeCart}
-                    updateActiveCart={updateActiveCart}
-                    onPreview={handlePreviewBill}
-                    total={total}
-                    paidAmount={paidAmount}
-                    setPaidAmount={setPaidAmount}
-                    onAmountPaidEdit={() => setIsAmountPaidEdited(true)}
-                    previousBalanceDue={previousBalanceDue}
-                    onShowHistory={() => setIsHistoryModalOpen(true)}
-                    onSaveBackup={handleSaveBackup}
-                    onRestoreBackup={handleRestoreBackup}
-                    onUpdateProductPrice={handleUpdateProductPrice}
-                    onUpdateProductDetails={handleUpdateProductDetails}
-                    onAddNewProduct={handleAddNewProductFromSale}
-                    isOnline={isOnline}
-                    viewMode={viewMode}
-                    setViewMode={setViewMode}
-                    currentUser={currentUser}
-                    activeCartIndex={activeCartIndex}
-                    onCartChange={setActiveCartIndex}
-                />;
+                return <SalesView 
+                            products={products} 
+                            activeCart={activeCart}
+                            updateActiveCart={updateActiveCart}
+                            onPreview={handlePreviewBill}
+                            total={total}
+                            paidAmount={paidAmount}
+                            setPaidAmount={setPaidAmount}
+                            onAmountPaidEdit={() => setIsAmountPaidEdited(true)}
+                            previousBalanceDue={previousBalanceDue}
+                            onShowHistory={() => setIsHistoryModalOpen(true)}
+                            onSaveBackup={handleSaveBackup}
+                            onRestoreBackup={handleRestoreBackup}
+                            onUpdateProductPrice={handleUpdateProductPrice}
+                            onUpdateProductDetails={handleUpdateProductDetails}
+                            onAddNewProduct={handleAddNewProductFromSale}
+                            isOnline={isOnline}
+                            viewMode={viewMode}
+                            setViewMode={setViewMode}
+                            currentUser={currentUser}
+                            activeCartIndex={activeCartIndex}
+                            onCartChange={setActiveCartIndex}
+                        />;
         }
     };
-
-    if (!dbLoaded) return <div>Loading Database...</div>;
-    if (!currentUser) return <LoginView onLoginSuccess={handleLoginSuccess} />;
-    if (isInitialSetup) return <InitialSetupModal onCreate={handleCreateShop} />;
+    
+    if (!dbLoaded) {
+        return <div>Loading Database...</div>;
+    }
+    
+    if (!currentUser) {
+        return <LoginView onLoginSuccess={handleLoginSuccess} />;
+    }
+    
+    if (isInitialSetup) {
+        return <InitialSetupModal onCreate={handleCreateShop} />;
+    }
 
     return (
         <div style={styles.appContainer}>
             <header style={styles.header}>
-                <h1 style={styles.title}>{activeShop?.name || 'POS'}</h1>
+                <h1 style={styles.title}>Premium POS</h1>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: isOnline ? 'var(--success-color)' : 'var(--danger-color)' }}>
-                        <CloudIcon size={20} color={isOnline ? 'var(--success-color)' : 'var(--danger-color)'} />
+                    <strong>Shop: {activeShop?.name || '...'}</strong>
+                    {currentUser.role === 'super_admin' && <button onClick={() => setIsShopManagerOpen(true)} style={styles.shopManagerButton}>Manage Shops</button>}
+                    <DropdownNav activeView={currentView} onSelectView={setCurrentView} disabled={!activeShopId} currentUser={currentUser}/>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <UserIcon />
+                        <span>{currentUser.username}</span>
+                    </div>
+                    <button onClick={handleLogout} style={styles.logoutButton}>Logout</button>
+                    <span title={isOnline ? 'You are online' : 'Offline Mode: Changes will sync when reconnected.'} style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                        <CloudIcon color={isOnline ? 'var(--success-color)' : 'var(--secondary-color)'} />
                         {isOnline ? 'Online' : 'Offline'}
                     </span>
-                    <button onClick={() => setIsShopManagerOpen(true)} style={styles.shopManagerButton} title="Manage Shops">
-                        {activeShop?.name || 'Select Shop'}
-                    </button>
-                    <DropdownNav
-                        activeView={currentView}
-                        onSelectView={setCurrentView}
-                        disabled={!activeShopId}
-                        currentUser={currentUser}
-                    />
-                    <UserIcon />
-                    <span style={{ fontWeight: 500 }}>{currentUser.username}</span>
-                    <button onClick={handleLogout} style={styles.logoutButton}>Logout</button>
                 </div>
             </header>
             <main style={styles.mainContent}>
                 {renderView()}
             </main>
-
-            {/* Modals */}
-            {isProductFormOpen && <ProductFormModal product={editingProduct} onSave={handleAddProduct} onUpdate={handleUpdateProduct} onClose={() => setIsProductFormOpen(false)} />}
-            {isCustomerFormOpen && <CustomerFormModal customer={editingCustomer} onSave={editingCustomer ? (c) => handleUpdateCustomer({ ...editingCustomer, ...c }) : handleAddCustomer} onClose={() => setIsCustomerFormOpen(false)} />}
+            
+            {/* --- MODALS --- */}
+            {isProductFormOpen && <ProductFormModal product={editingProduct} onSave={handleAddProduct} onUpdate={handleUpdateProduct} onClose={() => { setIsProductFormOpen(false); setEditingProduct(null); }} />}
+            {isCustomerFormOpen && <CustomerFormModal customer={editingCustomer} onSave={editingCustomer ? handleUpdateCustomer : handleAddCustomer} onClose={() => { setIsCustomerFormOpen(false); setEditingCustomer(null); }} />}
             {isConfirmModalOpen && confirmAction && <ConfirmationModal message={confirmAction.message} onConfirm={confirmAction.onConfirm} onCancel={closeConfirmModal} />}
             {isHistoryModalOpen && <HistoryModal salesHistory={salesHistory} customerMobile={activeCart.customerMobile} onClose={() => setIsHistoryModalOpen(false)} />}
             {invoicePreview && <InvoicePreviewModal sale={invoicePreview} onFinalize={handleFinalizeSale} onClose={() => setInvoicePreview(null)} onNewSale={handleNewSale} activeShopId={activeShopId} activeShopName={activeShop?.name || ''} />}
@@ -5349,5 +5349,8 @@ const App = () => {
     );
 };
 
-const root = createRoot(document.getElementById('root')!);
-root.render(<App />);
+const rootElement = document.getElementById('root');
+if (rootElement) {
+    const root = createRoot(rootElement);
+    root.render(<App />);
+}
