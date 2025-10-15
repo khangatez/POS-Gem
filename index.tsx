@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -1920,7 +1919,7 @@ const SaleReviewModal = ({
     onFinalize?: () => void;
     onClose: () => void;
     onNewSale: () => void;
-    activeShopId: number | null;
+    activeShopId: number;
     activeShopName: string;
 }) => {
     const [whatsAppNumber, setWhatsAppNumber] = useState(sale.customerMobile || '');
@@ -1989,7 +1988,6 @@ const SaleReviewModal = ({
         setPrintSettings(prev => ({...prev, columnWidths: []}));
     };
 
-// FIX: Use `instanceof HTMLElement` as a type guard to ensure `thElement` is a valid element before accessing `offsetWidth`, resolving a TypeScript error where the element's type was not correctly inferred.
     const handleMouseDown = (e: React.MouseEvent, index: number) => {
         e.preventDefault();
         const startX = e.clientX;
@@ -2246,11 +2244,19 @@ const SaleReviewModal = ({
                 height: '95vh',
                 borderRadius: '12px',
                 display: 'flex',
-                flexDirection: 'column',
+                flexDirection: 'row',
                 overflow: 'hidden'
             }}>
-                <div style={{ flex: 1, overflowY: 'auto', padding: '2rem', display: 'flex', justifyContent: 'center' }}>
-                    <div ref={printAreaRef} style={{...getPrintableStyles(), ...currentTheme.container, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minHeight: '100px'}}>
+                {/* Left Column: Preview */}
+                <div style={{
+                    flex: 2,
+                    overflowY: 'auto',
+                    padding: '2rem',
+                    display: 'flex',
+                    justifyContent: 'center',
+                    backgroundColor: 'var(--background-color)'
+                }}>
+                    <div ref={printAreaRef} style={{ ...getPrintableStyles(), ...currentTheme.container, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minHeight: '100px' }}>
                         <div style={currentTheme.headerContainer}>
                             <h2 style={currentTheme.headerTitle}>{sale.isFinalized ? 'Receipt' : 'Invoice Preview'}</h2>
                             <p style={currentTheme.headerSubtitle}>Date: {saleDate.toLocaleString()}</p>
@@ -2325,74 +2331,98 @@ const SaleReviewModal = ({
                     </div>
                 </div>
 
-                <div style={{ flexShrink: 0, backgroundColor: 'var(--surface-color)', padding: '1rem', borderTop: '1px solid var(--border-color)', boxShadow: '0 -2px 8px rgba(0,0,0,0.05)' }}>
-                    {/* Actions Row */}
-                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1rem' }}>
-                        <button onClick={printInvoice} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Print</button>
-                        <button onClick={saveAsPdf} style={{...styles.button, backgroundColor: 'var(--danger-color)'}}>Save as PDF</button>
-                        <input type="tel" value={whatsAppNumber} onChange={e => setWhatsAppNumber(e.target.value)} placeholder="Customer Mobile Number" style={{ ...styles.input, flex: 1 }} />
-                        <button onClick={handleSendWhatsApp} style={{...styles.button, backgroundColor: '#25D366'}}>Send via WhatsApp</button>
-                        <button onClick={handleSendSms} style={{...styles.button, backgroundColor: 'var(--primary-color)'}}>Send via Text</button>
-                        <button onClick={handleResetLayout} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}} title="Reset column widths to default">Reset Layout</button>
-                    </div>
-                    {/* Settings Row */}
-                     <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <label>Paper Size</label>
-                            <select name="paperSize" value={printSettings.paperSize} onChange={handleSettingChange} style={{...styles.input, width: 'auto'}}>
-                                <option value="4-inch">4 Inch</option>
-                                <option value="3-inch">3 Inch</option>
-                                <option value="A4">A4</option>
-                                <option value="A5">A5</option>
-                            </select>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <label>Font Size (px)</label>
-                            <input
-                                type="number"
-                                name="fontSize"
-                                value={printSettings.fontSize}
-                                onChange={handleSettingChange}
-                                style={{ ...styles.input, width: '70px' }}
-                                min="8"
-                                max="24"
-                            />
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <label>Theme</label>
-                            <select name="theme" value={printSettings.theme} onChange={handleSettingChange} style={{...styles.input, width: 'auto'}}>
-                                <option value="classic">Classic</option>
-                                <option value="modern">Modern</option>
-                                <option value="minimalist">Minimalist</option>
-                                <option value="grid">Grid</option>
-                                <option value="formal">Formal</option>
-                                <option value="creative">Creative</option>
-                                <option value="compact">Compact</option>
-                                <option value="receipt">Receipt</option>
-                            </select>
-                        </div>
-                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <label>Margins (px)</label>
-                            <input type="number" value={printSettings.margins.top} onChange={e => handleMarginChange('top', e.target.value)} style={{ ...styles.input, width: '60px' }} title="Top" />
-                            <input type="number" value={printSettings.margins.right} onChange={e => handleMarginChange('right', e.target.value)} style={{ ...styles.input, width: '60px' }} title="Right" />
-                             <input type="number" value={printSettings.margins.bottom} onChange={e => handleMarginChange('bottom', e.target.value)} style={{ ...styles.input, width: '60px' }} title="Bottom" />
-                             <input type="number" value={printSettings.margins.left} onChange={e => handleMarginChange('left', e.target.value)} style={{ ...styles.input, width: '60px' }} title="Left" />
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <label>Offsets (px)</label>
-                            <input type="number" value={printSettings.offsets.x} onChange={e => handleOffsetChange('x', e.target.value)} style={{ ...styles.input, width: '60px' }} title="Horizontal" />
-                            <input type="number" value={printSettings.offsets.y} onChange={e => handleOffsetChange('y', e.target.value)} style={{ ...styles.input, width: '60px' }} title="Vertical" />
+                {/* Right Column: Controls */}
+                <div style={{
+                    flex: '1 1 400px',
+                    maxWidth: '420px',
+                    minWidth: '350px',
+                    overflowY: 'auto',
+                    padding: '2rem',
+                    backgroundColor: 'var(--surface-color)',
+                    borderLeft: '1px solid var(--border-color)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                }}>
+                    <div style={{ marginBottom: '1.5rem' }}>
+                        <h3 style={{ marginTop: 0 }}>Export & Share</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                            <button onClick={printInvoice} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Print</button>
+                            <button onClick={saveAsPdf} style={{...styles.button, backgroundColor: 'var(--danger-color)'}}>Save as PDF</button>
+                            <div>
+                                <input type="tel" value={whatsAppNumber} onChange={e => setWhatsAppNumber(e.target.value)} placeholder="Customer Mobile Number" style={{ ...styles.input, width: '100%', boxSizing: 'border-box', marginBottom: '0.5rem' }} />
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                    <button onClick={handleSendWhatsApp} style={{...styles.button, backgroundColor: '#25D366', flex: 1}}>WhatsApp</button>
+                                    <button onClick={handleSendSms} style={{...styles.button, backgroundColor: 'var(--primary-color)', flex: 1}}>SMS</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    {/* Final Actions Row */}
-                     <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+
+                    <div style={{ marginBottom: '1.5rem' }}>
+                        <h3>Print Customization</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                            <div>
+                                <label style={styles.label}>Paper Size</label>
+                                <select name="paperSize" value={printSettings.paperSize} onChange={handleSettingChange} style={{...styles.input, width: '100%'}}>
+                                    <option value="4-inch">4 Inch</option>
+                                    <option value="3-inch">3 Inch</option>
+                                    <option value="A4">A4</option>
+                                    <option value="A5">A5</option>
+                                </select>
+                            </div>
+                             <div>
+                                <label style={styles.label}>Theme</label>
+                                <select name="theme" value={printSettings.theme} onChange={handleSettingChange} style={{...styles.input, width: '100%'}}>
+                                    <option value="classic">Classic</option>
+                                    <option value="modern">Modern</option>
+                                    <option value="minimalist">Minimalist</option>
+                                    <option value="grid">Grid</option>
+                                    <option value="formal">Formal</option>
+                                    <option value="creative">Creative</option>
+                                    <option value="compact">Compact</option>
+                                    <option value="receipt">Receipt</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style={styles.label}>Font Size (px)</label>
+                                <input type="number" name="fontSize" value={printSettings.fontSize} onChange={handleSettingChange} style={{ ...styles.input, width: '100%' }} min="8" max="24" />
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style={{ marginBottom: '1.5rem' }}>
+                        <h3>Layout Adjustments</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                             <div>
+                                <label style={styles.label}>Margins (T, R, B, L)</label>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0.5rem' }}>
+                                    <input type="number" value={printSettings.margins.top} onChange={e => handleMarginChange('top', e.target.value)} style={{ ...styles.input, width: '100%', padding: '0.5rem' }} title="Top" />
+                                    <input type="number" value={printSettings.margins.right} onChange={e => handleMarginChange('right', e.target.value)} style={{ ...styles.input, width: '100%', padding: '0.5rem' }} title="Right" />
+                                    <input type="number" value={printSettings.margins.bottom} onChange={e => handleMarginChange('bottom', e.target.value)} style={{ ...styles.input, width: '100%', padding: '0.5rem' }} title="Bottom" />
+                                    <input type="number" value={printSettings.margins.left} onChange={e => handleMarginChange('left', e.target.value)} style={{ ...styles.input, width: '100%', padding: '0.5rem' }} title="Left" />
+                                </div>
+                            </div>
+                             <div>
+                                <label style={styles.label}>Offsets (X, Y)</label>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                                    <input type="number" value={printSettings.offsets.x} onChange={e => handleOffsetChange('x', e.target.value)} style={{ ...styles.input, width: '100%' }} title="Horizontal" />
+                                    <input type="number" value={printSettings.offsets.y} onChange={e => handleOffsetChange('y', e.target.value)} style={{ ...styles.input, width: '100%' }} title="Vertical" />
+                                </div>
+                            </div>
+                            <button onClick={handleResetLayout} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}} title="Reset column widths to default">Reset Column Layout</button>
+                        </div>
+                    </div>
+
+                    <div style={{ flex: 1 }}></div>
+
+                    <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                         {sale.isFinalized ? (
-                            <button onClick={onNewSale} style={{...styles.button, backgroundColor: 'var(--success-color)', width: '100%'}}>
+                            <button onClick={onNewSale} style={{...styles.button, backgroundColor: 'var(--success-color)'}}>
                                 New Sale
                             </button>
                         ) : (
                             <>
-                                <button onClick={() => onFinalize && onFinalize()} style={{...styles.button, backgroundColor: 'var(--success-color)', flex: 1}}>Complete Sale</button>
+                                <button onClick={() => onFinalize && onFinalize()} style={{...styles.button, backgroundColor: 'var(--success-color)'}}>Complete Sale</button>
                                 <button onClick={onClose} style={{...styles.button, backgroundColor: 'var(--secondary-color)'}}>Back to Edit Sale</button>
                             </>
                         )}
@@ -4515,7 +4545,6 @@ const App = () => {
     const [isInitialSetup, setIsInitialSetup] = useState(false);
     const [isShopManagerOpen, setIsShopManagerOpen] = useState(false);
     
-    // FIX: Define helper functions for opening and closing the confirmation modal. These were missing, causing `Cannot find name` errors in multiple handlers.
     const openConfirmModal = (message: string, onConfirm: () => void) => {
         setConfirmAction({ message, onConfirm });
         setIsConfirmModalOpen(true);
@@ -4865,7 +4894,75 @@ const App = () => {
         setActiveCartIndex(index);
         setIsAmountPaidEdited(false); // Reset this flag on cart switch
     };
+    
+    const handlePreviewSale = () => {
+        const saleToReview: SaleRecord = {
+            id: `INV-${Date.now()}`,
+            date: new Date().toISOString(),
+            items: activeCart.items,
+            subtotal,
+            discount: activeCart.discount,
+            tax: activeCart.tax,
+            total,
+            paid_amount: paidAmount,
+            balance_due: total - paidAmount,
+            customerName: activeCart.customerName,
+            customerMobile: activeCart.customerMobile,
+            previousBalanceForPreview: previousBalanceDue,
+            isFinalized: false,
+        };
+        setSaleForReview(saleToReview);
+    };
 
+    const handleFinalizeSale = async () => {
+        if (!saleForReview || !activeShopId) return;
+
+        const saleId = `SALE-${activeShopId}-${Date.now()}`;
+        const finalPaidAmount = saleForReview.paid_amount;
+        const finalBalanceDue = saleForReview.total - finalPaidAmount;
+
+        db.exec("BEGIN TRANSACTION;");
+        try {
+            // 1. Update stock for each item
+            for (const item of saleForReview.items) {
+                const stockChange = item.isReturn ? item.quantity : -item.quantity;
+                db.run(
+                    "UPDATE products SET stock = stock + ? WHERE id = ? AND shop_id = ?",
+                    [stockChange, item.productId, activeShopId]
+                );
+            }
+
+            // 2. Insert into sales_history
+            db.run(
+                "INSERT INTO sales_history (id, shop_id, date, subtotal, discount, tax, total, paid_amount, balance_due, customerName, customerMobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [saleId, activeShopId, saleForReview.date, saleForReview.subtotal, saleForReview.discount, saleForReview.tax, saleForReview.total, finalPaidAmount, finalBalanceDue, saleForReview.customerName, saleForReview.customerMobile]
+            );
+            
+            // 3. Insert into sale_items
+            const stmt = db.prepare("INSERT INTO sale_items (sale_id, productId, shop_id, description, descriptionTamil, quantity, price, isReturn, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            for (const item of saleForReview.items) {
+                stmt.run([saleId, item.productId, activeShopId, item.description, item.descriptionTamil, item.quantity, item.price, item.isReturn, item.hsnCode]);
+            }
+            stmt.free();
+            
+            // 4. Record payment
+            if (finalPaidAmount > 0) {
+                 db.run("INSERT INTO payment_history (sale_id, date, amount_paid) VALUES (?, ?, ?)", [saleId, new Date().toISOString(), finalPaidAmount]);
+            }
+
+            db.exec("COMMIT;");
+            await saveDbToIndexedDB();
+            
+            setSaleForReview(prev => prev ? { ...prev, id: saleId, isFinalized: true } : null);
+            await loadShopData(activeShopId);
+
+        } catch (error) {
+            db.exec("ROLLBACK;");
+            console.error("Failed to finalize sale:", error);
+            alert("An error occurred while finalizing the sale. The transaction has been rolled back.");
+        }
+    };
+    
     const handleNewSale = () => {
         updateActiveCartByIndex(activeCartIndex, defaultCartState);
         setPaidAmount(0);
@@ -4874,191 +4971,291 @@ const App = () => {
         setSaleForReview(null);
     };
     
-    const handleFinalizeSale = async () => {
-        if (!activeShopId) return;
-        if (activeCart.items.length === 0 && previousBalanceDue <= 0) {
-            alert("Cannot complete an empty sale.");
-            return;
-        }
-
-        const saleId = `SALE-${activeShopId}-${Date.now()}`;
-        const balanceDue = total - paidAmount;
-
-        // Save sale header
-        db.run(
-            "INSERT INTO sales_history (id, shop_id, date, subtotal, discount, tax, total, paid_amount, balance_due, customerName, customerMobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [saleId, activeShopId, new Date().toISOString(), subtotal, activeCart.discount, activeCart.tax, total, paidAmount, balanceDue, activeCart.customerName, activeCart.customerMobile]
-        );
-
-        // Save sale items and update stock
-        const stmt = db.prepare("INSERT INTO sale_items (sale_id, productId, shop_id, description, descriptionTamil, quantity, price, isReturn, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        const stockStmt = db.prepare("UPDATE products SET stock = stock - ? WHERE id = ? AND shop_id = ?");
-        
-        activeCart.items.forEach(item => {
-            stmt.run([saleId, item.productId, activeShopId, item.description, item.descriptionTamil, item.quantity, item.price, item.isReturn ? 1 : 0, item.hsnCode]);
-            if (!item.isReturn) {
-                 stockStmt.run([item.quantity, item.productId, activeShopId]);
-            } else {
-                // For returns, we add stock back
-                stockStmt.run([-item.quantity, item.productId, activeShopId]);
-            }
-        });
-        stmt.free();
-        stockStmt.free();
-
-        // Save payment history if any amount was paid
-        if (paidAmount > 0) {
-            db.run(
-                "INSERT INTO payment_history (sale_id, date, amount_paid, payment_method) VALUES (?, ?, ?, ?)",
-                [saleId, new Date().toISOString(), paidAmount, 'cash'] // Assuming 'cash' for now
-            );
-        }
-
-        await saveDbToIndexedDB();
-        
-        // Reload data to reflect changes
-        const reloadedSales = sqlResultToObjects(db.exec("SELECT * FROM sales_history WHERE shop_id = ? AND id = ?", [activeShopId, saleId]));
-        if (reloadedSales.length > 0) {
-            const reloadedSale = reloadedSales[0];
-            const reloadedItems = sqlResultToObjects(db.exec("SELECT * FROM sale_items WHERE sale_id = ?", [saleId]));
-            setSaleForReview({ ...reloadedSale, items: reloadedItems, isFinalized: true });
-        }
-        
-        await loadShopData(activeShopId);
-        
-        // Reset current cart for next sale
-        updateActiveCartByIndex(activeCartIndex, defaultCartState);
-        setPaidAmount(0);
-        setPreviousBalanceDue(0);
-        setIsAmountPaidEdited(false);
-    };
-
-    const handlePreviewSale = () => {
-        if (activeCart.items.length === 0 && previousBalanceDue <= 0) return;
-        
-        const salePreview: SaleRecord = {
-            id: `INV-PREVIEW-${Date.now()}`,
-            date: new Date().toISOString(),
-            items: activeCart.items,
-            subtotal: subtotal,
-            discount: activeCart.discount,
-            tax: activeCart.tax,
-            total: total,
-            paid_amount: paidAmount,
-            balance_due: total - paidAmount,
-            customerName: activeCart.customerName,
-            customerMobile: activeCart.customerMobile,
-            isFinalized: false,
-        };
-        setSaleForReview(salePreview);
-    };
-
-    const handleShowHistory = () => {
-        if(activeCart.customerMobile) {
-            setIsHistoryModalOpen(true);
-        } else {
-            alert("Please enter a customer mobile number to view their history.");
-        }
-    };
-    
-    // Backup/Restore handlers
-    const handleSaveBackup = async () => {
-        try {
-            const data = db.export();
-            const blob = new Blob([data]);
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            const date = new Date().toISOString().slice(0, 10);
-            a.download = `pos_gem_backup_${date}.sqlite`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-// FIX: Corrected the method name to `revokeObjectURL` as `revoke` does not exist on `URL`.
-            URL.revokeObjectURL(url);
-        } catch (err) {
-            console.error("Failed to save backup:", err);
-            alert("Failed to save backup. See console for details.");
-        }
-    };
-    
-    const readFileAsArrayBuffer = (file: File): Promise<ArrayBuffer> => {
+    // AI & Bulk Add handlers
+    const fileToBase64 = (file: File): Promise<string> => {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
-            reader.onload = (event) => {
-                resolve(event.target?.result as ArrayBuffer);
-            };
-            reader.onerror = (error) => {
-                reject(error);
-            };
-            reader.readAsArrayBuffer(file);
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve((reader.result as string).split(',')[1]);
+            reader.onerror = error => reject(error);
         });
+    };
+
+    const handleBulkAddFromFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file || !isOnline) return;
+        
+        const fileSrc = URL.createObjectURL(file);
+        setBulkAddFile({ src: fileSrc, type: 'image', names: null });
+        setBulkAddProducts([]);
+        setIsBulkAddModalOpen(true);
+        setIsBulkAddLoading(true);
+        setBulkAddError(null);
+
+        try {
+            const base64Data = await fileToBase64(file);
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+            const response = await ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: { parts: [
+                    { inlineData: { mimeType: file.type, data: base64Data } },
+                    { text: "Analyze this image of a product price list. Extract the product description, price, and category. Provide the output as a JSON array where each object has keys: 'description' (string), 'descriptionTamil' (string, if available, otherwise empty), 'b2cPrice' (number), and 'category' (string, inferred). If you cannot determine a value, use an empty string or 0. Omit items without a clear description." }
+                ]},
+                 config: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.ARRAY,
+                        items: {
+                          type: Type.OBJECT,
+                          properties: {
+                            description: { type: Type.STRING },
+                            descriptionTamil: { type: Type.STRING },
+                            b2cPrice: { type: Type.NUMBER },
+                            category: { type: Type.STRING },
+                          }
+                        }
+                    }
+                }
+            });
+            
+            const jsonStr = response.text.trim().replace(/^```json\n?/, '').replace(/```$/, '');
+            const parsedProducts: any[] = JSON.parse(jsonStr);
+
+            const newProducts = parsedProducts.map(p => ({
+                description: p.description || '',
+                descriptionTamil: p.descriptionTamil || '',
+                barcode: '',
+                b2bPrice: p.b2cPrice || 0, // Default b2b to b2c if not specified
+                b2cPrice: p.b2cPrice || 0,
+                stock: 0,
+                category: p.category || 'Uncategorized',
+                hsnCode: ''
+            }));
+            setBulkAddProducts(newProducts);
+        } catch (error: any) {
+            console.error("Error processing file with AI:", error);
+            setBulkAddError(error.message || "Failed to parse product data. The AI may have returned an unexpected format. Please check the console for details.");
+        } finally {
+            setIsBulkAddLoading(false);
+            event.target.value = ''; // Reset file input
+        }
+    };
+    
+    const handleBulkAddFromPdfs = async (b2bFile: File, b2cFile: File) => {
+        if (!isOnline) return;
+        setIsPdfUploadModalOpen(false);
+        setBulkAddFile({ src: null, type: 'dual-pdf', names: { b2b: b2bFile.name, b2c: b2cFile.name }});
+        setBulkAddProducts([]);
+        setIsBulkAddModalOpen(true);
+        setIsBulkAddLoading(true);
+        setBulkAddError(null);
+
+        try {
+            const [b2bBase64, b2cBase64] = await Promise.all([fileToBase64(b2bFile), fileToBase64(b2cFile)]);
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            
+            const response = await ai.models.generateContent({
+                model: "gemini-2.5-pro", // Using Pro for better accuracy on complex tasks
+                contents: {
+                    parts: [
+                        { text: "You will be given two PDF price lists. The first is B2B (business-to-business) and the second is B2C (business-to-consumer). Your task is to merge them. For each product, extract its description and both its B2B and B2C price. Provide the output as a JSON array of objects. Each object should have keys: 'description', 'b2bPrice', and 'b2cPrice'." },
+                        { inlineData: { mimeType: 'application/pdf', data: b2bBase64 } },
+                        { inlineData: { mimeType: 'application/pdf', data: b2cBase64 } },
+                    ]
+                },
+                 config: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.ARRAY,
+                        items: {
+                          type: Type.OBJECT,
+                          properties: {
+                            description: { type: Type.STRING },
+                            b2bPrice: { type: Type.NUMBER },
+                            b2cPrice: { type: Type.NUMBER },
+                          }
+                        }
+                    }
+                }
+            });
+            
+            const jsonStr = response.text.trim().replace(/^```json\n?/, '').replace(/```$/, '');
+            const parsedProducts: any[] = JSON.parse(jsonStr);
+
+            const newProducts = parsedProducts.map(p => ({
+                description: p.description || '',
+                descriptionTamil: '',
+                barcode: '',
+                b2bPrice: p.b2bPrice || 0,
+                b2cPrice: p.b2cPrice || 0,
+                stock: 0,
+                category: 'Uncategorized',
+                hsnCode: ''
+            }));
+            setBulkAddProducts(newProducts);
+        } catch (error: any) {
+            console.error("Error processing PDFs with AI:", error);
+            setBulkAddError(error.message || "Failed to merge and parse PDF data. Please ensure the PDFs are clear and try again.");
+        } finally {
+            setIsBulkAddLoading(false);
+        }
+    };
+
+
+    const handleSaveBulkProducts = async (productsToSave: Omit<Product, 'id'>[]) => {
+        if (!activeShop) return;
+        let nextId = activeShop.nextProductId;
+        db.exec("BEGIN TRANSACTION;");
+        try {
+            const stmt = db.prepare("INSERT INTO products (id, shop_id, description, descriptionTamil, barcode, b2bPrice, b2cPrice, stock, category, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            for (const p of productsToSave) {
+                stmt.run([nextId, activeShopId, p.description, p.descriptionTamil, p.barcode, p.b2bPrice, p.b2cPrice, p.stock, p.category, p.hsnCode]);
+                nextId++;
+            }
+            stmt.free();
+            db.run("UPDATE shops SET nextProductId = ? WHERE id = ?", [nextId, activeShopId]);
+            db.exec("COMMIT;");
+            await saveDbToIndexedDB();
+            await loadShopData(activeShopId!);
+             const newShops = sqlResultToObjects(db.exec("SELECT * FROM shops"));
+            setShops(newShops);
+            setIsBulkAddModalOpen(false);
+        } catch(e) {
+            db.exec("ROLLBACK;");
+            console.error("Bulk add failed", e);
+            alert("Error saving products. Transaction rolled back.");
+        }
+    };
+    
+    const handleExportPdf = (productsToExport: Product[]) => {
+        const element = document.createElement('div');
+        element.style.padding = '20px';
+        element.innerHTML = `
+            <h1>Product List - ${activeShop?.name || ''}</h1>
+            <p>Date: ${new Date().toLocaleDateString()}</p>
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="background-color: #f2f2f2;">
+                        <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">ID</th>
+                        <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Description</th>
+                        <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">B2C Price</th>
+                        <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Stock</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${productsToExport.map(p => `
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd;">${p.id}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">${p.description}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">${p.b2cPrice.toFixed(2)}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">${p.stock}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+        
+        html2pdf(element, {
+            margin: 10,
+            filename: `products_${new Date().toISOString().slice(0, 10)}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        });
+    };
+
+    // Backup & Restore
+    const handleSaveBackup = async () => {
+        if (!db) return;
+        const data = db.export();
+        const blob = new Blob([data]);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        const date = new Date().toISOString().slice(0, 10);
+        link.download = `pos_gem_backup_${date}.db`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     };
 
     const handleRestoreBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        e.target.value = ''; // Allow re-uploading the same file
         if (!file) return;
 
         openConfirmModal(
-            'Restoring from a backup will overwrite all current data. This action cannot be undone. Are you sure you want to proceed?',
-            async () => {
-                closeConfirmModal();
-                setRestoreProgress({ percentage: 0, eta: 'calculating...', message: 'Reading backup file...' });
+            "Are you sure you want to restore from this backup? This will overwrite ALL current data in the application. This action cannot be undone.",
+            () => {
+                closeConfirmModal(); // Close the confirmation modal first
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    const contents = event.target?.result;
+                    if (contents instanceof ArrayBuffer) {
+                        setRestoreProgress({ percentage: 0, eta: 'calculating...', message: 'Restoring Database...' });
+                        const startTime = Date.now();
 
-                try {
-                    const startTime = Date.now();
-                    const arrayBuffer = await readFileAsArrayBuffer(file);
-                    
-                    const updateProgress = (loaded: number, total: number) => {
-                        const percentage = Math.round((loaded / total) * 100);
-                        const elapsed = (Date.now() - startTime) / 1000; // seconds
-                        const rate = loaded / elapsed; // bytes per second
-                        const remaining = total - loaded;
-                        const etaSeconds = rate > 0 ? Math.round(remaining / rate) : Infinity;
-                        const eta = etaSeconds < 60 ? `${etaSeconds}s` : `${Math.round(etaSeconds / 60)}m`;
-                        
-                        setRestoreProgress(prev => ({ ...prev!, percentage, eta }));
-                    };
+                        // Simulate progress for UI feedback
+                        const updateProgress = (p: number) => {
+                             const elapsedTime = (Date.now() - startTime) / 1000;
+                             const etaSeconds = p > 0 ? (elapsedTime / p) * (100 - p) : Infinity;
+                             const eta = etaSeconds > 60 ? `${Math.round(etaSeconds / 60)}m` : `${Math.round(etaSeconds)}s`;
+                             setRestoreProgress(prev => prev ? {...prev, percentage: p, eta } : null);
+                        };
 
-                    setRestoreProgress(prev => ({ ...prev!, message: 'Initializing database...' }));
-
-                    const SQL = await initSqlJs({ locateFile: (f: string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${f}` });
-                    db = new SQL.Database(new Uint8Array(arrayBuffer));
-
-                    setRestoreProgress(prev => ({ ...prev!, message: 'Saving to local storage...' }));
-                    await saveDbToIndexedDB();
-
-                    setRestoreProgress(prev => ({ ...prev!, percentage: 100, message: 'Restore complete!' }));
-
-                    setTimeout(() => {
-                        setRestoreProgress(null);
-                        // Force a full reload to re-initialize the app state from the new database
-                        window.location.reload();
-                    }, 1500);
-
-                } catch (err) {
-                    console.error("Failed to restore backup:", err);
-                    alert("Failed to restore backup. The file may be corrupted. See console for details.");
-                    setRestoreProgress(null);
-                }
+                        try {
+                            const Uints = new Uint8Array(contents);
+                            updateProgress(25);
+                            await saveDbToIndexedDB(); // First, save the backup file to IndexedDB
+                            updateProgress(50);
+                            await indexedDB.deleteDatabase(DB_NAME_IDB); // Clear any old connections
+                            updateProgress(75);
+                            
+                            const request = indexedDB.open(DB_NAME_IDB, 1);
+                             request.onupgradeneeded = (event) => {
+                                const idb = (event.target as any).result;
+                                idb.createObjectStore(DB_STORE_NAME);
+                            };
+                            request.onsuccess = (event) => {
+                                const idb = (event.target as any).result;
+                                const transaction = idb.transaction(DB_STORE_NAME, 'readwrite');
+                                const store = transaction.objectStore(DB_STORE_NAME);
+                                store.put(Uints, DB_FILE_KEY);
+                                transaction.oncomplete = () => {
+                                     idb.close();
+                                     setRestoreProgress({ percentage: 100, eta: '0s', message: 'Reloading App...' });
+                                     setTimeout(() => window.location.reload(), 1500); // Reload the page to apply the new DB
+                                };
+                            };
+                        } catch (error) {
+                            console.error("Restore failed:", error);
+                            alert("Failed to restore database. The file might be corrupted.");
+                            setRestoreProgress(null);
+                        }
+                    }
+                };
+                reader.readAsArrayBuffer(file);
             }
         );
+        e.target.value = ''; // Reset file input
     };
     
-    // Expenses Handlers
-    const handleAddExpense = async (expense: Omit<Expense, 'id'>) => {
-        if (!activeShopId) return;
-        db.run(
-            "INSERT INTO expenses (shop_id, date, description, category, amount) VALUES (?, ?, ?, ?, ?)",
-            [expense.shop_id, expense.date, expense.description, expense.category, expense.amount]
-        );
+    const handleSettlePayment = async (saleId: string, amount: number) => {
+        db.run("UPDATE sales_history SET paid_amount = paid_amount + ?, balance_due = balance_due - ? WHERE id = ?", [amount, amount, saleId]);
+        db.run("INSERT INTO payment_history (sale_id, date, amount_paid) VALUES (?, ?, ?)", [saleId, new Date().toISOString(), amount]);
         await saveDbToIndexedDB();
-        await loadShopData(activeShopId);
+        await loadShopData(activeShopId!);
+    };
+    
+    const handleAddExpense = async (expense: Omit<Expense, 'id'>) => {
+        db.run("INSERT INTO expenses (shop_id, date, description, category, amount) VALUES (?, ?, ?, ?, ?)", [expense.shop_id, expense.date, expense.description, expense.category, expense.amount]);
+        await saveDbToIndexedDB();
+        await loadShopData(activeShopId!);
     };
 
     const handleDeleteExpense = (id: number) => {
-        openConfirmModal('Are you sure you want to delete this expense?', async () => {
+        openConfirmModal("Are you sure you want to delete this expense record?", async () => {
             db.run("DELETE FROM expenses WHERE id = ?", [id]);
             await saveDbToIndexedDB();
             await loadShopData(activeShopId!);
@@ -5066,301 +5263,41 @@ const App = () => {
         });
     };
     
-    // Balance Due Handler
-    const handleSettlePayment = async (saleId: string, amount: number) => {
-        db.run("UPDATE sales_history SET paid_amount = paid_amount + ?, balance_due = balance_due - ? WHERE id = ?", [amount, amount, saleId]);
-        db.run("INSERT INTO payment_history (sale_id, date, amount_paid, payment_method) VALUES (?, ?, ?, ?)", [saleId, new Date().toISOString(), amount, 'cash_settlement']);
-        await saveDbToIndexedDB();
-        await loadShopData(activeShopId!);
-    };
-    
-    // Settings Handlers
-    const handleSaveSettings = (settings: BillSettings) => {
-        if (!activeShopId) return;
-        localStorage.setItem(`billSettings_${activeShopId}`, JSON.stringify(settings));
-        setBillSettings(settings);
-        alert("Settings saved successfully!");
-    };
-    
-    const handlePreviewBillForSettings = () => {
-        // Create a dummy sale to preview
-        const dummySale: SaleRecord = {
-            id: "BILL-PREVIEW",
-            date: new Date().toISOString(),
-            items: [
-                { id: 1, productId: 101, description: "Sample Product A", quantity: 2, price: 15.00, isReturn: false },
-                { id: 2, productId: 102, description: "Sample Product B (with a longer name)", quantity: 1, price: 120.50, isReturn: false },
-                { id: 3, productId: 103, description: "Returned Item C", quantity: 1, price: 25.00, isReturn: true },
-            ],
-            subtotal: 125.50,
-            discount: 10,
-            tax: 5,
-            total: 121.28,
-            paid_amount: 121.28,
-            balance_due: 0,
-            customerName: "John Doe",
-            customerMobile: "9876543210",
+    // View mode responsive logic
+    useEffect(() => {
+        const checkViewMode = () => {
+            if (window.innerWidth < 900) {
+                setViewMode('mobile');
+            } else {
+                setViewMode('desktop');
+            }
         };
-        setSaleForReview(dummySale);
-    };
+        checkViewMode();
+        window.addEventListener('resize', checkViewMode);
+        return () => window.removeEventListener('resize', checkViewMode);
+    }, []);
 
-    // Bulk Add Handlers
-    const handleBulkAddFromFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        e.target.value = ''; // Allow re-selection
-        if (!file) return;
-
-        setBulkAddFile({ src: URL.createObjectURL(file), type: 'image' });
-        setIsBulkAddModalOpen(true);
-        setIsBulkAddLoading(true);
-        setBulkAddError(null);
-        setBulkAddProducts([]);
-
-        try {
-            const base64 = await new Promise<string>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
-                reader.onerror = reject;
-                reader.readAsDataURL(file);
-            });
-
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            
-            const response = await ai.models.generateContent({
-                model: "gemini-2.5-flash",
-                contents: { 
-                    parts: [
-                        { text: "Extract product information from this image. The columns are Description, Description(Tamil), B2B Price, B2C Price. Assume Stock is 0. Ignore any other columns. Return ONLY a valid JSON array of objects with keys: 'description', 'descriptionTamil', 'b2bPrice', 'b2cPrice', 'stock', 'barcode', 'category'. Ensure prices are numbers." },
-                        { inlineData: { mimeType: 'image/jpeg', data: base64 } }
-                    ]
-                },
-                 config: { responseMimeType: 'application/json' }
-            });
-
-            const parsedProducts = JSON.parse(response.text.replace(/```json|```/g, '').trim());
-            setBulkAddProducts(parsedProducts.map((p: any) => ({
-                description: p.description || '',
-                descriptionTamil: p.descriptionTamil || '',
-                b2bPrice: p.b2bPrice || 0,
-                b2cPrice: p.b2cPrice || 0,
-                stock: p.stock || 0,
-                barcode: p.barcode || '',
-                category: p.category || '',
-            })));
-
-        } catch (err: any) {
-            console.error('AI processing error:', err);
-            setBulkAddError(err.message || "Failed to process the image with AI.");
-        } finally {
-            setIsBulkAddLoading(false);
-        }
-    };
+    // RENDER LOGIC
+    if (!dbLoaded) {
+        return <div>Loading Database...</div>;
+    }
     
-    const handleBulkAddFromPdfs = async (b2bFile: File, b2cFile: File) => {
-        setIsPdfUploadModalOpen(false);
-        setBulkAddFile({ src: null, type: 'dual-pdf', names: { b2b: b2bFile.name, b2c: b2cFile.name } });
-        setIsBulkAddModalOpen(true);
-        setIsBulkAddLoading(true);
-        setBulkAddError(null);
-        setBulkAddProducts([]);
-
-        try {
-            const [b2bText, b2cText] = await Promise.all([
-                extractTextFromPdf(b2bFile),
-                extractTextFromPdf(b2cFile)
-            ]);
-            
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            
-            const prompt = `
-                Here are two price lists: one for B2B and one for B2C.
-                Your task is to merge them into a single, clean JSON array.
-                - Match products by their description.
-                - The final JSON objects must have these exact keys: "description", "b2bPrice", "b2cPrice".
-                - All prices must be numbers, not strings. Remove any currency symbols or text.
-                - If a product exists in one list but not the other, include it and set the missing price to 0.
-                - Return ONLY the raw JSON array, with no extra text, explanations, or markdown formatting.
-
-                B2B Data:
-                ---
-                ${b2bText}
-                ---
-
-                B2C Data:
-                ---
-                ${b2cText}
-                ---
-            `;
-
-            const response = await ai.models.generateContent({
-                model: "gemini-2.5-flash",
-                contents: prompt,
-                config: { responseMimeType: "application/json" }
-            });
-            
-            const parsedProducts = JSON.parse(response.text.replace(/```json|```/g, '').trim());
-             setBulkAddProducts(parsedProducts.map((p: any) => ({
-                description: p.description || '',
-                descriptionTamil: '',
-                b2bPrice: p.b2bPrice || 0,
-                b2cPrice: p.b2cPrice || 0,
-                stock: 0,
-                barcode: '',
-                category: '',
-            })));
-
-        } catch (err: any) {
-            console.error('AI PDF processing error:', err);
-            setBulkAddError(err.message || "Failed to process PDFs with AI.");
-        } finally {
-            setIsBulkAddLoading(false);
-        }
-    };
+    if (!currentUser) {
+        return <LoginView onLoginSuccess={handleLoginSuccess} />;
+    }
     
-    const extractTextFromPdf = async (file: File): Promise<string> => {
-        const pdfjsLib = (window as any)['pdfjs-dist/build/pdf'];
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs`;
+    if (isInitialSetup) {
+        return <InitialSetupModal onCreate={handleCreateShop} />;
+    }
 
-        const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
-        let fullText = '';
-        for (let i = 1; i <= pdf.numPages; i++) {
-            const page = await pdf.getPage(i);
-            const textContent = await page.getTextContent();
-            fullText += textContent.items.map((item: any) => item.str).join(' ') + '\n';
-        }
-        return fullText;
-    };
-
-
-    const handleSaveBulkAdd = async (productsToSave: Omit<Product, 'id'>[]) => {
-        if (!activeShop) return;
-
-        let nextId = activeShop.nextProductId;
-        const productInsertStmt = db.prepare("INSERT INTO products (id, shop_id, description, descriptionTamil, barcode, b2bPrice, b2cPrice, stock, category, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-
-        productsToSave.forEach(p => {
-            productInsertStmt.run([nextId, activeShopId, p.description, p.descriptionTamil, p.barcode, p.b2bPrice, p.b2cPrice, p.stock, p.category, p.hsnCode]);
-            nextId++;
-        });
-        
-        productInsertStmt.free();
-        db.run("UPDATE shops SET nextProductId = ? WHERE id = ?", [nextId, activeShopId]);
-
-        await saveDbToIndexedDB();
-        await loadShopData(activeShopId!);
-        const newShops = sqlResultToObjects(db.exec("SELECT * FROM shops"));
-        setShops(newShops);
-        
-        setIsBulkAddModalOpen(false);
-    };
-    
-    // PDF Export
-    const handleExportPdf = (productsToExport: Product[]) => {
-         const element = document.createElement('div');
-        element.innerHTML = `
-            <style>
-                body { font-family: sans-serif; }
-                table { width: 100%; border-collapse: collapse; font-size: 10px; }
-                th, td { border: 1px solid #ddd; padding: 4px; text-align: left; }
-                th { background-color: #f2f2f2; }
-            </style>
-            <h2>Product List - ${activeShop?.name}</h2>
-            <p>Date: ${new Date().toLocaleDateString()}</p>
-            <table>
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Description</th>
-                        <th>B2B Price</th>
-                        <th>B2C Price</th>
-                        <th>Stock</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${productsToExport.map(p => `
-                        <tr>
-                            <td>${p.id}</td>
-                            <td>${p.description}</td>
-                            <td>${p.b2bPrice.toFixed(2)}</td>
-                            <td>${p.b2cPrice.toFixed(2)}</td>
-                            <td>${p.stock}</td>
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
-        `;
-        
-        const date = new Date().toISOString().slice(0, 10);
-        html2pdf(element, {
-            margin: 10,
-            filename: `product_list_${date}.pdf`,
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2 },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        });
-    };
-
-    const handleLoginRequired = () => {
-        if (!currentUser) {
-            return <LoginView onLoginSuccess={handleLoginSuccess} />;
-        }
-        if (isInitialSetup) {
-            return <InitialSetupModal onCreate={handleCreateShop} />;
-        }
-        return null;
-    };
-    
-    const loginOrSetup = handleLoginRequired();
-    if (loginOrSetup) return loginOrSetup;
-
-
-    const renderCurrentView = () => {
+    const renderView = () => {
         if (!activeShopId) {
-            return <p style={styles.emptyMessage}>Please select a shop to begin.</p>;
+            return <div style={{textAlign: 'center', padding: '2rem'}}>Please select a shop to begin.</div>;
         }
+
         switch (currentView) {
-            case 'products':
-                return <ProductsView 
-                            products={products} 
-                            onEdit={(p) => { setEditingProduct(p); setIsProductFormOpen(true); }}
-                            onDelete={handleDeleteProduct}
-                            onAdd={() => { setEditingProduct(null); setIsProductFormOpen(true); }}
-                            onBulkAdd={handleBulkAddFromFile}
-                            onBulkAddPdfs={() => setIsPdfUploadModalOpen(true)}
-                            onExportPdf={handleExportPdf}
-                            selectedProductIds={selectedProductIds}
-                            setSelectedProductIds={setSelectedProductIds}
-                            onDeleteSelected={handleDeleteSelectedProducts}
-                            isOnline={isOnline}
-                            currentUser={currentUser}
-                        />;
-            case 'reports':
-                return <ReportsView salesHistory={salesHistory} onPrint={setSaleForReview} isOnline={isOnline} />;
-            case 'customers':
-                return <CustomersView 
-                            customers={customers} 
-                            salesHistory={salesHistory}
-                            onAdd={() => { setEditingCustomer(null); setIsCustomerFormOpen(true); }}
-                            onEdit={(c) => { setEditingCustomer(c); setIsCustomerFormOpen(true); }}
-                            onDelete={handleDeleteCustomer}
-                            currentUser={currentUser}
-                        />;
-            case 'expenses':
-                return <ExpensesView expenses={expenses} onAdd={handleAddExpense} onDelete={handleDeleteExpense} shopId={activeShopId} />;
-            case 'balance_due':
-                return <BalanceDueView salesHistory={salesHistory} customers={customers} onSettlePayment={handleSettlePayment} />;
-            case 'settings':
-                return <SettingsView 
-                            billSettings={billSettings} 
-                            onSave={handleSaveSettings} 
-                            onPreview={handlePreviewBillForSettings} 
-                            activeShopName={activeShop?.name || ''}
-                            onRenameShop={(newName) => handleRenameShop(activeShopId, newName)}
-                        />;
             case 'sales':
-            default:
-                return <SalesView 
+                return <SalesView
                             products={products}
                             activeCart={activeCart}
                             updateActiveCart={(updates) => updateActiveCartByIndex(activeCartIndex, updates)}
@@ -5370,7 +5307,7 @@ const App = () => {
                             setPaidAmount={setPaidAmount}
                             onAmountPaidEdit={() => setIsAmountPaidEdited(true)}
                             previousBalanceDue={previousBalanceDue}
-                            onShowHistory={handleShowHistory}
+                            onShowHistory={() => setIsHistoryModalOpen(true)}
                             onSaveBackup={handleSaveBackup}
                             onRestoreBackup={handleRestoreBackup}
                             onUpdateProductPrice={handleUpdateProductPriceInCart}
@@ -5383,69 +5320,83 @@ const App = () => {
                             activeCartIndex={activeCartIndex}
                             onCartChange={handleCartChange}
                         />;
+            case 'products':
+                return <ProductsView 
+                            products={products} 
+                            onAdd={() => { setEditingProduct(null); setIsProductFormOpen(true); }}
+                            onEdit={(p) => { setEditingProduct(p); setIsProductFormOpen(true); }}
+                            onDelete={handleDeleteProduct}
+                            onBulkAdd={handleBulkAddFromFile}
+                            onBulkAddPdfs={() => setIsPdfUploadModalOpen(true)}
+                            onExportPdf={handleExportPdf}
+                            selectedProductIds={selectedProductIds}
+                            setSelectedProductIds={setSelectedProductIds}
+                            onDeleteSelected={handleDeleteSelectedProducts}
+                            isOnline={isOnline}
+                            currentUser={currentUser}
+                        />;
+            case 'reports':
+                return <ReportsView salesHistory={salesHistory} onPrint={setSaleForReview} isOnline={isOnline} />;
+             case 'customers':
+                return <CustomersView 
+                            customers={customers} 
+                            salesHistory={salesHistory}
+                            onAdd={() => { setEditingCustomer(null); setIsCustomerFormOpen(true); }}
+                            onEdit={(c) => { setEditingCustomer(c); setIsCustomerFormOpen(true); }}
+                            onDelete={handleDeleteCustomer}
+                            currentUser={currentUser}
+                        />;
+            case 'balance_due':
+                return <BalanceDueView salesHistory={salesHistory} customers={customers} onSettlePayment={handleSettlePayment} />;
+            case 'expenses':
+                return <ExpensesView expenses={expenses} onAdd={handleAddExpense} onDelete={handleDeleteExpense} shopId={activeShopId} />;
+            case 'settings':
+                return <SettingsView 
+                            billSettings={billSettings}
+                            onSave={(settings) => {
+                                localStorage.setItem(`billSettings_${activeShopId}`, JSON.stringify(settings));
+                                setBillSettings(settings);
+                                alert("Settings saved!");
+                            }}
+                            onPreview={handlePreviewSale}
+                            activeShopName={activeShop?.name || ''}
+                            onRenameShop={(newName) => handleRenameShop(activeShopId, newName)}
+                       />;
+            default:
+                return <div>View not found</div>;
         }
     };
 
     return (
         <div style={styles.appContainer}>
             <header style={styles.header}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-                    <h1 style={styles.title}>{activeShop?.name || "Gemini POS"}</h1>
-                    {currentUser?.role === 'super_admin' && (
-                        <button onClick={() => setIsShopManagerOpen(true)} style={styles.shopManagerButton} title="Manage Shops">
-                            Shop Manager
-                        </button>
+                <h1 style={styles.title}>{activeShop?.name || 'POS'}</h1>
+                <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
+                    {currentUser.role === 'super_admin' && (
+                         <button onClick={() => setIsShopManagerOpen(true)} style={styles.shopManagerButton}>Shop Manager</button>
                     )}
-                </div>
-                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <DropdownNav activeView={currentView} onSelectView={setCurrentView} disabled={!activeShopId} currentUser={currentUser} />
-                    <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem', color: isOnline ? 'var(--success-color)' : 'var(--secondary-color)'}}>
-                        <CloudIcon size={20} color={isOnline ? 'var(--success-color)' : 'var(--secondary-color)'}/>
-                        <span style={{fontSize: '0.9rem'}}>{isOnline ? 'Online' : 'Offline'}</span>
-                    </div>
-                    <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
-                        <UserIcon size={20} />
-                        <span>{currentUser?.username}</span>
-                    </div>
+                    <DropdownNav activeView={currentView} onSelectView={setCurrentView} disabled={!!saleForReview} currentUser={currentUser} />
                     <button onClick={handleLogout} style={styles.logoutButton}>Logout</button>
                 </div>
             </header>
             <main style={styles.mainContent}>
-                {renderCurrentView()}
+                {renderView()}
             </main>
-
             {isProductFormOpen && <ProductFormModal product={editingProduct} onSave={handleAddProduct} onUpdate={handleUpdateProduct} onClose={() => setIsProductFormOpen(false)} />}
             {isCustomerFormOpen && <CustomerFormModal customer={editingCustomer} onSave={editingCustomer ? handleUpdateCustomer : handleAddCustomer} onClose={() => setIsCustomerFormOpen(false)} />}
             {isConfirmModalOpen && confirmAction && <ConfirmationModal message={confirmAction.message} onConfirm={confirmAction.onConfirm} onCancel={closeConfirmModal} />}
             {isHistoryModalOpen && <HistoryModal salesHistory={salesHistory} customerMobile={activeCart.customerMobile} onClose={() => setIsHistoryModalOpen(false)} />}
-            {saleForReview && (
-                <SaleReviewModal 
-                    sale={saleForReview} 
-                    onFinalize={saleForReview.isFinalized ? undefined : handleFinalizeSale}
-                    onClose={() => setSaleForReview(null)}
-                    onNewSale={handleNewSale}
-                    activeShopId={activeShopId}
-                    activeShopName={activeShop?.name || ''}
-                />
-            )}
-             {isShopManagerOpen && <ShopManagerModal shops={shops} activeShopId={activeShopId} onSelect={handleSelectShop} onCreate={handleCreateShop} onRename={handleRenameShop} onDelete={handleDeleteShop} onClose={() => setIsShopManagerOpen(false)} />}
-             {isBulkAddModalOpen && <BulkAddModal fileSrc={bulkAddFile.src} fileType={bulkAddFile.type} fileNames={bulkAddFile.names} initialProducts={bulkAddProducts} onSave={handleSaveBulkAdd} onClose={() => setIsBulkAddModalOpen(false)} loading={isBulkAddLoading} error={bulkAddError} />}
-             {isPdfUploadModalOpen && <PdfUploadModal onProcess={handleBulkAddFromPdfs} onClose={() => setIsPdfUploadModalOpen(false)} />}
-             {restoreProgress && <RestoreProgressModal {...restoreProgress} />}
+            {saleForReview && activeShopId && <SaleReviewModal sale={saleForReview} onFinalize={handleFinalizeSale} onClose={() => setSaleForReview(null)} onNewSale={handleNewSale} activeShopId={activeShopId} activeShopName={activeShop?.name || ''} />}
+            {isShopManagerOpen && <ShopManagerModal shops={shops} activeShopId={activeShopId} onSelect={handleSelectShop} onCreate={handleCreateShop} onRename={handleRenameShop} onDelete={handleDeleteShop} onClose={() => setIsShopManagerOpen(false)} />}
+            {isPdfUploadModalOpen && <PdfUploadModal onProcess={handleBulkAddFromPdfs} onClose={() => setIsPdfUploadModalOpen(false)} />}
+            {isBulkAddModalOpen && <BulkAddModal fileSrc={bulkAddFile.src} fileType={bulkAddFile.type} fileNames={bulkAddFile.names} initialProducts={bulkAddProducts} onSave={handleSaveBulkProducts} onClose={() => setIsBulkAddModalOpen(false)} loading={isBulkAddLoading} error={bulkAddError} />}
+            {restoreProgress && <RestoreProgressModal {...restoreProgress} />}
         </div>
     );
 };
 
-const root = createRoot(document.getElementById('root') as HTMLElement);
-root.render(<App />);
-
-// Service Worker registration
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').then(registration => {
-      console.log('SW registered: ', registration);
-    }).catch(registrationError => {
-      console.log('SW registration failed: ', registrationError);
-    });
-  });
+const rootElement = document.getElementById('root');
+if (rootElement) {
+    const root = createRoot(rootElement);
+    root.render(<App />);
 }
