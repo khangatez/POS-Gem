@@ -4938,13 +4938,13 @@ const App = () => {
             // 2. Insert into sales_history
             db.run(
                 "INSERT INTO sales_history (id, shop_id, date, subtotal, discount, tax, total, paid_amount, balance_due, customerName, customerMobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [saleId, activeShopId, saleForReview.date, saleForReview.subtotal, saleForReview.discount, saleForReview.tax, saleForReview.total, finalPaidAmount, finalBalanceDue, saleForReview.customerName, saleForReview.customerMobile]
+                [saleId, activeShopId, saleForReview.date, saleForReview.subtotal, saleForReview.discount, saleForReview.tax, saleForReview.total, finalPaidAmount, finalBalanceDue, saleForReview.customerName || null, saleForReview.customerMobile || null]
             );
             
             // 3. Insert into sale_items
             const stmt = db.prepare("INSERT INTO sale_items (sale_id, productId, shop_id, description, descriptionTamil, quantity, price, isReturn, hsnCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
             for (const item of saleForReview.items) {
-                stmt.run([saleId, item.productId, activeShopId, item.description, item.descriptionTamil, item.quantity, item.price, item.isReturn, item.hsnCode]);
+                stmt.run([saleId, item.productId, activeShopId, item.description, item.descriptionTamil || null, item.quantity, item.price, item.isReturn, item.hsnCode || null]);
             }
             stmt.free();
             
@@ -5312,21 +5312,21 @@ const App = () => {
                             salesHistory={salesHistory}
                             onAdd={() => { setEditingCustomer(null); setIsCustomerFormOpen(true); }}
                             onEdit={(c) => { setEditingCustomer(c); setIsCustomerFormOpen(true); }}
-// FIX: Pass onDelete and currentUser props to CustomersView
                             onDelete={handleDeleteCustomer}
                             currentUser={currentUser}
                         />;
             case 'expenses':
                 return <ExpensesView expenses={expenses} onAdd={handleAddExpense} onDelete={handleDeleteExpense} shopId={activeShopId!} />;
             case 'balance_due':
-                return <BalanceDueView salesHistory={salesHistory} customers={customers} onSettlePayment={handleSettlePayment} />;
+                {/* FIX: Pass missing 'customers' and 'onSettlePayment' props to BalanceDueView. */}
+                return <BalanceDueView salesHistory={salesHistory} customers={customers} onSettlePayment={handleSettlePayment}/>;
             case 'settings':
-                 return <SettingsView 
+                return <SettingsView 
                             billSettings={billSettings} 
                             onSave={handleSaveBillSettings} 
-                            onPreview={() => { /* Implement preview logic or reuse SaleReviewModal */ }}
-                            activeShopName={activeShop?.name || ''}
-                            onRenameShop={(newName) => handleRenameShop(activeShopId!, newName)}
+                            onPreview={handlePreviewSale} 
+                            activeShopName={activeShop?.name || ''} 
+                            onRenameShop={(newName) => handleRenameShop(activeShopId!, newName)} 
                         />;
             case 'sales':
             default:
@@ -5352,103 +5352,50 @@ const App = () => {
                             currentUser={currentUser}
                             activeCartIndex={activeCartIndex}
                             onCartChange={handleCartChange}
-                       />;
+                        />;
         }
     };
     
     if (!activeShopId) {
-        return (
-            <div style={{...styles.appContainer, justifyContent: 'center', alignItems: 'center'}}>
-                <h2>No Shop Selected</h2>
-                <p>Please select a shop to continue.</p>
-                <button onClick={() => setIsShopManagerOpen(true)} style={styles.button}>Open Shop Manager</button>
-                 {isShopManagerOpen && (
-                    <ShopManagerModal 
-                        shops={shops} 
-                        activeShopId={activeShopId}
-                        onSelect={handleSelectShop}
-                        onCreate={handleCreateShop}
-                        onRename={handleRenameShop}
-                        onDelete={handleDeleteShop}
-                        onClose={() => setIsShopManagerOpen(false)} 
-                    />
-                )}
-            </div>
-        );
+        return <div>No active shop selected. Please select a shop.</div>;
     }
 
     return (
         <div style={styles.appContainer}>
             <header style={styles.header}>
-                <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
-                    <h1 style={styles.title}>{activeShop?.name || 'POS Gem'}</h1>
-                    <DropdownNav 
-                        activeView={currentView} 
-                        onSelectView={setCurrentView} 
-                        disabled={!!saleForReview}
-                        currentUser={currentUser}
-                    />
-                </div>
-                <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
-                     {currentUser?.role === 'super_admin' && (
-                        <button onClick={() => setIsShopManagerOpen(true)} style={styles.shopManagerButton}>Shop Manager</button>
+                 <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+                    <h1 style={styles.title}>
+                        <CloudIcon color="var(--primary-color)" size={28} />
+                        GemPOS
+                    </h1>
+                     {currentUser.role === 'super_admin' && (
+                        <button onClick={() => setIsShopManagerOpen(true)} style={styles.shopManagerButton} title="Manage Shops">
+                            Shop: <strong>{activeShop?.name}</strong>
+                        </button>
                     )}
-                    <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
-                        <UserIcon size={20} color="var(--secondary-color)" />
-                        <span style={{color: 'var(--secondary-color)'}}>{currentUser.username} ({currentUser.role})</span>
-                    </div>
-                    <button onClick={handleLogout} style={styles.logoutButton}>Logout</button>
-                </div>
+                 </div>
+                 <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+                     <DropdownNav activeView={currentView} onSelectView={setCurrentView} disabled={!!saleForReview} currentUser={currentUser} />
+                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <UserIcon color="var(--secondary-color)" />
+                        <span style={{color: 'var(--secondary-color)'}}>{currentUser.username}</span>
+                     </div>
+                     <button onClick={handleLogout} style={styles.logoutButton}>Logout</button>
+                     <span style={{width: '12px', height: '12px', borderRadius: '50%', backgroundColor: isOnline ? 'var(--success-color)' : 'var(--danger-color)'}} title={isOnline ? 'Online' : 'Offline'}></span>
+                 </div>
             </header>
             <main style={styles.mainContent}>
                 {renderView()}
             </main>
-
-            {/* --- MODALS --- */}
-            {isProductFormOpen && <ProductFormModal product={editingProduct} onSave={handleAddProduct} onUpdate={handleUpdateProduct} onClose={() => setIsProductFormOpen(false)} />}
-            {isCustomerFormOpen && <CustomerFormModal customer={editingCustomer} onSave={editingCustomer ? handleUpdateCustomer : handleAddCustomer} onClose={() => {setIsCustomerFormOpen(false); setEditingCustomer(null);}} />}
+            {isProductFormOpen && <ProductFormModal product={editingProduct} onSave={handleAddProduct} onUpdate={handleUpdateProduct} onClose={() => {setIsProductFormOpen(false); setEditingProduct(null)}} />}
+            {isCustomerFormOpen && <CustomerFormModal customer={editingCustomer} onSave={editingCustomer ? handleUpdateCustomer : handleAddCustomer} onClose={() => {setIsCustomerFormOpen(false); setEditingCustomer(null)}} />}
             {isConfirmModalOpen && confirmAction && <ConfirmationModal message={confirmAction.message} onConfirm={confirmAction.onConfirm} onCancel={closeConfirmModal} />}
             {isHistoryModalOpen && <HistoryModal salesHistory={salesHistory} customerMobile={activeCart.customerMobile} onClose={() => setIsHistoryModalOpen(false)} />}
-            {saleForReview && (
-                <SaleReviewModal 
-                    sale={saleForReview} 
-                    onFinalize={handleFinalizeSale}
-                    onClose={() => setSaleForReview(null)}
-                    onNewSale={handleNewSale}
-                    activeShopId={activeShopId}
-                    activeShopName={activeShop?.name || ''}
-                />
-            )}
-             {isBulkAddModalOpen && (
-                <BulkAddModal 
-                    fileSrc={bulkAddFile.src}
-                    fileType={bulkAddFile.type}
-                    fileNames={bulkAddFile.names}
-                    initialProducts={bulkAddProducts}
-                    onSave={handleSaveBulkProducts}
-                    onClose={() => setIsBulkAddModalOpen(false)}
-                    loading={isBulkAddLoading}
-                    error={bulkAddError}
-                />
-            )}
-            {isPdfUploadModalOpen && (
-                <PdfUploadModal
-                    onProcess={handleBulkAddFromPdfs}
-                    onClose={() => setIsPdfUploadModalOpen(false)}
-                />
-            )}
-            {isShopManagerOpen && (
-                <ShopManagerModal 
-                    shops={shops} 
-                    activeShopId={activeShopId}
-                    onSelect={handleSelectShop}
-                    onCreate={handleCreateShop}
-                    onRename={handleRenameShop}
-                    onDelete={handleDeleteShop}
-                    onClose={() => setIsShopManagerOpen(false)} 
-                />
-            )}
+            {saleForReview && <SaleReviewModal sale={saleForReview} onFinalize={handleFinalizeSale} onClose={() => setSaleForReview(null)} onNewSale={handleNewSale} activeShopId={activeShopId} activeShopName={activeShop?.name || ''} />}
+            {isBulkAddModalOpen && <BulkAddModal fileSrc={bulkAddFile.src} fileType={bulkAddFile.type} fileNames={bulkAddFile.names} initialProducts={bulkAddProducts} onSave={handleSaveBulkProducts} onClose={() => setIsBulkAddModalOpen(false)} loading={isBulkAddLoading} error={bulkAddError} />}
+            {isPdfUploadModalOpen && <PdfUploadModal onProcess={handleBulkAddFromPdfs} onClose={() => setIsPdfUploadModalOpen(false)} />}
             {restoreProgress && <RestoreProgressModal {...restoreProgress} />}
+            {isShopManagerOpen && <ShopManagerModal shops={shops} activeShopId={activeShopId} onSelect={handleSelectShop} onCreate={handleCreateShop} onRename={handleRenameShop} onDelete={handleDeleteShop} onClose={() => setIsShopManagerOpen(false)} />}
         </div>
     );
 };
