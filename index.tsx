@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -4669,7 +4668,7 @@ const App = () => {
     useEffect(() => {
         if (activeCart.customerMobile && activeCart.customerMobile.length >= 10) {
             const customerSales = salesHistory.filter(s => s.customerMobile === activeCart.customerMobile);
-            const balance = customerSales.reduce((acc, sale) => acc + sale.balance_due, 0);
+            const balance = customerSales.reduce((acc, sale) => acc + (sale.balance_due || 0), 0);
             setPreviousBalanceDue(balance);
         } else {
             setPreviousBalanceDue(0);
@@ -4988,7 +4987,7 @@ const App = () => {
                     ]
                 );
 
-                const stockChange = item.isReturn ? item.quantity : -item.quantity;
+                const stockChange = item.isReturn ? Number(item.quantity) || 0 : -(Number(item.quantity) || 0);
                 db.run(
                     "UPDATE products SET stock = stock + ? WHERE id = ? AND shop_id = ?",
                     [stockChange, item.productId, activeShopId]
@@ -5005,9 +5004,12 @@ const App = () => {
                 for (const oldSale of salesToSettle) {
                     if (paymentRemaining <= 0) break;
                     
-                    const amountToApply = Math.min(paymentRemaining, oldSale.balance_due);
-                    const newPaid = oldSale.paid_amount + amountToApply;
-                    const newDue = oldSale.balance_due - amountToApply;
+                    const currentSaleBalance = Number(oldSale.balance_due) || 0;
+                    const currentSalePaid = Number(oldSale.paid_amount) || 0;
+                    
+                    const amountToApply = Math.min(paymentRemaining, currentSaleBalance);
+                    const newPaid = currentSalePaid + amountToApply;
+                    const newDue = currentSaleBalance - amountToApply;
 
                     db.run("UPDATE sales_history SET paid_amount = ?, balance_due = ? WHERE id = ?", [newPaid, newDue, oldSale.id]);
                     db.run("INSERT INTO payment_history (sale_id, date, amount_paid, payment_method) VALUES (?, ?, ?, ?)", [oldSale.id, new Date().toISOString(), amountToApply, 'settlement']);
