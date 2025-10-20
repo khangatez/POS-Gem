@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -4940,6 +4941,7 @@ const App = () => {
             return;
         }
 
+        db.exec("BEGIN TRANSACTION;");
         try {
             const saleId = `${activeShopId}-${Date.now()}`;
             const balanceDue = total - paidAmount;
@@ -4979,24 +4981,35 @@ const App = () => {
                     amountToSettle -= payment;
                 }
             }
-
+            
+            db.exec("COMMIT;");
+            
+            // Persist the committed changes to IndexedDB
             await saveDbToIndexedDB();
 
             // Finalize UI state
             const finalizedSale = {
-                ...previewSale!,
                 id: saleId,
-                isFinalized: true,
-                balance_due: balanceDue,
+                date: new Date().toISOString(),
+                items: activeCart.items,
+                subtotal,
+                discount: activeCart.discount,
+                tax: activeCart.tax,
+                total,
                 paid_amount: paidAmount,
+                balance_due: balanceDue,
+                customerName: activeCart.customerName,
+                customerMobile: activeCart.customerMobile,
+                isFinalized: true,
             };
             setPreviewSale(finalizedSale);
             resetCart(activeCartIndex);
             loadShopData(activeShopId);
 
         } catch (error) {
-            console.error("Error finalizing sale:", error);
-            alert("An error occurred while finalizing the sale. Please check the console for details.");
+            db.exec("ROLLBACK;");
+            console.error("Error finalizing sale, transaction rolled back:", error);
+            alert("An error occurred while finalizing the sale. The transaction has been automatically cancelled to prevent data errors. Please try again.");
         }
     };
     
@@ -5261,46 +5274,22 @@ const App = () => {
                     onAdd={() => { setEditingProduct(null); setIsProductModalOpen(true); }}
                     onEdit={(p: Product) => { setEditingProduct(p); setIsProductModalOpen(true); }}
                     onDelete={(id: number) => setDeleteConfirmation({type: 'product', id, message: `Are you sure you want to delete this product? This action cannot be undone.`})}
+                    // FIX: Corrected typo from handleBulkAddFrom to handleBulkAddFromImage
                     onBulkAdd={handleBulkAddFromImage}
                     onBulkAddPdfs={() => setIsPdfUploadModalOpen(true)}
-                    onExportPdf={() => {}} // Placeholder for PDF export
+                    onExportPdf={() => {}}
                     selectedProductIds={selectedProductIds}
                     setSelectedProductIds={setSelectedProductIds}
-                    onDeleteSelected={() => setDeleteConfirmation({type: 'selected_products', id: null, message: `Are you sure you want to delete ${selectedProductIds.length} selected products?`})}
+                    onDeleteSelected={() => setDeleteConfirmation({
+                        type: 'selected_products',
+                        id: selectedProductIds,
+                        message: `Are you sure you want to delete ${selectedProductIds.length} selected products? This action cannot be undone.`
+                    })}
                     isOnline={isOnline}
                     currentUser={currentUser}
                 />;
-            case 'customers':
-                return <CustomersView 
-                    customers={customers}
-                    salesHistory={salesHistory}
-                    onAdd={() => { setEditingCustomer(null); setIsCustomerModalOpen(true); }}
-                    onEdit={(c: Customer) => { setEditingCustomer(c); setIsCustomerModalOpen(true); }}
-                    onDelete={(c: Customer) => setDeleteConfirmation({type: 'customer', id: c.id, name: c.name, message: `Are you sure you want to delete customer "${c.name}"?`})}
-                    currentUser={currentUser}
-                />;
-            case 'reports':
-                return <ReportsView salesHistory={salesHistory} onPrint={setPreviewSale} isOnline={isOnline} />;
-            case 'expenses':
-                return <ExpensesView
-                    expenses={expenses}
-                    onAdd={handleAddExpense}
-                    onDelete={handleDeleteExpense}
-                    shopId={activeShopId}
-                />;
-            case 'balance_due':
-                 return <BalanceDueView salesHistory={salesHistory} customers={customers} onSettlePayment={handleSettlePayment} />;
-            case 'settings':
-                return <SettingsView 
-                    billSettings={defaultBillSettings}
-                    onSave={() => {}}
-                    onPreview={() => {}}
-                    activeShopName={activeShop?.name || ''}
-                    onRenameShop={(newName) => handleRenameShop(activeShopId, newName)}
-                />;
             case 'sales':
-            default:
-                return <SalesView
+                return <SalesView 
                     products={products}
                     activeCart={activeCart}
                     updateActiveCart={(updates: Partial<CartState>) => {
@@ -5308,7 +5297,7 @@ const App = () => {
                             const newCarts = [...prev];
                             newCarts[activeCartIndex] = { ...newCarts[activeCartIndex], ...updates };
                             return newCarts;
-                        });
+                        })
                     }}
                     onPreview={handlePreviewSale}
                     total={total}
@@ -5319,8 +5308,19 @@ const App = () => {
                     onShowHistory={() => setHistoryModalMobile(activeCart.customerMobile)}
                     onSaveBackup={handleSaveBackup}
                     onRestoreBackup={handleRestoreBackup}
-                    onUpdateProductPrice={()=>{}}
-                    onUpdateProductDetails={()=>{}}
+                    onUpdateProductPrice={(productId: number, newPrice: number, priceMode: 'b2b' | 'b2c') => {
+                        const field = priceMode === 'b2b' ? 'b2bPrice' : 'b2cPrice';
+                        handleUpdateProduct({
+                            ...products.find(p => p.id === productId)!,
+                            [field]: newPrice,
+                        });
+                    }}
+                    onUpdateProductDetails={(productId: number, field: string, value: string) => {
+                         handleUpdateProduct({
+                            ...products.find(p => p.id === productId)!,
+                            [field]: value,
+                        });
+                    }}
                     onAddNewProduct={handleAddNewProductFromSale}
                     isOnline={isOnline}
                     viewMode={viewMode}
@@ -5329,77 +5329,145 @@ const App = () => {
                     activeCartIndex={activeCartIndex}
                     onCartChange={(index: number) => {
                         setActiveCartIndex(index);
-                        setIsAmountPaidEdited(false); // Reset edit flag on cart change
+                        setIsAmountPaidEdited(false); // Reset editing flag on cart switch
                     }}
-                 />;
+                />;
+            case 'reports':
+                return <ReportsView 
+                    salesHistory={salesHistory} 
+                    onPrint={(sale: SaleRecord) => setPreviewSale({...sale, isFinalized: true})}
+                    isOnline={isOnline}
+                />;
+            case 'customers':
+                return <CustomersView 
+                    customers={customers} 
+                    salesHistory={salesHistory}
+                    onAdd={() => { setEditingCustomer(null); setIsCustomerModalOpen(true); }}
+                    onEdit={(c: Customer) => { setEditingCustomer(c); setIsCustomerModalOpen(true); }}
+                    onDelete={(c: Customer) => setDeleteConfirmation({
+                        type: 'customer', 
+                        id: c.id, 
+                        name: c.name, 
+                        message: `Are you sure you want to delete customer "${c.name}"? This action cannot be undone.`
+                    })}
+                    currentUser={currentUser}
+                />;
+            case 'expenses':
+                return <ExpensesView 
+                    expenses={expenses}
+                    onAdd={handleAddExpense}
+                    onDelete={(id: number) => setDeleteConfirmation({
+                        type: 'expense',
+                        id,
+                        message: 'Are you sure you want to delete this expense record?'
+                    })}
+                    shopId={activeShopId}
+                />;
+            case 'balance_due':
+                return <BalanceDueView 
+                    salesHistory={salesHistory}
+                    customers={customers}
+                    onSettlePayment={handleSettlePayment}
+                />;
+            case 'settings':
+                const settingsKey = `billSettings_${activeShopId}`;
+                const savedSettings = localStorage.getItem(settingsKey);
+                const billSettings = savedSettings ? JSON.parse(savedSettings) : defaultBillSettings;
+
+                if (!billSettings.shopNameEdited && activeShop) {
+                    billSettings.shopName = activeShop.name;
+                }
+
+                return <SettingsView 
+                    billSettings={billSettings}
+                    onSave={(settingsToSave: BillSettings) => {
+                        localStorage.setItem(settingsKey, JSON.stringify({...settingsToSave, shopNameEdited: true}));
+                        alert("Settings saved!");
+                    }}
+                    onPreview={() => { /* Implement preview logic */ }}
+                    activeShopName={activeShop?.name || ''}
+                    onRenameShop={(newName) => handleRenameShop(activeShopId, newName)}
+                />;
+            default:
+                return <div>Select a view</div>;
         }
     };
 
     return (
         <div style={styles.appContainer}>
             <header style={styles.header}>
-                <h1 style={styles.title}>{activeShop?.name || "POS Gem"}</h1>
-                 <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
-                    <span style={{color: isOnline ? 'var(--success-color)' : 'var(--danger-color)', display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
-                        <CloudIcon color={isOnline ? 'var(--success-color)' : 'var(--danger-color)'} size={20} />
-                        {isOnline ? 'Online' : 'Offline'}
-                    </span>
+                <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
+                    <h1 style={styles.title}>GemPOS</h1>
                     <DropdownNav 
                         activeView={activeView}
                         onSelectView={setActiveView}
                         disabled={!activeShopId}
                         currentUser={currentUser}
                     />
-                    {currentUser?.role === 'super_admin' && (
-                        <button onClick={() => setIsShopManagerOpen(true)} style={styles.shopManagerButton}>Manage Shops</button>
+                </div>
+                <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
+                    {currentUser.role === 'super_admin' && (
+                        <button onClick={() => setIsShopManagerOpen(true)} style={styles.shopManagerButton} disabled={!shops.length}>Shop Manager</button>
                     )}
+                    <span style={{color: 'var(--secondary-color)', display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                        <UserIcon size={18} /> {currentUser.username} ({currentUser.role})
+                    </span>
+                     <span style={{color: isOnline ? 'var(--success-color)' : 'var(--danger-color)', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 'bold'}}>
+                        <CloudIcon size={18} /> {isOnline ? 'Online' : 'Offline'}
+                    </span>
                     <button onClick={handleLogout} style={styles.logoutButton}>Logout</button>
                 </div>
             </header>
             <main style={styles.mainContent}>
                 {renderView()}
             </main>
-            
-            {/* --- MODALS --- */}
             {isProductModalOpen && <ProductFormModal product={editingProduct} onSave={handleSaveProduct} onUpdate={handleUpdateProduct} onClose={() => setIsProductModalOpen(false)} />}
             {isCustomerModalOpen && <CustomerFormModal customer={editingCustomer} onSave={handleSaveCustomer} onClose={() => setIsCustomerModalOpen(false)} />}
             {historyModalMobile && <HistoryModal salesHistory={salesHistory} customerMobile={historyModalMobile} onClose={() => setHistoryModalMobile(null)} />}
-            {previewSale && <SaleReviewModal 
-                sale={previewSale} 
-                onClose={() => setPreviewSale(null)}
-                onFinalize={handleFinalizeSale}
-                onNewSale={() => setPreviewSale(null)}
-                activeShopId={activeShopId!}
-                activeShopName={activeShop?.name || ''}
-             />}
-             {deleteConfirmation && (
+            {previewSale && (
+                <SaleReviewModal 
+                    sale={previewSale} 
+                    onFinalize={previewSale.isFinalized ? undefined : handleFinalizeSale}
+                    onClose={() => setPreviewSale(null)}
+                    onNewSale={() => { setPreviewSale(null); setActiveView('sales'); }}
+                    activeShopId={activeShopId!}
+                    activeShopName={activeShop?.name || ''}
+                />
+            )}
+            {deleteConfirmation && (
                 <ConfirmationModal 
                     message={deleteConfirmation.message}
-                    onCancel={() => setDeleteConfirmation(null)}
                     onConfirm={() => {
                         if (deleteConfirmation.type === 'product') handleDeleteProduct(deleteConfirmation.id);
-                        if (deleteConfirmation.type === 'customer') handleDeleteCustomer(deleteConfirmation.id);
-                        if (deleteConfirmation.type === 'shop') handleDeleteShop(deleteConfirmation.id);
-                        if (deleteConfirmation.type === 'selected_products') handleDeleteSelectedProducts();
+                        else if (deleteConfirmation.type === 'selected_products') handleDeleteSelectedProducts();
+                        else if (deleteConfirmation.type === 'customer') handleDeleteCustomer(deleteConfirmation.id);
+                        else if (deleteConfirmation.type === 'shop') handleDeleteShop(deleteConfirmation.id);
+                        else if (deleteConfirmation.type === 'expense') handleDeleteExpense(deleteConfirmation.id);
                     }}
+                    onCancel={() => setDeleteConfirmation(null)}
                 />
             )}
             {isShopManagerOpen && (
-                <ShopManagerModal
+                 <ShopManagerModal 
                     shops={shops}
                     activeShopId={activeShopId}
-                    onSelect={(id) => setActiveShopId(id)}
+                    onSelect={(id) => { setActiveShopId(id); setIsShopManagerOpen(false); }}
                     onCreate={handleCreateShop}
                     onRename={handleRenameShop}
-                    onDelete={(id) => setDeleteConfirmation({type: 'shop', id, message: "Are you sure you want to delete this shop and all its data? This is irreversible."})}
+                    onDelete={(id) => setDeleteConfirmation({
+                        type: 'shop',
+                        id,
+                        name: shops.find(s => s.id === id)?.name,
+                        message: `Are you sure you want to delete the shop "${shops.find(s => s.id === id)?.name}" and all its associated data (products, sales, etc)? This is irreversible.`
+                    })}
                     onClose={() => setIsShopManagerOpen(false)}
                 />
             )}
             {bulkAddState.modalOpen && (
                 <BulkAddModal 
-                    {...bulkAddState} 
+                    {...bulkAddState}
                     onSave={handleSaveBulkProducts}
-                    onClose={() => setBulkAddState({ modalOpen: false, fileSrc: null, fileType: null, initialProducts: [], loading: false, error: null })} 
+                    onClose={() => setBulkAddState({ modalOpen: false, fileSrc: null, fileType: null, initialProducts: [], loading: false, error: null })}
                 />
             )}
             {isPdfUploadModalOpen && <PdfUploadModal onProcess={handleBulkAddFromPdfs} onClose={() => setIsPdfUploadModalOpen(false)} />}
@@ -5408,7 +5476,9 @@ const App = () => {
     );
 };
 
-const root = createRoot(document.getElementById('root')!);
+// --- RENDER ---
+const container = document.getElementById('root');
+const root = createRoot(container!);
 root.render(<App />);
 
 // --- SERVICE WORKER REGISTRATION ---
